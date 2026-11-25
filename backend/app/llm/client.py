@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 from openai import AsyncOpenAI
 
+from app.core.config import get_settings
 from app.core.errors import (
     LLMBadRequestError,
     LLMError,
@@ -25,6 +26,8 @@ from app.llm.types import (
     ToolCallsReady,
     ToolSpec,
 )
+from app.net.pinned import make_safe_client
+from app.security.url_validator import UnsafeURLError
 
 _EMBED_BATCH_SIZE = 64
 
@@ -67,9 +70,13 @@ class LLMClient:
             config.api_key.get_secret_value() if config.api_key is not None else None
         )
         if http_client is None:
-            self._http_client = httpx.AsyncClient(
-                follow_redirects=False,
-                timeout=httpx.Timeout(config.timeout),
+            try:
+                allow_private = get_settings().ALLOW_PRIVATE_LLM_HOSTS
+            except Exception:
+                allow_private = False
+            self._http_client = make_safe_client(
+                allow_private=allow_private,
+                timeout=config.timeout,
             )
             self._owns_http_client = True
         else:
@@ -117,7 +124,7 @@ class LLMClient:
         try:
             page = await self._client.models.list()
             return [m.id for m in (page.data or []) if getattr(m, "id", None)]
-        except LLMError:
+        except (LLMError, UnsafeURLError):
             raise
         except Exception as exc:
             raise map_openai_error(exc, api_key=self._raw_key) from exc
@@ -146,7 +153,7 @@ class LLMClient:
         )
         try:
             response = await self._client.chat.completions.create(**kwargs)
-        except LLMError:
+        except (LLMError, UnsafeURLError):
             raise
         except Exception as exc:
             raise map_openai_error(exc, api_key=self._raw_key) from exc
@@ -272,7 +279,7 @@ class LLMClient:
                                 slot["name"] += fn_name
                         if fn_args:
                             slot["raw_arguments"] += fn_args
-        except LLMError:
+        except (LLMError, UnsafeURLError):
             raise
         except Exception as exc:
             raise map_openai_error(exc, api_key=self._raw_key) from exc
@@ -313,7 +320,7 @@ class LLMClient:
                 ordered = sorted(response.data, key=lambda item: item.index)
                 for item in ordered:
                     results.append(list(item.embedding))
-        except LLMError:
+        except (LLMError, UnsafeURLError):
             raise
         except Exception as exc:
             raise map_openai_error(exc, api_key=self._raw_key) from exc

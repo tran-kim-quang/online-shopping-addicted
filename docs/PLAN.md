@@ -112,7 +112,7 @@ Knowledge base được dùng chung cho nhiều lần hỏi (và có thể nhi�
 - `base_url` do user nhập → backend gọi URL tùy ý (SSRF). Bản cá nhân/self-host: cho phép localhost (Ollama). Nếu deploy public: chặn IP private/link-local (trừ khi bật cờ `ALLOW_PRIVATE_LLM_HOSTS`), chỉ cho `http/https`.
 - URL crawl cũng áp dụng cùng validator (chặn `file://`, IP nội bộ, metadata `169.254.169.254`).
 - Redirect: LLM client **không** follow redirect; crawler dùng `safe_request` validate từng hop.
-- Rủi ro còn lại — **DNS rebinding** (TOCTOU): validator resolve DNS rồi httpx resolve lại lần nữa. Chấp nhận cho bản cá nhân/self-host. Trước khi deploy public: pin IP đã validate vào kết nối (custom transport / resolver của httpx) hoặc đi qua egress proxy chặn dải IP nội bộ.
+- **DNS rebinding — đã xử lý ở Phase 2** (`app/net/pinned.py`): `PinnedNetworkBackend` (httpcore) resolve hostname đúng 1 lần, validate mọi IP, rồi mở TCP thẳng tới IP đã validate; TLS vẫn dùng hostname gốc cho SNI + verify chứng chỉ. `SafeTransport` + `make_safe_client` (`follow_redirects=False`, `trust_env=False`) được LLM client và crawler dùng chung; redirect đi qua `safe_request` (validate + pin từng hop). Lưu ý khi nâng cấp: phụ thuộc `httpcore._backends.auto.AutoBackend` (private API) — kiểm tra lại khi lên major version httpcore/httpx.
 - Nội dung crawl là **dữ liệu không tin cậy** (prompt injection trong mô tả/review): bọc trong delimiter, system prompt dặn không làm theo chỉ thị trong dữ liệu; tool không có quyền ghi/xóa ngoài `crawl_more` có giới hạn.
 
 ## 5. Crawl & trích xuất

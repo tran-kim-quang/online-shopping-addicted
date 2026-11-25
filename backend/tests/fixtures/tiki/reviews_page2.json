@@ -1,0 +1,89 @@
+{
+  "stars": {
+    "1": {
+      "count": 0,
+      "percent": 0
+    },
+    "2": {
+      "count": 0,
+      "percent": 0
+    },
+    "3": {
+      "count": 1,
+      "percent": 1
+    },
+    "4": {
+      "count": 14,
+      "percent": 8
+    },
+    "5": {
+      "count": 144,
+      "percent": 91
+    }
+  },
+  "rating_average": 4.9,
+  "reviews_count": 159,
+  "paging": {
+    "total": 8,
+    "per_page": 5,
+    "current_page": 2,
+    "last_page": 2,
+    "from": 6,
+    "to": 8
+  },
+  "data": [
+    {
+      "id": 20130677,
+      "title": "Cực kì hài lòng",
+      "content": "Đóng gói cẩn thận. Giao nhanh. Hàng tốt, địa chỉ cung cấp rõ ràng.",
+      "status": "approved",
+      "thank_count": 1,
+      "rating": 5,
+      "product_id": 277880353,
+      "spid": 277880354,
+      "created_at": 1748840124,
+      "images": [
+        {
+          "id": 4406828,
+          "full_path": "https://salt.tikicdn.com/ts/review/e1/74/e3/e3d440826014531a8f097c0f6fe3384e.jpg"
+        }
+      ],
+      "created_by": {
+        "name": "Người dùng F.",
+        "full_name": "Người dùng F."
+      }
+    },
+    {
+      "id": 20242450,
+      "title": "Cực kì hài lòng",
+      "content": "giao nhanh giá rẻ",
+      "status": "approved",
+      "thank_count": 0,
+      "rating": 5,
+      "product_id": 277880353,
+      "spid": 277880354,
+      "created_at": 1782286597,
+      "images": [],
+      "created_by": {
+        "name": "Người dùng G.",
+        "full_name": "Người dùng G."
+      }
+    },
+    {
+      "id": 20258289,
+      "title": "Cực kì hài lòng",
+      "content": "",
+      "status": "approved",
+      "thank_count": 0,
+      "rating": 5,
+      "product_id": 277880353,
+      "spid": 277880354,
+      "created_at": 1788518434,
+      "images": [],
+      "created_by": {
+        "name": "Người dùng H.",
+        "full_name": "Người dùng H."
+      }
+    }
+  ]
+}

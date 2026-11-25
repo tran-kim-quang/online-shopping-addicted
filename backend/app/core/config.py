@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     LLM_MAX_RETRIES: int = 2
     LLM_REGISTRY_MAX_CLIENTS: int = 64
 
+    CRAWL_RATE_PER_SECOND: float = 1.0
+    CRAWL_MAX_RETRIES: int = 3
+    CRAWL_TIMEOUT_SECONDS: float = 20.0
+    CRAWL_MAX_PRODUCTS: int = 100
+    CRAWL_MAX_REVIEWS_PER_PRODUCT: int = 200
+    CRAWL_CONCURRENCY: int = 2
+
     LOG_LEVEL: str = "INFO"
 
     @field_validator("SECRET_KEY")
