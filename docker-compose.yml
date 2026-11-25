@@ -1,0 +1,54 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shopqa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shopqa}
+      POSTGRES_DB: ${POSTGRES_DB:-shopqa}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shopqa} -d ${POSTGRES_DB:-shopqa}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+asyncpg://shopqa:shopqa@db:5432/shopqa}
+      REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379/0}
+      # Dev fallback key; override SECRET_KEY in .env for real deployments.
+      SECRET_KEY: ${SECRET_KEY:-vN5y6rM0J9h2xL8qK3pW1zB4cF7dG0tH2sV5mN8wX4Q=}
+      ALLOW_PRIVATE_LLM_HOSTS: ${ALLOW_PRIVATE_LLM_HOSTS:-true}
+      ALLOW_PRIVATE_CRAWL_HOSTS: ${ALLOW_PRIVATE_CRAWL_HOSTS:-false}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
+      LLM_PROBE_TIMEOUT_SECONDS: ${LLM_PROBE_TIMEOUT_SECONDS:-20}
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-2}
+      LLM_REGISTRY_MAX_CLIENTS: ${LLM_REGISTRY_MAX_CLIENTS:-64}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+
+volumes:
+  pgdata:
