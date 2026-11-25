@@ -1,3 +1,30 @@
+x-backend-env: &backend-env
+  DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+asyncpg://shopqa:shopqa@db:5432/shopqa}
+  REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379/0}
+  # Dev fallback key; override SECRET_KEY in .env for real deployments.
+  SECRET_KEY: ${SECRET_KEY:-vN5y6rM0J9h2xL8qK3pW1zB4cF7dG0tH2sV5mN8wX4Q=}
+  ALLOW_PRIVATE_LLM_HOSTS: ${ALLOW_PRIVATE_LLM_HOSTS:-true}
+  ALLOW_PRIVATE_CRAWL_HOSTS: ${ALLOW_PRIVATE_CRAWL_HOSTS:-false}
+  LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
+  LLM_PROBE_TIMEOUT_SECONDS: ${LLM_PROBE_TIMEOUT_SECONDS:-20}
+  LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-2}
+  LLM_REGISTRY_MAX_CLIENTS: ${LLM_REGISTRY_MAX_CLIENTS:-64}
+  CRAWL_RATE_PER_SECOND: ${CRAWL_RATE_PER_SECOND:-1.0}
+  CRAWL_MAX_RETRIES: ${CRAWL_MAX_RETRIES:-3}
+  CRAWL_TIMEOUT_SECONDS: ${CRAWL_TIMEOUT_SECONDS:-20}
+  CRAWL_MAX_PRODUCTS: ${CRAWL_MAX_PRODUCTS:-100}
+  CRAWL_MAX_REVIEWS_PER_PRODUCT: ${CRAWL_MAX_REVIEWS_PER_PRODUCT:-200}
+  CRAWL_CONCURRENCY: ${CRAWL_CONCURRENCY:-2}
+  CRAWL_CACHE_TTL_HOURS: ${CRAWL_CACHE_TTL_HOURS:-24}
+  EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-local}
+  EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME:-BAAI/bge-m3}
+  EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-16}
+  SENTIMENT_BATCH_SIZE: ${SENTIMENT_BATCH_SIZE:-20}
+  CHUNK_MAX_CHARS: ${CHUNK_MAX_CHARS:-1200}
+  CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-150}
+  HF_HOME: ${HF_HOME:-/models}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -26,6 +53,7 @@ services:
       retries: 10
 
   api:
+    image: shop-qa-backend:latest
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -36,25 +64,28 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    volumes:
+      - hf_cache:/models
     environment:
-      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+asyncpg://shopqa:shopqa@db:5432/shopqa}
-      REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379/0}
-      # Dev fallback key; override SECRET_KEY in .env for real deployments.
-      SECRET_KEY: ${SECRET_KEY:-vN5y6rM0J9h2xL8qK3pW1zB4cF7dG0tH2sV5mN8wX4Q=}
-      ALLOW_PRIVATE_LLM_HOSTS: ${ALLOW_PRIVATE_LLM_HOSTS:-true}
-      ALLOW_PRIVATE_CRAWL_HOSTS: ${ALLOW_PRIVATE_CRAWL_HOSTS:-false}
-      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
-      LLM_PROBE_TIMEOUT_SECONDS: ${LLM_PROBE_TIMEOUT_SECONDS:-20}
-      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-2}
-      LLM_REGISTRY_MAX_CLIENTS: ${LLM_REGISTRY_MAX_CLIENTS:-64}
-      CRAWL_RATE_PER_SECOND: ${CRAWL_RATE_PER_SECOND:-1.0}
-      CRAWL_MAX_RETRIES: ${CRAWL_MAX_RETRIES:-3}
-      CRAWL_TIMEOUT_SECONDS: ${CRAWL_TIMEOUT_SECONDS:-20}
-      CRAWL_MAX_PRODUCTS: ${CRAWL_MAX_PRODUCTS:-100}
-      CRAWL_MAX_REVIEWS_PER_PRODUCT: ${CRAWL_MAX_REVIEWS_PER_PRODUCT:-200}
-      CRAWL_CONCURRENCY: ${CRAWL_CONCURRENCY:-2}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      <<: *backend-env
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+
+  worker:
+    image: shop-qa-backend:latest
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - hf_cache:/models
+    environment:
+      <<: *backend-env
+    command: ["arq", "app.jobs.worker.WorkerSettings"]
 
 volumes:
   pgdata:
+  hf_cache:

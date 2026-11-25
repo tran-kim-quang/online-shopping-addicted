@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     CRAWL_MAX_PRODUCTS: int = 100
     CRAWL_MAX_REVIEWS_PER_PRODUCT: int = 200
     CRAWL_CONCURRENCY: int = 2
+    CRAWL_CACHE_TTL_HOURS: int = 24
+
+    EMBEDDING_BACKEND: str = "local"
+    EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"
+    EMBEDDING_BATCH_SIZE: int = 16
+    SENTIMENT_BATCH_SIZE: int = 20
+    CHUNK_MAX_CHARS: int = 1200
+    CHUNK_OVERLAP_CHARS: int = 150
+    HF_HOME: str | None = None
 
     LOG_LEVEL: str = "INFO"
 

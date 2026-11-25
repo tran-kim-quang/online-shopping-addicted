@@ -47,7 +47,7 @@ _BLOCK_TAGS = frozenset(
 )
 
 _COUNT_RE = re.compile(
-    r"(?P<num>\d+(?:[.,]\d+)*)\s*"
+    r"(?P<sign>[-−])?(?P<num>\d+(?:[.,]\d+)*)\s*"
     r"(?P<unit>triệu|trieu|nghìn|nghin|ngàn|ngan|tỷ|ty|tr|k|m|b)?\+?",
     re.IGNORECASE,
 )
@@ -165,21 +165,30 @@ def parse_vn_count(value: str | int | float | None) -> int | None:
     if match is None:
         return None
 
+    if match.group("sign"):
+        return None
+
     num_str = match.group("num")
     unit_raw = match.group("unit")
     unit = unit_raw.lower() if unit_raw else None
 
     if unit is not None:
         multiplier = _UNIT_MULTIPLIERS[unit]
-        # With an explicit unit suffix, `,` or `.` acts as a decimal separator
-        # unless there are multiple thousands groups (e.g. `1.000k`).
-        if _THOUSANDS_GROUP_RE.match(num_str) and num_str.count(".") + num_str.count(",") > 1:
-            normalized = num_str.replace(".", "").replace(",", "")
-            return int(normalized) * multiplier
+        sep_count = num_str.count(".") + num_str.count(",")
+        if sep_count > 1:
+            # Multiple separators are only unambiguous when matching thousands groups
+            # (e.g. "1.000.000k").
+            if _THOUSANDS_GROUP_RE.match(num_str):
+                normalized = num_str.replace(".", "").replace(",", "")
+                return int(normalized) * multiplier
+            return None
+        if sep_count == 1:
+            sep = "." if "." in num_str else ","
+            _left, right = num_str.split(sep, 1)
+            # Forms like "1.000k" or "1,000k" are ambiguous between 1000*1000 and 1.0*1000.
+            if len(right) == 3:
+                return None
         normalized = num_str.replace(",", ".")
-        if normalized.count(".") > 1:
-            parts = normalized.split(".")
-            normalized = "".join(parts[:-1]) + "." + parts[-1]
         return int(round(float(normalized) * multiplier))
 
     # No multiplier unit: treat `.` / `,` thousands groups as integer separators.

@@ -10,7 +10,11 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
 from app.api.health import router as health_router
+from app.api.ingest import router as ingest_router
+from app.api.jobs import router as jobs_router
 from app.api.llm_profiles import router as llm_profiles_router
+from app.api.search import router as search_router
+from app.api.sources import router as sources_router
 from app.cache.redis import RedisClient
 from app.core.config import get_settings
 from app.core.errors import (
@@ -24,6 +28,7 @@ from app.core.errors import (
     sanitize_error_message,
 )
 from app.db.database import Database
+from app.jobs.queue import JobQueue
 from app.llm.registry import LLMClientRegistry
 from app.security.secrets import SecretBox, SecretBoxError
 from app.security.url_validator import UnsafeURLError
@@ -66,6 +71,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     Database().init(settings.DATABASE_URL)
     RedisClient().init(settings.REDIS_URL)
+    JobQueue().init(settings.REDIS_URL)
     SecretBox().init(settings.SECRET_KEY)
     LLMClientRegistry().configure(max_clients=settings.LLM_REGISTRY_MAX_CLIENTS)
 
@@ -73,6 +79,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         await LLMClientRegistry().aclose_all()
+        await JobQueue().close()
         await RedisClient().close()
         await Database().dispose()
 
@@ -159,6 +166,10 @@ def create_app() -> FastAPI:
 
     application.include_router(health_router)
     application.include_router(llm_profiles_router)
+    application.include_router(ingest_router)
+    application.include_router(jobs_router)
+    application.include_router(sources_router)
+    application.include_router(search_router)
     return application
 
 
