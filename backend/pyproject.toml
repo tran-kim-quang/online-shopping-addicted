@@ -48,4 +48,5 @@ pythonpath = ["."]
 testpaths = ["tests"]
 markers = [
     "integration: tests requiring live Postgres and Redis services",
+    "live: tests that call real external sites; skipped unless RUN_LIVE=1",
 ]
