@@ -6,6 +6,7 @@ import logging
 import uuid
 from datetime import datetime
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
@@ -126,6 +127,16 @@ def _build_config(
         timeout=settings.LLM_TIMEOUT_SECONDS,
         max_retries=settings.LLM_MAX_RETRIES,
     )
+
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _origin(url: str) -> tuple[str, int | None]:
+    """(hostname, effective port) used to decide whether two base URLs are the same provider."""
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    return host, parts.port or _DEFAULT_PORTS.get(parts.scheme.lower())
 
 
 def _decrypt_optional(secret_box: SecretBox, token: str | None) -> str | None:
@@ -316,6 +327,24 @@ async def update_profile(
             body.base_url,
             settings=settings,
             resolver=resolver,
+        )
+
+    # Never send a stored key to a different provider: moving to another host:port
+    # requires the caller to state the key explicitly (a new key, or null for none).
+    if (
+        profile.api_key_enc
+        and "api_key" not in fields_set
+        and _origin(new_base_url) != _origin(profile.base_url)
+    ):
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "error": "api_key_required_on_host_change",
+                "detail": (
+                    "base_url points to a different host; send api_key (or null) "
+                    "so the stored key is not sent to another provider."
+                ),
+            },
         )
 
     new_api_key = body.api_key if "api_key" in fields_set else old_api_key

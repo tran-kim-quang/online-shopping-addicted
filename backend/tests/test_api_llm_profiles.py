@@ -583,3 +583,90 @@ async def test_delete_undecryptable_profile(api_harness) -> None:
     assert response.status_code == 204
     assert response.text == ""
     assert harness.session.profiles == {}
+
+
+# --- Round 4: stored key must not follow base_url to another host ---------------------
+
+
+async def test_patch_host_change_without_api_key_is_rejected(api_harness, behavior) -> None:
+    harness = await api_harness()
+    created = (await harness.client.post("/api/llm/profiles", json=_payload())).json()
+    chat_calls_before = behavior.chat_calls
+
+    response = await harness.client.patch(
+        f"/api/llm/profiles/{created['id']}", json={"base_url": "http://other-provider:9999"}
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "api_key_required_on_host_change"
+    assert behavior.chat_calls == chat_calls_before  # old key never sent anywhere
+    stored = next(iter(harness.session.profiles.values()))
+    assert stored.base_url == created["base_url"]
+    _assert_no_secret(response, RAW_KEY)
+
+
+async def test_patch_port_change_counts_as_host_change(api_harness) -> None:
+    harness = await api_harness()
+    created = (await harness.client.post("/api/llm/profiles", json=_payload())).json()
+
+    response = await harness.client.patch(
+        f"/api/llm/profiles/{created['id']}", json={"base_url": "http://mock:1234"}
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "api_key_required_on_host_change"
+
+
+async def test_patch_same_host_path_change_keeps_key(api_harness) -> None:
+    harness = await api_harness()
+    created = (await harness.client.post("/api/llm/profiles", json=_payload())).json()
+
+    response = await harness.client.patch(
+        f"/api/llm/profiles/{created['id']}", json={"base_url": "HTTP://MOCK:9999/v1/"}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["api_key_status"] == "set"
+
+
+async def test_patch_host_change_with_new_key_succeeds(api_harness, behavior) -> None:
+    harness = await api_harness()
+    created = (await harness.client.post("/api/llm/profiles", json=_payload())).json()
+    new_key = "sk-other-provider-key-1111"
+    behavior.expected_api_key = new_key
+
+    response = await harness.client.patch(
+        f"/api/llm/profiles/{created['id']}",
+        json={"base_url": "http://other-provider:9999", "api_key": new_key},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["base_url"].startswith("http://other-provider:9999")
+    stored = next(iter(harness.session.profiles.values()))
+    assert harness.secret_box.decrypt(stored.api_key_enc) == new_key
+
+
+async def test_patch_host_change_with_null_key_clears_key(api_harness, behavior) -> None:
+    harness = await api_harness()
+    created = (await harness.client.post("/api/llm/profiles", json=_payload())).json()
+    behavior.require_api_key = False
+
+    response = await harness.client.patch(
+        f"/api/llm/profiles/{created['id']}",
+        json={"base_url": "http://other-provider:9999", "api_key": None},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["api_key_status"] == "none"
+
+
+async def test_patch_host_change_allowed_when_profile_has_no_key(api_harness, behavior) -> None:
+    behavior.require_api_key = False
+    harness = await api_harness()
+    created = (await harness.client.post("/api/llm/profiles", json=_payload(api_key=None))).json()
+
+    response = await harness.client.patch(
+        f"/api/llm/profiles/{created['id']}", json={"base_url": "http://other-provider:9999"}
+    )
+
+    assert response.status_code == 200, response.text
