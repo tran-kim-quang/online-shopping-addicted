@@ -56,7 +56,7 @@ class LLMUnavailableError(LLMError):
 
 
 class LLMBadRequestError(LLMError):
-    """Invalid request payload or unsupported parameter (HTTP 400/422)."""
+    """Invalid request payload, unsupported parameter, or disallowed redirect."""
 
 
 class LLMInvalidResponseError(LLMError):
@@ -114,6 +114,15 @@ def map_openai_error(exc: Exception, *, api_key: str | None = None) -> LLMError:
 
     if isinstance(exc, openai.APIStatusError):
         code = exc.status_code
+        if 300 <= code < 400:
+            response = getattr(exc, "response", None)
+            location = response.headers.get("location", "") if response is not None else ""
+            clean_location = sanitize_error_message(location, secrets) if location else "<unknown>"
+            return LLMBadRequestError(
+                f"Provider responded with redirect (HTTP {code}) to {clean_location}; "
+                "redirects are not followed. Use the final base_url directly.",
+                status_code=code,
+            )
         if code in (401, 403):
             return LLMAuthError(raw_message, status_code=code)
         if code == 404:

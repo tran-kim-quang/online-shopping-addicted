@@ -191,3 +191,179 @@ tests/test_integration_services.py  # B3
 ```
 
 Sửa ngoài tests: `backend/pyproject.toml` (dev dep `pytest-cov`, `asyncio_default_fixture_loop_scope`), `backend/uv.lock`, `backend/app/core/errors.py` (fix 6.1). Báo cáo này: `docs/tasks/phase-0-1-test-report.md`.
+
+---
+
+# Round 3 — fixes
+
+Người thực hiện: Tester (hermes) · Ngày: 2026-11-25 · Phạm vi: **Phần B — Testing** của `docs/tasks/phase-0-1-fixes.md` (F1–F4). Không sửa `docs/PLAN.md`, `docs/research/`, `docs/tasks/phase-0-1.md`, `docs/tasks/phase-0-1-fixes.md`; không `git commit`.
+
+## R3.0. TL;DR
+
+| Hạng mục | Trước round 3 | Sau round 3 |
+|---|---|---|
+| `uv run pytest -m "not integration" -q` | 253 passed, 1 failed | **304 passed**, 4 deselected |
+| `uv run pytest -m integration -q` | 4 passed | **4 passed** (docker compose vẫn chạy) |
+| `uv run pytest -q` | 256 passed, 1 failed | **308 passed** |
+| `uv run ruff check .` | sạch | **All checks passed!** |
+| `uv run ruff format --check .` | sạch | **49 files already formatted** |
+| Coverage `app/llm` + `app/security` (unit) | 98% | **98%** (739 stmts, 14 miss) — DoD ≥ 85% |
+| Coverage toàn `app/` (unit + integration) | 96% | **97%** (1256 stmts, 41 miss) |
+| Bug mới phát hiện | — | **0 bug thật**; 4 ghi nhận/rủi ro tồn dư (R3.5) |
+| Test cũ phải sửa | — | **1** (`test_llm_client.py::test_aclose_closes_transport`) |
+
+Số test tăng **+51** (253 → 304 unit), tất cả offline: HTTP đi qua `httpx.MockTransport` / `ASGITransport`, DNS dùng resolver giả, guard `_block_real_network` vẫn bật cho mọi test non-integration.
+
+## R3.1. Lệnh đã chạy
+
+```bash
+cd backend
+uv run pytest -m "not integration" -q          # 304 passed, 4 deselected
+uv run pytest -m integration -q                # 4 passed, 304 deselected
+uv run pytest -q                               # 308 passed
+uv run ruff check .                            # All checks passed!
+uv run ruff format --check .                   # 49 files already formatted
+uv run pytest -m "not integration" -q --cov=app.llm --cov=app.security --cov-report=term-missing
+uv run pytest -q --cov=app --cov-report=term-missing
+```
+
+## R3.2. Test cũ đã cập nhật (hành vi cố ý đổi)
+
+| Test | Trước | Sau | Lý do |
+|---|---|---|---|
+| `tests/test_llm_client.py::test_aclose_closes_transport` | assert `http_client.is_closed` sau `aclose()` | đổi tên **`test_aclose_leaves_injected_transport_open`**, assert `not http_client.is_closed` + tự đóng client ở cuối test | F1: client được **inject** thuộc sở hữu của người inject; `LLMClient.aclose()` chỉ đóng client nó tự tạo |
+
+Phần "client tự tạo thì `aclose()` phải đóng" được cover bù bằng `test_llm_redirects.py::test_owned_http_client_disables_redirects_and_is_closed` (assert `follow_redirects is False`, `timeout.connect == config.timeout`, và `is_closed` sau `aclose()`).
+
+`tests/test_registry.py` **không có test cũ nào khẳng định** "khác `chat_model` → cùng client" (điểm 6.3 của báo cáo trước chỉ được kiểm chứng thủ công), nên không phải sửa test cũ — chỉ thêm test mới cho hợp đồng mới (R3.3, F3).
+
+Không xoá test nào; không sửa test nào khác ngoài 1 test trên.
+
+## R3.3. Test mới theo từng fix
+
+| File | Tổng test | Test mới | Nội dung |
+|---|---|---|---|
+| `tests/test_llm_redirects.py` | 17 | **17** | F1 (client) + F4 |
+| `tests/test_safe_request.py` | 18 | **18** | F1 (`safe_request`) |
+| `tests/test_api_llm_profiles.py` | 37 (29 cũ) | **8** | F2 |
+| `tests/test_registry.py` | 24 (16 cũ) | **8** | F3 + rò rỉ bookkeeping của registry |
+
+### F1 — SSRF qua redirect (`test_llm_redirects.py`, `test_safe_request.py`)
+
+Provider giả trả 3xx qua `httpx.MockTransport` (không mở socket):
+
+| Test | Kiểm chứng |
+|---|---|
+| `test_list_models_rejects_provider_redirect` / `test_chat_rejects_provider_redirect` / `test_chat_stream_rejects_provider_redirect` / `test_embed_rejects_provider_redirect` | cả 4 method đều raise `LLMBadRequestError`; message có `"redirects are not followed"` + location; `status_code` = 302 |
+| `test_redirect_status_codes_all_map_to_bad_request` (301/302/303/307/308) | mọi mã 3xx đều map về cùng một lỗi, message chứa `HTTP <code>` |
+| `test_redirect_error_does_not_leak_api_key` | Location chứa API key → message có `[REDACTED]`, **không** chứa key thô |
+| `test_owned_http_client_disables_redirects_and_is_closed` | client tự tạo: `follow_redirects is False`, timeout = `config.timeout`, `aclose()` đóng nó |
+| `test_aclose_does_not_close_injected_http_client` | client inject: **không** bị đóng, vẫn dùng được sau `aclose()` |
+| `test_owned_and_injected_clients_are_distinct_objects` | `_http_client` đúng là object được inject / object tự tạo |
+
+`safe_request` (resolver giả: `public.test` → `93.184.216.34`, `private.test` → `10.0.0.5`, `metadata.test` → `169.254.169.254`):
+
+| Test | Kiểm chứng |
+|---|---|
+| `test_public_to_public_redirect_is_followed` | public → public OK, cả 2 hop đều được gọi |
+| `test_redirect_to_metadata_ip_is_blocked_before_request` | 302 → `169.254.169.254` raise `UnsafeURLError`; **hop metadata không hề được gọi** |
+| `test_redirect_to_private_host_blocked_when_private_disallowed` | public → private, `allow_private=False` → chặn |
+| `test_redirect_to_private_host_allowed_when_private_allowed` | cùng đích, `allow_private=True` → cho qua |
+| `test_relative_location_is_resolved_against_current_url` | `Location: ../final?x=1` resolve theo URL hiện tại → `/a/final?x=1` |
+| `test_redirect_loop_exceeding_max_redirects_raises` | `max_redirects=2` → raise sau đúng 3 request |
+| `test_zero_max_redirects_rejects_first_redirect` | `max_redirects=0` = không cho hop nào → raise (không gửi request thứ 2) |
+| `test_post_303_switches_to_get_and_drops_body` / `test_post_301_switches_to_get_and_drops_body` | 303/301 + POST → GET, body rỗng ở hop sau |
+| `test_307_post_keeps_method_and_body` | 307 giữ POST + body |
+| `test_head_request_keeps_method_on_302` | HEAD không bị đổi sang GET |
+| `test_cross_origin_redirect_strips_authorization_header` | khác origin → bỏ `Authorization`, giữ header khác |
+| `test_redirect_without_location_header_returns_response` | 3xx thiếu `Location` → trả response nguyên trạng |
+| `test_initial_url_is_validated_before_any_request` | URL đầu không an toàn → không request nào được gửi |
+| `test_requires_client_with_redirects_disabled` / `test_rejects_follow_redirects_kwarg` / `test_rejects_negative_max_redirects` | 3 guard `ValueError` |
+| `test_non_redirect_response_is_returned_as_is` | 404 trả nguyên trạng, không bị biến thành lỗi |
+
+### F2 — `SECRET_KEY` xoay vòng (`test_api_llm_profiles.py`)
+
+Cách mô phỏng: tạo profile bằng key cũ, sau đó `harness.secret_box.init(ROTATED_SECRET_KEY)` — đúng như app khởi động lại với `SECRET_KEY` mới (token cũ không giải mã được nữa).
+
+| Test | Kiểm chứng |
+|---|---|
+| `test_profile_without_api_key_reports_status_none` | profile không key → `api_key_status="none"` (list + detail) |
+| `test_rotated_secret_key_keeps_list_and_detail_at_200` | `GET /profiles` và `GET /profiles/{id}` **200**, `api_key_status="undecryptable"`, `api_key_masked=None`; response **không chứa ciphertext** (`api_key_enc`) và không chứa key thô |
+| `test_broken_profile_does_not_hide_healthy_rows` | 1 row hỏng không làm sập list: row cũ `undecryptable`, row tạo sau khi xoay key `set` + mask đúng |
+| `test_test_endpoint_returns_409_when_key_undecryptable` | `POST /profiles/{id}/test` → **409** `{"error":"secret_key_mismatch"}`, detail có "Re-enter the API key"; provider **không** bị gọi; không lộ ciphertext/key |
+| `test_patch_without_new_key_returns_409_when_undecryptable` | `PATCH {"name": ...}` → 409; tên **không** đổi; không probe |
+| `test_patch_with_new_key_recovers_undecryptable_profile` | `PATCH {"api_key": ...}` → **200**, `api_key_status="set"`, mask đúng; token mới `!=` token cũ và giải mã bằng key mới ra đúng key mới; `invalidate()` **không** được gọi (đúng spec vì không có key cũ); re-probe 4 lần chat |
+| `test_delete_undecryptable_profile` | `DELETE` → **204**, row bị xoá |
+| `test_patch_keyless_profile_still_works` | profile không key (Ollama) vẫn PATCH được sau thay đổi F2 (không bị 409 oan) |
+
+Cả 409 ở trên do **exception handler toàn cục** `SecretBoxError` trong `app/main.py` sinh ra → handler mới đã được chạy thật (trước round 3 `app/main.py` chỉ 83%, nay 84% và các dòng 95–106 đã cover).
+
+### F3 — Cache key của registry (`test_registry.py`)
+
+| Test | Kiểm chứng |
+|---|---|
+| `test_different_chat_model_returns_different_client` | cùng base_url/key/timeout, khác `chat_model` → **khác** client, `config.chat_model` đúng từng cái |
+| `test_different_small_model_returns_different_client` | khác `small_model` → khác client |
+| `test_different_embedding_model_returns_different_client` | khác `embedding_model` → khác client |
+| `test_small_model_presence_differs_from_absence` | `small_model="small-a"` vs `None` → khác client |
+| `test_same_models_and_credentials_share_one_client` | giống hệt cấu hình → **cùng** client, chỉ 1 client được tạo |
+| `test_model_aware_key_still_hides_raw_api_key` | key cache vẫn là sha256 hex 64 ký tự, không chứa key thô **và** không chứa tên model |
+| `test_aclose_all_releases_factory_http_client_bookkeeping` | `aclose_all()` dọn sạch map `_factory_http_clients` (không rò rỉ) |
+| `test_eviction_releases_factory_http_client_bookkeeping` | LRU eviction đóng client cũ và bỏ entry tương ứng |
+
+### F4 — Ghép tên tool khi stream (`test_llm_redirects.py`)
+
+Dùng SSE dựng tay qua `httpx.MockTransport` để điều khiển chính xác từng chunk:
+
+| Test | Kiểm chứng |
+|---|---|
+| `test_stream_repeated_full_tool_name_is_not_duplicated` | provider lặp tên đầy đủ mỗi chunk → tên `get_current_time` (không thành `get_current_timeget_current_time`), args ghép đúng |
+| `test_stream_tool_name_split_across_chunks_is_joined` | `"get_"` + `"time"` → `get_time` |
+| `test_stream_tool_name_split_after_empty_first_delta` | chunk đầu mở slot không tên, chunk sau mới có tên → `get_time` |
+| `test_stream_text_still_works_on_mock_transport` | chốt an toàn cho helper SSE: stream text thường không bị ảnh hưởng |
+
+## R3.4. Coverage chi tiết
+
+**Unit only — `app/llm` + `app/security` (DoD ≥ 85%): 98%** (739 stmts, 14 miss)
+
+| Module | Cover | Miss |
+|---|---|---|
+| `app/llm/client.py` | 97% | 121/150/276/317 (`except LLMError: raise`), 228 (`delta is None`) |
+| `app/llm/registry.py` | 98% | 92–93 (nuốt lỗi khi đóng client bị đẩy ra) |
+| `app/llm/capabilities.py` | 94% | 22–25, 149 |
+| `app/llm/structured.py`, `types.py`, `url.py`, `tool_calling.py` | 99–100% | — |
+| `app/security/secrets.py` | 100% | — |
+| `app/security/url_validator.py` | **99%** | chỉ còn 47 (`sockaddr` rỗng từ `getaddrinfo`) — trước khi thêm test round 3 miss 2 dòng (47 và 244 = nhánh `301 + POST → GET`), nay nhánh 244 đã cover |
+
+**Toàn `app/` (unit + integration): 97%** — `api/llm_profiles.py` **100%** (186 stmts), `core/singleton.py` 100%, `core/config.py` 100%, `api/health.py` 100%, `db/models.py` 100%, `core/errors.py` 99%, `main.py` 84%, `db/database.py` 85%, `cache/redis.py` 79%, `api/deps.py` 90%.
+
+## R3.5. Bug mới & ghi nhận
+
+**Không phát hiện bug thật nào trong phần implementation F1–F4** — toàn bộ yêu cầu trong `phase-0-1-fixes.md` Phần A đều đúng như spec và test bảo vệ đã khoá lại. Không sửa `backend/app` lần nào trong round này.
+
+Các điểm ghi nhận (không phải bug, không sửa):
+
+1. **DNS rebinding vẫn là rủi ro tồn dư.** `safe_request` validate IP *sau khi resolve*, nhưng httpx resolve lại lần nữa lúc connect → khe TOCTOU giữa validate và connect. Cùng bản chất với điểm 6.4 cũ. `docs/PLAN.md` (phần implementation của round 3) đã ghi nhận và **chấp nhận** rủi ro này cho bản cá nhân/self-host; chỉ cần pin IP ở tầng transport (custom transport/resolver của httpx) hoặc egress proxy trước khi deploy public.
+2. **`safe_request` bỏ `params` ở mọi redirect** (kể cả redirect cùng origin) — đúng ngữ nghĩa httpx, nhưng nếu crawler Phase 2 dựa vào query string thì cần biết: phải đưa query vào `Location`/URL chứ không dựa vào `params`.
+3. **PATCH trên profile `undecryptable` bị chặn hoàn toàn nếu không gửi `api_key` mới** — kể cả chỉ đổi `name` cũng 409. Đúng như spec F2, nhưng về vận hành nghĩa là row hỏng phải được "cứu" bằng key mới trước khi sửa được bất cứ thứ gì khác.
+4. **`_factory_http_clients` giả định factory trả client mới mỗi lần gọi.** Nếu ai đó inject một factory trả **cùng** một `httpx.AsyncClient` cho nhiều `LLMClient`, việc đóng client của một entry sẽ đóng luôn của các entry khác. Đường production hiện tại không set factory (mỗi `LLMClient` tự tạo + tự đóng) nên không ảnh hưởng; đã có test khoá hành vi dọn map khi eviction/`aclose_all`.
+
+## R3.6. File đã tạo/cập nhật ở round 3
+
+Tạo mới (trong `backend/tests/`):
+
+```
+tests/test_llm_redirects.py     # F1 (client 3xx, vòng đời http client) + F4 (ghép tên tool)
+tests/test_safe_request.py      # F1 safe_request: từng hop redirect, method/body, header, guard
+```
+
+Cập nhật (trong `backend/tests/`):
+
+```
+tests/test_llm_client.py        # đổi tên + đảo assertion test aclose (hành vi cố ý đổi)
+tests/test_api_llm_profiles.py  # +8 test F2 (SECRET_KEY xoay vòng)
+tests/test_registry.py          # +8 test F3 (model trong cache key) + chống rò rỉ bookkeeping
+```
+
+Không sửa: `backend/app/**` (không có bug thật), `docs/PLAN.md`, `docs/research/`, `docs/tasks/phase-0-1.md`, `docs/tasks/phase-0-1-fixes.md`; không `git commit`. Báo cáo: chỉ **thêm** mục này vào cuối `docs/tasks/phase-0-1-test-report.md`, các mục 0–8 ở trên giữ nguyên.
+

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
@@ -25,8 +26,10 @@ from app.llm.capabilities import probe
 from app.llm.registry import LLMClientRegistry
 from app.llm.types import LLMConfig
 from app.llm.url import normalize_base_url
-from app.security.secrets import SecretBox, mask_secret
+from app.security.secrets import SecretBox, SecretBoxError, mask_secret
 from app.security.url_validator import DNSResolver, UnsafeURLError, validate_outbound_url
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
@@ -78,6 +81,7 @@ class ProfileResponse(BaseModel):
     name: str
     base_url: str
     api_key_masked: str | None
+    api_key_status: Literal["set", "none", "undecryptable"]
     chat_model: str
     small_model: str | None
     embedding_model: str | None
@@ -132,15 +136,27 @@ def _decrypt_optional(secret_box: SecretBox, token: str | None) -> str | None:
 
 def _to_response(profile: LLMProfile, secret_box: SecretBox) -> ProfileResponse:
     api_key_masked: str | None = None
+    api_key_status: Literal["set", "none", "undecryptable"] = "none"
     if profile.api_key_enc:
-        plaintext = secret_box.decrypt(profile.api_key_enc)
-        api_key_masked = mask_secret(plaintext)
+        try:
+            plaintext = secret_box.decrypt(profile.api_key_enc)
+        except SecretBoxError:
+            logger.warning(
+                "Stored API key for LLM profile %s cannot be decrypted with current SECRET_KEY.",
+                profile.id,
+            )
+            api_key_masked = None
+            api_key_status = "undecryptable"
+        else:
+            api_key_masked = mask_secret(plaintext)
+            api_key_status = "set"
     return ProfileResponse(
         id=profile.id,
         user_id=profile.user_id,
         name=profile.name,
         base_url=profile.base_url,
         api_key_masked=api_key_masked,
+        api_key_status=api_key_status,
         chat_model=profile.chat_model,
         small_model=profile.small_model,
         embedding_model=profile.embedding_model,
@@ -273,15 +289,26 @@ async def update_profile(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found.")
 
     fields_set = body.model_fields_set
-    old_api_key = _decrypt_optional(secret_box, profile.api_key_enc)
-    old_config = _build_config(
-        base_url=profile.base_url,
-        api_key=old_api_key,
-        chat_model=profile.chat_model,
-        small_model=profile.small_model,
-        embedding_model=profile.embedding_model,
-        settings=settings,
-    )
+    old_api_key: str | None = None
+    old_config: LLMConfig | None = None
+    try:
+        old_api_key = _decrypt_optional(secret_box, profile.api_key_enc)
+    except SecretBoxError:
+        if "api_key" not in fields_set:
+            raise
+        logger.warning(
+            "Skipping cache invalidation for undecryptable LLM profile %s during API key update.",
+            profile.id,
+        )
+    else:
+        old_config = _build_config(
+            base_url=profile.base_url,
+            api_key=old_api_key,
+            chat_model=profile.chat_model,
+            small_model=profile.small_model,
+            embedding_model=profile.embedding_model,
+            settings=settings,
+        )
 
     new_base_url = profile.base_url
     if "base_url" in fields_set and body.base_url is not None:
@@ -304,7 +331,8 @@ async def update_profile(
 
     needs_reprobe = bool(fields_set & _REPROBE_FIELDS)
     if needs_reprobe:
-        await registry.invalidate(old_config)
+        if old_config is not None:
+            await registry.invalidate(old_config)
         new_config = _build_config(
             base_url=new_base_url,
             api_key=new_api_key,

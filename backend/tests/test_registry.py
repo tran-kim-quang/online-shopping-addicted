@@ -65,6 +65,82 @@ async def test_different_timeout_returns_different_client(
     assert first is not second
 
 
+# ---------------------------------------------------------------------------
+# F3 — model selection is part of the cache identity
+# ---------------------------------------------------------------------------
+
+
+async def test_different_chat_model_returns_different_client(
+    registry: LLMClientRegistry, config_factory
+) -> None:
+    first = await registry.get(config_factory(chat_model="model-a"))
+    second = await registry.get(config_factory(chat_model="model-b"))
+
+    assert first is not second
+    assert first.config.chat_model == "model-a"
+    assert second.config.chat_model == "model-b"
+    assert len(registry.created_clients) == 2  # type: ignore[attr-defined]
+
+
+async def test_different_small_model_returns_different_client(
+    registry: LLMClientRegistry, config_factory
+) -> None:
+    first = await registry.get(config_factory(small_model="small-a"))
+    second = await registry.get(config_factory(small_model="small-b"))
+
+    assert first is not second
+    assert first.config.small_model == "small-a"
+    assert second.config.small_model == "small-b"
+
+
+async def test_different_embedding_model_returns_different_client(
+    registry: LLMClientRegistry, config_factory
+) -> None:
+    first = await registry.get(config_factory(embedding_model="embed-a"))
+    second = await registry.get(config_factory(embedding_model="embed-b"))
+
+    assert first is not second
+    assert first.config.embedding_model == "embed-a"
+    assert second.config.embedding_model == "embed-b"
+
+
+async def test_small_model_presence_differs_from_absence(
+    registry: LLMClientRegistry, config_factory
+) -> None:
+    with_small = await registry.get(config_factory(small_model="small-a"))
+    without_small = await registry.get(config_factory(small_model=None))
+
+    assert with_small is not without_small
+
+
+async def test_same_models_and_credentials_share_one_client(
+    registry: LLMClientRegistry, config_factory
+) -> None:
+    first = await registry.get(
+        config_factory(chat_model="model-a", small_model="small-a", embedding_model="embed-a")
+    )
+    second = await registry.get(
+        config_factory(chat_model="model-a", small_model="small-a", embedding_model="embed-a")
+    )
+
+    assert first is second
+    assert len(registry.created_clients) == 1  # type: ignore[attr-defined]
+
+
+async def test_model_aware_key_still_hides_raw_api_key(
+    registry: LLMClientRegistry, config_factory
+) -> None:
+    from tests.conftest import TEST_RAW_API_KEY
+
+    await registry.get(config_factory(api_key=SecretStr(TEST_RAW_API_KEY), chat_model="model-a"))
+
+    for key in registry._clients:  # noqa: SLF001 - asserting on internal cache
+        assert TEST_RAW_API_KEY not in key
+        assert "model-a" not in key
+        assert len(key) == 64
+        assert all(ch in "0123456789abcdef" for ch in key)
+
+
 async def test_cache_keys_never_contain_raw_api_key(
     registry: LLMClientRegistry, config_factory
 ) -> None:
@@ -148,6 +224,30 @@ async def test_aclose_all_closes_every_client(registry: LLMClientRegistry, confi
     assert registry._clients == {}  # noqa: SLF001
     assert all(client.is_closed for client in registry.created_clients)  # type: ignore[attr-defined]
     await registry.aclose_all()  # idempotent
+
+
+async def test_aclose_all_releases_factory_http_client_bookkeeping(
+    registry: LLMClientRegistry, config_factory
+) -> None:
+    await registry.get(config_factory(api_key=SecretStr("key-a-aaaaaaaa")))
+    await registry.get(config_factory(api_key=SecretStr("key-b-bbbbbbbb")))
+
+    await registry.aclose_all()
+
+    assert registry._factory_http_clients == {}  # noqa: SLF001
+
+
+async def test_eviction_releases_factory_http_client_bookkeeping(
+    registry: LLMClientRegistry, config_factory
+) -> None:
+    registry.configure(max_clients=1)
+    await registry.get(config_factory(api_key=SecretStr("key-a-aaaaaaaa")))
+    await registry.get(config_factory(api_key=SecretStr("key-b-bbbbbbbb")))
+
+    await asyncio.sleep(0.05)
+
+    assert len(registry._factory_http_clients) == 1  # noqa: SLF001
+    assert registry.created_clients[0].is_closed  # type: ignore[attr-defined]
 
 
 def test_configure_rejects_invalid_max_clients(registry: LLMClientRegistry) -> None:

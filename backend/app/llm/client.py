@@ -66,12 +66,21 @@ class LLMClient:
         self._raw_key: str | None = (
             config.api_key.get_secret_value() if config.api_key is not None else None
         )
+        if http_client is None:
+            self._http_client = httpx.AsyncClient(
+                follow_redirects=False,
+                timeout=httpx.Timeout(config.timeout),
+            )
+            self._owns_http_client = True
+        else:
+            self._http_client = http_client
+            self._owns_http_client = False
         self._client = AsyncOpenAI(
             base_url=config.base_url,
             api_key=self._raw_key or "not-needed",
             timeout=config.timeout,
             max_retries=config.max_retries,
-            http_client=http_client,
+            http_client=self._http_client,
         )
 
     def _build_chat_kwargs(
@@ -257,7 +266,10 @@ class LLMClient:
                             slot["id"] = tc_id
                             id_to_slot[tc_id] = slot_idx
                         if fn_name:
-                            slot["name"] += fn_name
+                            if not slot["name"]:
+                                slot["name"] = fn_name
+                            elif fn_name != slot["name"]:
+                                slot["name"] += fn_name
                         if fn_args:
                             slot["raw_arguments"] += fn_args
         except LLMError:
@@ -309,5 +321,6 @@ class LLMClient:
         return results
 
     async def aclose(self) -> None:
-        """Close the underlying OpenAI/HTTP client."""
-        await self._client.close()
+        """Close the underlying HTTP client if owned by this ``LLMClient``."""
+        if self._owns_http_client:
+            await self._client.close()

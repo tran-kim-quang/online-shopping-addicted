@@ -288,7 +288,12 @@ async def test_embed_error_mapping(config_factory, mock_http, behavior) -> None:
         await client.embed(["hello"])
 
 
-async def test_aclose_closes_transport(config_factory, behavior) -> None:
+async def test_aclose_leaves_injected_transport_open(config_factory, behavior) -> None:
+    """An injected client is owned by the caller: ``aclose()`` must not close it.
+
+    Owned-client closing (``LLMClient`` without ``http_client``) is covered in
+    ``tests/test_llm_redirects.py``.
+    """
     import httpx
 
     from tests.mock_openai import build_mock_app
@@ -301,7 +306,8 @@ async def test_aclose_closes_transport(config_factory, behavior) -> None:
 
     await client.aclose()
 
-    assert http_client.is_closed
+    assert not http_client.is_closed
+    await http_client.aclose()
 
 
 def test_config_repr_does_not_leak_key(config_factory) -> None:

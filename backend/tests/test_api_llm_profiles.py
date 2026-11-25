@@ -8,9 +8,14 @@ import pytest
 
 from app.api.deps import get_settings as deps_get_settings
 from app.core.config import get_settings
+from app.security.secrets import mask_secret
 from tests.conftest import TEST_RAW_API_KEY
 
 RAW_KEY = TEST_RAW_API_KEY  # "sk-raw-secret-abcdef1234567890"
+# Simulates rotating SECRET_KEY in the environment: tokens sealed with the old
+# key can no longer be decrypted.
+ROTATED_SECRET_KEY = "r4e8G9U2I3ro73oyQB9zuCbKFZMLYVCGDDJIpTLk6lQ="
+ROTATED_RAW_KEY = "sk-rotated-key-9876543210"
 
 
 def _payload(**overrides: object) -> dict[str, object]:
@@ -409,3 +414,172 @@ def _spy_invalidate(registry, monkeypatch) -> list:
 
     monkeypatch.setattr(registry, "invalidate", _spy)
     return calls
+
+
+# ---------------------------------------------------------------------------
+# F2 — rotated SECRET_KEY: stored tokens become undecryptable
+# ---------------------------------------------------------------------------
+
+
+def _rotate_secret_key(harness) -> None:
+    """Point the app's SecretBox at a new key, as a SECRET_KEY rotation would."""
+    harness.secret_box.init(ROTATED_SECRET_KEY)
+
+
+async def test_profile_without_api_key_reports_status_none(api_harness, behavior) -> None:
+    behavior.require_api_key = False
+    harness = await api_harness()
+
+    created = (
+        await harness.client.post(
+            "/api/llm/profiles", json=_payload(api_key=None, name="keyless profile")
+        )
+    ).json()
+
+    assert created["api_key_status"] == "none"
+    assert created["api_key_masked"] is None
+
+    fetched = await harness.client.get(f"/api/llm/profiles/{created['id']}")
+    assert fetched.status_code == 200
+    assert fetched.json()["api_key_status"] == "none"
+
+
+async def test_patch_keyless_profile_still_works(api_harness, behavior) -> None:
+    """A profile without a stored key has nothing to decrypt, so PATCH must not 409."""
+    behavior.require_api_key = False
+    harness = await api_harness()
+    created = (
+        await harness.client.post(
+            "/api/llm/profiles", json=_payload(api_key=None, name="local ollama")
+        )
+    ).json()
+
+    response = await harness.client.patch(
+        f"/api/llm/profiles/{created['id']}", json={"name": "renamed ollama"}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["name"] == "renamed ollama"
+    assert response.json()["api_key_status"] == "none"
+
+
+async def test_rotated_secret_key_keeps_list_and_detail_at_200(api_harness) -> None:
+    harness = await api_harness()
+    created = (await harness.client.post("/api/llm/profiles", json=_payload())).json()
+    assert created["api_key_status"] == "set"
+
+    _rotate_secret_key(harness)
+
+    listed = await harness.client.get("/api/llm/profiles")
+    fetched = await harness.client.get(f"/api/llm/profiles/{created['id']}")
+
+    assert listed.status_code == 200, listed.text
+    assert fetched.status_code == 200, fetched.text
+
+    listed_item = listed.json()[0]
+    assert listed_item["api_key_status"] == "undecryptable"
+    assert listed_item["api_key_masked"] is None
+    assert fetched.json()["api_key_status"] == "undecryptable"
+    assert fetched.json()["api_key_masked"] is None
+
+    stored = harness.session.profiles[uuid.UUID(created["id"])]
+    assert stored.api_key_enc is not None
+    assert stored.api_key_enc not in listed.text
+    assert stored.api_key_enc not in fetched.text
+    _assert_no_secret(listed, RAW_KEY)
+    _assert_no_secret(fetched, RAW_KEY)
+
+
+async def test_broken_profile_does_not_hide_healthy_rows(api_harness) -> None:
+    harness = await api_harness()
+    await harness.client.post("/api/llm/profiles", json=_payload(name="sealed-with-old-key"))
+    _rotate_secret_key(harness)
+    await harness.client.post("/api/llm/profiles", json=_payload(name="sealed-with-new-key"))
+
+    response = await harness.client.get("/api/llm/profiles")
+
+    assert response.status_code == 200, response.text
+    by_name = {item["name"]: item for item in response.json()}
+    assert set(by_name) == {"sealed-with-old-key", "sealed-with-new-key"}
+    assert by_name["sealed-with-old-key"]["api_key_status"] == "undecryptable"
+    assert by_name["sealed-with-old-key"]["api_key_masked"] is None
+    assert by_name["sealed-with-new-key"]["api_key_status"] == "set"
+    assert by_name["sealed-with-new-key"]["api_key_masked"] == mask_secret(RAW_KEY)
+    _assert_no_secret(response, RAW_KEY)
+
+
+async def test_test_endpoint_returns_409_when_key_undecryptable(api_harness, behavior) -> None:
+    harness = await api_harness()
+    created = (await harness.client.post("/api/llm/profiles", json=_payload())).json()
+    stored = harness.session.profiles[uuid.UUID(created["id"])]
+    _rotate_secret_key(harness)
+    chat_calls_before = behavior.chat_calls
+
+    response = await harness.client.post(f"/api/llm/profiles/{created['id']}/test")
+
+    assert response.status_code == 409, response.text
+    body = response.json()
+    assert body["error"] == "secret_key_mismatch"
+    assert "Re-enter the API key" in body["detail"]
+    assert behavior.chat_calls == chat_calls_before  # provider never contacted
+    assert stored.api_key_enc not in response.text
+    _assert_no_secret(response, RAW_KEY)
+
+
+async def test_patch_without_new_key_returns_409_when_undecryptable(api_harness, behavior) -> None:
+    harness = await api_harness()
+    created = (await harness.client.post("/api/llm/profiles", json=_payload())).json()
+    stored = harness.session.profiles[uuid.UUID(created["id"])]
+    original_name = stored.name
+    _rotate_secret_key(harness)
+    chat_calls_before = behavior.chat_calls
+
+    response = await harness.client.patch(
+        f"/api/llm/profiles/{created['id']}", json={"name": "renamed"}
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"] == "secret_key_mismatch"
+    assert stored.name == original_name  # nothing persisted
+    assert behavior.chat_calls == chat_calls_before
+    _assert_no_secret(response, RAW_KEY)
+
+
+async def test_patch_with_new_key_recovers_undecryptable_profile(
+    api_harness, behavior, monkeypatch
+) -> None:
+    harness = await api_harness()
+    created = (await harness.client.post("/api/llm/profiles", json=_payload())).json()
+    stored = harness.session.profiles[uuid.UUID(created["id"])]
+    old_token = stored.api_key_enc
+    _rotate_secret_key(harness)
+    calls = _spy_invalidate(harness.registry, monkeypatch)
+    behavior.expected_api_key = ROTATED_RAW_KEY
+    chat_calls_before = behavior.chat_calls
+
+    response = await harness.client.patch(
+        f"/api/llm/profiles/{created['id']}", json={"api_key": ROTATED_RAW_KEY}
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["api_key_status"] == "set"
+    assert body["api_key_masked"] == mask_secret(ROTATED_RAW_KEY)
+    assert stored.api_key_enc != old_token
+    assert harness.secret_box.decrypt(stored.api_key_enc) == ROTATED_RAW_KEY
+    # The old key is unavailable, so cache invalidation is skipped on purpose.
+    assert calls == []
+    assert behavior.chat_calls == chat_calls_before + 4  # re-probed with the new key
+    _assert_no_secret(response, RAW_KEY, ROTATED_RAW_KEY)
+
+
+async def test_delete_undecryptable_profile(api_harness) -> None:
+    harness = await api_harness()
+    created = (await harness.client.post("/api/llm/profiles", json=_payload())).json()
+    _rotate_secret_key(harness)
+
+    response = await harness.client.delete(f"/api/llm/profiles/{created['id']}")
+
+    assert response.status_code == 204
+    assert response.text == ""
+    assert harness.session.profiles == {}

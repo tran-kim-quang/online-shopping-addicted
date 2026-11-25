@@ -25,7 +25,7 @@ from app.core.errors import (
 )
 from app.db.database import Database
 from app.llm.registry import LLMClientRegistry
-from app.security.secrets import SecretBox
+from app.security.secrets import SecretBox, SecretBoxError
 from app.security.url_validator import UnsafeURLError
 
 
@@ -90,6 +90,19 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"error": "unsafe_url", "detail": str(exc)},
+        )
+
+    @application.exception_handler(SecretBoxError)
+    async def _handle_secret_box_error(_request: Request, _exc: SecretBoxError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "error": "secret_key_mismatch",
+                "detail": (
+                    "Stored API key cannot be decrypted with the current SECRET_KEY. "
+                    "Re-enter the API key."
+                ),
+            },
         )
 
     @application.exception_handler(LLMAuthError)

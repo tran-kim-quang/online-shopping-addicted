@@ -31,12 +31,14 @@ def _default_max_clients() -> int:
 class LLMClientRegistry(metaclass=SingletonMeta):
     """Singleton LRU cache managing ``LLMClient`` lifecycles across profiles.
 
-    Cache keys are SHA-256 digests of ``(base_url, api_key, timeout, max_retries)``
+    Cache keys are SHA-256 digests of
+    ``(base_url, api_key, chat_model, small_model, embedding_model, timeout, max_retries)``
     so plaintext API keys are never stored as dictionary keys.
     """
 
     def __init__(self, max_clients: int | None = None) -> None:
         self._clients: OrderedDict[str, LLMClient] = OrderedDict()
+        self._factory_http_clients: dict[int, httpx.AsyncClient] = {}
         self._lock: asyncio.Lock = asyncio.Lock()
         self._max_clients: int = max_clients if max_clients is not None else _default_max_clients()
         self._http_client_factory: HttpClientFactory | None = None
@@ -68,13 +70,25 @@ class LLMClientRegistry(metaclass=SingletonMeta):
     @staticmethod
     def _make_key(config: LLMConfig) -> str:
         raw_key = config.api_key.get_secret_value() if config.api_key is not None else ""
-        material = f"{config.base_url}\x00{raw_key}\x00{config.timeout}\x00{config.max_retries}"
+        small_model = config.small_model or ""
+        embedding_model = config.embedding_model or ""
+        material = (
+            f"{config.base_url}\x00{raw_key}\x00"
+            f"{config.chat_model}\x00{small_model}\x00{embedding_model}\x00"
+            f"{config.timeout}\x00{config.max_retries}"
+        )
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    async def _close_client(self, client: LLMClient) -> None:
+        await client.aclose()
+        http_client = self._factory_http_clients.pop(id(client), None)
+        if http_client is not None and not http_client.is_closed:
+            await http_client.aclose()
 
     def _schedule_close(self, client: LLMClient) -> None:
         async def _close_safe() -> None:
             try:
-                await client.aclose()
+                await self._close_client(client)
             except Exception:
                 logger.debug("Ignoring error while closing evicted LLMClient", exc_info=True)
 
@@ -95,6 +109,8 @@ class LLMClientRegistry(metaclass=SingletonMeta):
                 self._http_client_factory() if self._http_client_factory is not None else None
             )
             client = LLMClient(config, http_client=http_client)
+            if http_client is not None:
+                self._factory_http_clients[id(client)] = http_client
             self._clients[key] = client
 
             while len(self._clients) > self._max_clients:
@@ -110,7 +126,7 @@ class LLMClientRegistry(metaclass=SingletonMeta):
             client = self._clients.pop(key, None)
 
         if client is not None:
-            await client.aclose()
+            await self._close_client(client)
 
     async def aclose_all(self) -> None:
         """Close all cached clients and await any pending eviction closures."""
@@ -120,6 +136,6 @@ class LLMClientRegistry(metaclass=SingletonMeta):
             pending = list(self._closing_tasks)
 
         if clients:
-            await asyncio.gather(*(c.aclose() for c in clients), return_exceptions=True)
+            await asyncio.gather(*(self._close_client(c) for c in clients), return_exceptions=True)
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
