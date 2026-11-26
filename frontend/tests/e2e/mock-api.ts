@@ -1,5 +1,6 @@
 import type { Page, Route } from "@playwright/test";
 import {
+  ANALYZE_JOB_ID,
   CHAT_SESSION_ID,
   JOB_ID,
   PROFILE_ID,
@@ -42,6 +43,10 @@ export interface ApiMockOptions {
   report?: unknown;
   /** Override the job SSE body (defaults to a full run that ends with `done`). */
   job?: { body: string };
+  /** Override GET /api/llm/profiles (pass `[]` to simulate "no profile configured"). */
+  profiles?: unknown[];
+  /** Override POST /api/sources/{id}/analyze (status + JSON body). */
+  analyze?: { status: number; body: unknown };
 }
 
 const CORS_HEADERS = {
@@ -100,7 +105,7 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}): Promise
     }
 
     if (path === "/api/llm/profiles" && method === "GET") {
-      return json(route, 200, [profile]);
+      return json(route, 200, options.profiles ?? [profile]);
     }
     if (path === `/api/llm/profiles/${PROFILE_ID}` && method === "PATCH") {
       const override = options.patchProfile;
@@ -120,6 +125,17 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}): Promise
         return json(route, 200, options.freshSources ?? sources);
       }
       return json(route, 200, sources);
+    }
+    if (/^\/api\/sources\/[^/]+\/analyze$/.test(path) && method === "POST") {
+      const override = options.analyze ?? {
+        status: 202,
+        body: {
+          job_id: ANALYZE_JOB_ID,
+          reviews_to_analyze: 25,
+          estimated_llm_requests: 2,
+        },
+      };
+      return json(route, override.status, override.body);
     }
     if (/^\/api\/sources\/[^/]+\/report$/.test(path)) {
       return json(route, 200, options.report ?? report);

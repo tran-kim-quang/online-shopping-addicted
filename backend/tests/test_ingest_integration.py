@@ -657,10 +657,18 @@ async def test_sentiment_llm_and_rating_fallback_are_persisted(
         refreshed.neutral_review_count,
     ) == (1, 2, 0)
 
-    # Second pass must skip every already-analysed review.
+    # Second pass: the LLM row is skipped, but the two rating-only rows are reopened because
+    # an LLM is now available (``needs_sentiment_analysis(..., llm_available=True)``) — that
+    # is what lets a source pick up LLM sentiment without re-crawling.
     again = await analyze_product_reviews(session, product.id, llm_client=llm_client, batch_size=20)
-    assert again.analyzed == 0
-    assert again.skipped == 3
+    assert again.analyzed == 2
+    assert again.skipped == 1
+    # The scripted reply still only answers r0 (already LLM-analyzed, hence not in the batch),
+    # so both reopened rows keep their star fallback — but they were re-sent, which is the
+    # intended "upgrade once an LLM exists" behaviour.
+    assert again.llm_count == 0
+    assert again.rating_fallback_count == 2
+    assert again.changed == 0, "re-analysing must not flip already-correct rows"
 
 
 # ---------------------------------------------------------------------------

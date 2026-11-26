@@ -50,6 +50,7 @@ import {
   testLlmProfile,
   updateLlmProfile,
   createLlmProfile,
+  analyzeSource,
 } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 
@@ -418,5 +419,94 @@ describe("error paths of every typed wrapper", () => {
       kind: "cached",
       data: [],
     });
+  });
+});
+
+describe("analyzeSource", () => {
+  const SOURCE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+  it("posts the profile id and returns the queued contract on 202", async () => {
+    stubFetch(() =>
+      jsonResponse(
+        { job_id: "job-a1", reviews_to_analyze: 25, estimated_llm_requests: 3 },
+        202,
+        "Accepted"
+      )
+    );
+
+    const result = await analyzeSource(SOURCE_ID, "profile-1");
+
+    expect(result).toEqual({
+      kind: "queued",
+      data: { job_id: "job-a1", reviews_to_analyze: 25, estimated_llm_requests: 3 },
+    });
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toBe(`http://api.test/api/sources/${SOURCE_ID}/analyze`);
+    expect(JSON.parse(calls[0]!.body ?? "{}")).toEqual({ llm_profile_id: "profile-1" });
+  });
+
+  it("returns up_to_date on 200 so the UI can show an info toast instead of a job", async () => {
+    stubFetch(() => jsonResponse({ status: "up_to_date" }, 200, "OK"));
+
+    await expect(analyzeSource(SOURCE_ID, "profile-1")).resolves.toEqual({
+      kind: "up_to_date",
+      data: { status: "up_to_date" },
+    });
+  });
+
+  it("exposes the running job id on 409 analysis_running", async () => {
+    stubFetch(() =>
+      jsonResponse(
+        {
+          error: "analysis_running",
+          job_id: "job-running",
+          detail: "LLM analysis job job-running is already running",
+        },
+        409,
+        "Conflict"
+      )
+    );
+
+    await expect(analyzeSource(SOURCE_ID, "profile-1")).rejects.toMatchObject({
+      status: 409,
+      code: "analysis_running",
+      jobId: "job-running",
+    });
+  });
+
+  it("maps secret_key_mismatch and source_not_ready to their error codes", async () => {
+    stubFetch(() =>
+      jsonResponse({ error: "secret_key_mismatch", detail: "cannot decrypt" }, 409, "Conflict")
+    );
+    await expect(analyzeSource(SOURCE_ID, "p")).rejects.toMatchObject({
+      code: "secret_key_mismatch",
+    });
+
+    stubFetch(() =>
+      jsonResponse({ error: "source_not_ready", detail: "not ready" }, 409, "Conflict")
+    );
+    await expect(analyzeSource(SOURCE_ID, "p")).rejects.toMatchObject({
+      code: "source_not_ready",
+    });
+  });
+
+  it("normalises a transport failure into a network_error ApiError", async () => {
+    stubFetch(() => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    await expect(analyzeSource(SOURCE_ID, "p")).rejects.toMatchObject({
+      status: 0,
+      code: "network_error",
+      detail: "Failed to fetch",
+    });
+  });
+
+  it("url-encodes the source id", async () => {
+    stubFetch(() => jsonResponse({ status: "up_to_date" }));
+
+    await analyzeSource("weird/id", "p");
+
+    expect(calls[0]!.url).toBe("http://api.test/api/sources/weird%2Fid/analyze");
   });
 });

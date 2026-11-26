@@ -104,4 +104,39 @@ describe("WarningsBanner", () => {
 
     expect(screen.queryByRole("button", { name: /sản phẩm/i })).not.toBeInTheDocument();
   });
+
+  it("renders the analyze action only on the sentiment_rating_only warning", () => {
+    const { rerender } = renderWithIntl(
+      <WarningsBanner
+        warnings={[makeWarning({ code: "sentiment_rating_only", params: { count: 12 } })]}
+        analyzeAction={<button type="button">Phân tích bằng LLM</button>}
+      />,
+      { locale: "vi" }
+    );
+
+    expect(screen.getByRole("button", { name: "Phân tích bằng LLM" })).toBeInTheDocument();
+    // The translated message carries the new count param (no more "re-ingest" advice).
+    expect(screen.getByText(/12 đánh giá/)).toBeInTheDocument();
+
+    rerender(
+      <WarningsBanner
+        warnings={[makeWarning({ code: "no_aspects", params: {} })]}
+        analyzeAction={<button type="button">Phân tích bằng LLM</button>}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: "Phân tích bằng LLM" })).not.toBeInTheDocument();
+  });
+
+  it("renders no analyze action when the source cannot be analyzed", () => {
+    renderWithIntl(
+      <WarningsBanner
+        warnings={[makeWarning({ code: "sentiment_rating_only", params: { count: 3 } })]}
+      />,
+      { locale: "vi" }
+    );
+
+    expect(screen.queryByRole("button", { name: "Phân tích bằng LLM" })).not.toBeInTheDocument();
+    expect(screen.getByText(/3 đánh giá/)).toBeInTheDocument();
+  });
 });

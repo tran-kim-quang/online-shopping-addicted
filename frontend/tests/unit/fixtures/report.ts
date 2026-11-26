@@ -22,6 +22,7 @@ export function makeTotals(overrides: Partial<SourceReport["totals"]> = {}): Sou
     rating_avg_weighted: 4.72,
     review_count_reported: 300,
     reviews_collected: 120,
+    reviews_rating_only: 0,
     coverage_pct: 40,
     sentiment: { positive: 80, neutral: 25, negative: 15, unanalyzed: 0 },
     sentiment_source: { llm: 100, rating: 20, none: 0 },

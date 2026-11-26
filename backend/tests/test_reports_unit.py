@@ -228,12 +228,14 @@ def _totals(
     src_llm: int = 1,
     src_rating: int = 0,
     src_none: int = 0,
+    rating_only: int = 0,
 ) -> ReportTotals:
     return ReportTotals(
         sentiment=SentimentCounts(
             positive=positive, neutral=neutral, negative=negative, unanalyzed=unanalyzed
         ),
         sentiment_source=SentimentSourceCounts(llm=src_llm, rating=src_rating, none=src_none),
+        reviews_rating_only=rating_only,
     )
 
 
@@ -290,10 +292,33 @@ def test_reported_count_lower_warning_when_more_reviews_than_reported() -> None:
 
 
 def test_sentiment_rating_only_warning_when_all_sentiment_came_from_stars() -> None:
+    """The warning now points at the new analyze endpoint instead of asking for a re-ingest."""
     warnings = _warnings(totals=_totals(positive=2, negative=1, src_llm=0, src_rating=3))
 
     entry = next(w for w in warnings if w.code == "sentiment_rating_only")
-    assert "Ingest lại với LLM profile" in entry.message
+    assert entry.message == "Cảm xúc đang suy ra từ số sao; chưa phân tích bằng LLM."
+    assert entry.params == {"count": 3}
+    assert "Ingest lại" not in entry.message
+
+
+def test_sentiment_rating_only_params_prefer_totals_reviews_rating_only() -> None:
+    """``totals.reviews_rating_only`` is the counted source of truth when the report set it."""
+    warnings = _warnings(
+        totals=_totals(positive=2, negative=1, src_llm=0, src_rating=3, rating_only=5),
+    )
+
+    entry = next(w for w in warnings if w.code == "sentiment_rating_only")
+    assert entry.params == {"count": 5}
+
+
+def test_sentiment_rating_only_params_fall_back_to_sentiment_source_rating() -> None:
+    """A partially populated totals object (rating_only=0) must not report ``count=0``."""
+    warnings = _warnings(
+        totals=_totals(positive=2, negative=1, src_llm=0, src_rating=3, rating_only=0),
+    )
+
+    entry = next(w for w in warnings if w.code == "sentiment_rating_only")
+    assert entry.params == {"count": 3}
 
 
 def test_sentiment_rating_only_is_not_raised_when_llm_sentiment_exists() -> None:

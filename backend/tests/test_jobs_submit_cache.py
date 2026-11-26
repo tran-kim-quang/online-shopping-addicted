@@ -75,3 +75,25 @@ def test_orm_predicate_defaults_to_the_source_table() -> None:
     assert "sources.status" in compiled
     assert "sources.crawled_at" in compiled
     assert "sources.stats" in compiled
+
+
+# ---------------------------------------------------------------------------
+# Dead ingest entrypoint
+# ---------------------------------------------------------------------------
+
+
+def test_submit_ingest_url_is_gone_from_the_job_layer() -> None:
+    """The URL-based helper had no callers left once ``POST /api/ingest`` used the parser.
+
+    Keeping a second submit path around invites double enqueues (and, before the cache
+    policy, a way to bypass the 48h window), so its removal is locked here.
+    """
+    import app.jobs.submit as submit_module
+    from app.jobs.queue import JobQueue
+
+    assert not hasattr(submit_module, "submit_ingest_url")
+    assert not hasattr(JobQueue, "submit_ingest_url")
+    # The parser-based entrypoint and the new analyze enqueue are the only submit paths.
+    assert hasattr(submit_module, "submit_parsed_ingest")
+    assert hasattr(JobQueue, "enqueue_ingest")
+    assert hasattr(JobQueue, "enqueue_analyze")

@@ -19,6 +19,7 @@ from app.ingest.sentiment import (
     REVIEW_START_DELIMITER,
     analyze_product_reviews,
     build_sentiment_messages,
+    count_reviews_needing_analysis,
     needs_sentiment_analysis,
     rating_to_sentiment,
     recompute_product_sentiment_counts,
@@ -360,6 +361,92 @@ def test_needs_sentiment_analysis_rules() -> None:
     legacy = make_review_row("r2")
     legacy.analyzed_at = datetime.now(UTC)  # no hash recorded (pre-0003 rows)
     assert needs_sentiment_analysis(legacy) is False
+
+
+def _rating_only_review(external_id: str = "r-rating") -> Any:
+    """A review already analyzed by the star fallback (``aspects == []``, hash recorded)."""
+    review = make_review_row(external_id)
+    review.analyzed_at = datetime.now(UTC)
+    review.sentiment = rating_to_sentiment(review.rating)
+    review.sentiment_source = "rating"
+    review.aspects = []
+    review.content_hash = review_content_hash(review)
+    return review
+
+
+def _llm_review(external_id: str = "r-llm") -> Any:
+    review = _rating_only_review(external_id)
+    review.sentiment_source = "llm"
+    review.aspects = [{"aspect": "giao hàng", "sentiment": "positive"}]
+    return review
+
+
+@pytest.mark.parametrize(
+    ("llm_available", "sentiment_source", "expected"),
+    [
+        # Rating-only rows are exactly what the standalone analyze job exists to upgrade.
+        (True, "rating", True),
+        # Without an LLM the fallback must not loop forever on the same rows.
+        (False, "rating", False),
+        # Already LLM-analyzed rows are left alone in both modes.
+        (True, "llm", False),
+        (False, "llm", False),
+        (True, None, False),
+        (False, None, False),
+    ],
+)
+def test_needs_sentiment_analysis_only_reopens_rating_only_rows_for_an_llm(
+    llm_available: bool,
+    sentiment_source: str | None,
+    expected: bool,
+) -> None:
+    review = _rating_only_review()
+    review.sentiment_source = sentiment_source
+
+    assert needs_sentiment_analysis(review, llm_available=llm_available) is expected, (
+        f"llm_available={llm_available} sentiment_source={sentiment_source}"
+    )
+
+
+def test_needs_sentiment_analysis_reopens_rating_only_rows_when_content_changed() -> None:
+    review = _rating_only_review()
+    review.content = "nội dung mới sau khi sàn sửa đánh giá"
+
+    # Changed content wins even without an LLM: the stored hash no longer matches.
+    assert needs_sentiment_analysis(review, llm_available=False) is True
+    assert needs_sentiment_analysis(review, llm_available=True) is True
+
+
+def test_needs_sentiment_analysis_defaults_to_the_old_behaviour() -> None:
+    """Called without the keyword (legacy callers) a rating-only row is still skipped."""
+    assert needs_sentiment_analysis(_rating_only_review()) is False
+
+
+async def test_count_reviews_needing_analysis_respects_the_llm_switch() -> None:
+    reviews = [_rating_only_review("r1"), _llm_review("r2"), make_review_row("r3")]
+    product_ids = [uuid.uuid4()]
+
+    with_llm = ScriptedSession([Rows(reviews)])
+    # llm_available=True: the rating-only row is reopened, the LLM row and never-analyzed
+    # row behave as before → 2 (rating-only + never analyzed).
+    total = await count_reviews_needing_analysis(with_llm, product_ids)  # type: ignore[arg-type]
+    assert total == 2
+
+    without_llm = ScriptedSession([Rows(reviews)])
+    # llm_available=False: only the never-analyzed row counts (rating-only stays cached).
+    total = await count_reviews_needing_analysis(
+        without_llm,  # type: ignore[arg-type]
+        product_ids,
+        llm_available=False,
+    )
+    assert total == 1
+
+
+async def test_count_reviews_needing_analysis_short_circuits_without_products() -> None:
+    session = ScriptedSession([])
+
+    assert await count_reviews_needing_analysis(session, []) == 0  # type: ignore[arg-type]
+    assert session.executed == 0
 
 
 # ---------------------------------------------------------------------------

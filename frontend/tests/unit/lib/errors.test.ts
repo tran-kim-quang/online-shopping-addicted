@@ -117,3 +117,27 @@ describe("normalizeApiError", () => {
     expect(normalizeApiError(422, [{ loc: ["body"] }]).detail).toBe("validation_error");
   });
 });
+
+describe("ApiError.jobId", () => {
+  it("keeps a trimmed job id from the {error, job_id} envelope", () => {
+    const error = normalizeApiError(409, {
+      error: "analysis_running",
+      job_id: "  job-42  ",
+      detail: "already running",
+    });
+
+    expect(error.jobId).toBe("job-42");
+    expect(error.code).toBe("analysis_running");
+  });
+
+  it("leaves jobId undefined when the body has no usable job id", () => {
+    expect(normalizeApiError(409, { error: "analysis_running" }).jobId).toBeUndefined();
+    expect(normalizeApiError(409, { error: "analysis_running", job_id: "  " }).jobId).toBeUndefined();
+    expect(normalizeApiError(409, { error: "analysis_running", job_id: 7 }).jobId).toBeUndefined();
+    expect(normalizeApiError(400, { detail: "plain" }).jobId).toBeUndefined();
+  });
+
+  it("defaults to undefined for errors built by hand", () => {
+    expect(new ApiError({ status: 500, code: "server_error", detail: "x" }).jobId).toBeUndefined();
+  });
+});

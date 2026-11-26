@@ -134,3 +134,48 @@ def test_report_product_row_exposes_image_and_short_description() -> None:
 
     assert "image_url" in properties
     assert "short_description" in properties
+
+
+def test_analyze_endpoint_contract_is_typed_for_the_web_client() -> None:
+    """``POST /api/sources/{id}/analyze`` (llm-analyze) is what the frontend types against.
+
+    Phần B depends on the payload being *closed* (``extra="forbid"``) and on the two
+    success shapes being distinguishable by status code, so pin both here instead of
+    relying on the byte-for-byte export alone.
+    """
+    schema = _load(COMMITTED_SCHEMA)
+    components = schema["components"]["schemas"]
+    operation = schema["paths"]["/api/sources/{source_id}/analyze"]["post"]
+
+    assert operation["requestBody"]["required"] is True
+    assert operation["requestBody"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "/AnalyzeSourceRequest"
+    )
+    assert operation["responses"]["202"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "/AnalyzeQueuedResponse"
+    )
+    assert operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "/AnalyzeUpToDateResponse"
+    )
+    assert "422" in operation["responses"]
+
+    request = components["AnalyzeSourceRequest"]
+    assert request["additionalProperties"] is False
+    assert request["required"] == ["llm_profile_id"]
+    assert request["properties"]["llm_profile_id"]["format"] == "uuid"
+
+    queued = components["AnalyzeQueuedResponse"]
+    assert set(queued["required"]) == {"job_id", "reviews_to_analyze", "estimated_llm_requests"}
+    assert queued["properties"]["reviews_to_analyze"]["type"] == "integer"
+    assert queued["properties"]["estimated_llm_requests"]["type"] == "integer"
+
+    up_to_date = components["AnalyzeUpToDateResponse"]
+    assert up_to_date["properties"]["status"]["const"] == "up_to_date"
+
+
+def test_report_totals_expose_reviews_rating_only() -> None:
+    """The analyze CTA is shown from ``totals.reviews_rating_only``, not from a warning count."""
+    properties = _load(COMMITTED_SCHEMA)["components"]["schemas"]["ReportTotals"]["properties"]
+
+    assert properties["reviews_rating_only"]["type"] == "integer"
+    assert properties["reviews_rating_only"]["default"] == 0

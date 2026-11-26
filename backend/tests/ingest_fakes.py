@@ -326,6 +326,7 @@ class FakeRedis:
 
     def __init__(self) -> None:
         self.hashes: dict[str, dict[str, str]] = {}
+        self.strings: dict[str, str] = {}
         self.lists: dict[str, list[str]] = defaultdict(list)
         self.counters: dict[str, int] = defaultdict(int)
         self.expiry: dict[str, int] = {}
@@ -346,6 +347,35 @@ class FakeRedis:
 
     async def hgetall(self, key: str) -> dict[str, str]:
         return dict(self.hashes.get(key, {}))
+
+    # -- plain keys (per-source analyze lock) --------------------------------
+
+    async def set(
+        self,
+        key: str,
+        value: str,
+        *,
+        nx: bool = False,
+        ex: int | None = None,
+    ) -> bool | None:
+        """``SET key value [NX] [EX ttl]`` with real NX semantics (no overwrite)."""
+        if nx and key in self.strings:
+            return None
+        self.strings[key] = str(value)
+        if ex is not None:
+            self.expiry[key] = int(ex)
+        return True
+
+    async def get(self, key: str) -> str | None:
+        return self.strings.get(key)
+
+    async def delete(self, *keys: str) -> int:
+        removed = 0
+        for key in keys:
+            if key in self.strings:
+                del self.strings[key]
+                removed += 1
+        return removed
 
     async def incr(self, key: str) -> int:
         self.counters[key] += 1
@@ -394,10 +424,20 @@ class RecordingJobEvents:
         self.created: list[dict[str, Any]] = []
         self.statuses: list[dict[str, Any]] = []
         self.events: list[dict[str, Any]] = []
+        self.job_types: dict[str, str | None] = {}
+        self.released_locks: list[tuple[str, str]] = []
         self._status: dict[str, dict[str, Any]] = {}
 
-    async def create_job(self, job_id: str, *, url: str = "", source_id: str | None = None) -> None:
+    async def create_job(
+        self,
+        job_id: str,
+        *,
+        url: str = "",
+        source_id: str | None = None,
+        job_type: str | None = None,
+    ) -> None:
         self.created.append({"job_id": job_id, "url": url, "source_id": source_id})
+        self.job_types[job_id] = job_type
         self._status[job_id] = {
             "job_id": job_id,
             "status": "queued",
@@ -406,6 +446,10 @@ class RecordingJobEvents:
             "url": url,
             "updated_at": None,
         }
+
+    async def release_source_lock(self, source_id: str, job_id: str) -> bool:
+        self.released_locks.append((source_id, job_id))
+        return True
 
     async def set_status(
         self,
@@ -467,13 +511,21 @@ class RecordingJobEvents:
 
 
 class RecordingJobQueue:
-    """``JobQueue`` double capturing ``enqueue_ingest`` payloads."""
+    """``JobQueue`` double capturing ``enqueue_ingest`` / ``enqueue_analyze`` payloads."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, fail_analyze: bool = False) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.analyze_calls: list[dict[str, Any]] = []
+        self.fail_analyze = fail_analyze
 
     async def enqueue_ingest(self, **kwargs: Any) -> SimpleNamespace:
         self.calls.append(kwargs)
+        return SimpleNamespace(job_id=kwargs.get("job_id"))
+
+    async def enqueue_analyze(self, **kwargs: Any) -> SimpleNamespace:
+        if self.fail_analyze:
+            raise ConnectionError("queue unavailable")
+        self.analyze_calls.append(kwargs)
         return SimpleNamespace(job_id=kwargs.get("job_id"))
 
 
@@ -512,12 +564,14 @@ def build_ingest_app(
     job_queue: Any,
     resolver: Any = None,
     embedder: Any = None,
+    secret_box: Any = None,
 ) -> Any:
     """Create the real app with every ingestion dependency replaced by a double."""
     from app.api.deps import (
         get_embedder_override,
         get_job_events,
         get_job_queue,
+        get_secret_box,
         get_session,
         get_settings,
         get_url_resolver,
@@ -531,4 +585,6 @@ def build_ingest_app(
     app.dependency_overrides[get_job_queue] = lambda: job_queue
     app.dependency_overrides[get_url_resolver] = lambda: resolver
     app.dependency_overrides[get_embedder_override] = lambda: embedder
+    if secret_box is not None:
+        app.dependency_overrides[get_secret_box] = lambda: secret_box
     return app

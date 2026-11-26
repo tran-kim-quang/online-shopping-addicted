@@ -1,9 +1,10 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeReport, makeSourceSummary } from "../fixtures/report";
+import { ApiError } from "@/lib/api/errors";
+import { makeProfile, makeReport, makeSourceSummary, makeWarning } from "../fixtures/report";
 import { renderWithIntl } from "../../support/render";
 import { routerMock } from "../../support/router";
 
@@ -11,6 +12,7 @@ const api = vi.hoisted(() => ({
   getSource: vi.fn(),
   getSourceReport: vi.fn(),
   submitIngest: vi.fn(),
+  analyzeSource: vi.fn(),
   getProductsCsvUrl: vi.fn((id: string) => `http://api.test/api/sources/${id}/export/products.csv`),
   getReviewsCsvUrl: vi.fn((id: string) => `http://api.test/api/sources/${id}/export/reviews.csv`),
 }));
@@ -18,13 +20,19 @@ const api = vi.hoisted(() => ({
 const toastSpies = vi.hoisted(() => ({
   info: vi.fn(),
   success: vi.fn(),
+  warning: vi.fn(),
   error: vi.fn(),
 }));
 
 vi.mock("@/lib/api/client", () => api);
 
+const profileState = vi.hoisted(() => ({
+  activeProfileId: null as string | null,
+  activeProfile: null as unknown,
+}));
+
 vi.mock("@/components/providers", () => ({
-  useActiveProfile: () => ({ activeProfileId: null }),
+  useActiveProfile: () => profileState,
 }));
 
 vi.mock("sonner", () => ({ toast: toastSpies }));
@@ -33,15 +41,22 @@ vi.mock("@/components/chat/chat-panel", () => ({
   ChatPanel: () => React.createElement("div", { "data-testid": "chat-panel" }),
 }));
 
+const panelProps = vi.hoisted(() => ({ current: null as null | Record<string, unknown> }));
+
 vi.mock("@/components/ingest/ingest-progress-panel", async () => {
   const react = await import("react");
   return {
-    IngestProgressPanel: (props: { jobId: string }) =>
-      react.createElement(
+    IngestProgressPanel: (props: Record<string, unknown>) => {
+      panelProps.current = props;
+      return react.createElement(
         "div",
-        { "data-testid": "progress-panel" },
-        `job:${props.jobId}`
-      ),
+        {
+          "data-testid": "progress-panel",
+          "data-mode": (props.mode as string | undefined) ?? "ingest",
+        },
+        `job:${String(props.jobId)}`
+      );
+    },
   };
 });
 
@@ -54,14 +69,18 @@ function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return renderWithIntl(
+  const view = renderWithIntl(
     <QueryClientProvider client={queryClient}>
       <SourcePageClient sourceId={SOURCE_ID} />
     </QueryClientProvider>
   );
+  return { ...view, queryClient };
 }
 
-function stubSource(overrides: Record<string, unknown> = {}) {
+function stubSource(
+  overrides: Record<string, unknown> = {},
+  reportOverrides: Record<string, unknown> = {}
+) {
   const source = makeSourceSummary({ id: SOURCE_ID, ...overrides });
   api.getSource.mockResolvedValue(source);
   api.getSourceReport.mockResolvedValue(
@@ -71,6 +90,7 @@ function stubSource(overrides: Record<string, unknown> = {}) {
         id: SOURCE_ID,
         refresh_after: String(overrides.refresh_after ?? new Date(Date.now() + 12 * HOUR).toISOString()),
       },
+      ...reportOverrides,
     })
   );
   return source;
@@ -80,9 +100,14 @@ beforeEach(() => {
   api.getSource.mockReset();
   api.getSourceReport.mockReset();
   api.submitIngest.mockReset();
+  api.analyzeSource.mockReset();
   toastSpies.info.mockReset();
   toastSpies.success.mockReset();
+  toastSpies.warning.mockReset();
   toastSpies.error.mockReset();
+  profileState.activeProfileId = null;
+  profileState.activeProfile = null;
+  panelProps.current = null;
 });
 
 describe("SourcePageClient cache policy", () => {
@@ -153,5 +178,279 @@ describe("SourcePageClient cache policy", () => {
 
     await waitFor(() => expect(api.submitIngest).toHaveBeenCalledTimes(1));
     expect(api.submitIngest.mock.calls[0]![0]).not.toHaveProperty("force");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// "Phân tích bằng LLM" — standalone analysis of rating-only reviews
+// ---------------------------------------------------------------------------
+
+const PROFILE_ID = "33333333-3333-4333-8333-333333333333";
+
+function ratingOnlyReport(overrides: Record<string, unknown> = {}) {
+  const base = makeReport();
+  return makeReport({
+    totals: {
+      ...base.totals,
+      reviews_rating_only: 25,
+      sentiment: { positive: 80, neutral: 25, negative: 15, unanalyzed: 0 },
+      sentiment_source: { llm: 0, rating: 25, none: 0 },
+    },
+    warnings: [
+      makeWarning({
+        code: "sentiment_rating_only",
+        message: "Cảm xúc đang suy ra từ số sao; chưa phân tích bằng LLM.",
+        params: { count: 25 },
+      }),
+    ],
+    aspects: { top_positive: [], top_negative: [] },
+    ...overrides,
+  });
+}
+
+function useProfile() {
+  profileState.activeProfileId = PROFILE_ID;
+  profileState.activeProfile = makeProfile({ id: PROFILE_ID });
+}
+
+async function openAnalyzeDialog(user: ReturnType<typeof userEvent.setup>) {
+  const triggers = await screen.findAllByRole("button", { name: "Phân tích bằng LLM" });
+  await user.click(triggers[0]!);
+  return screen.findByRole("alertdialog");
+}
+
+describe("SourcePageClient LLM analysis", () => {
+  it("offers no analyze action when every review already came from the LLM", async () => {
+    useProfile();
+    stubSource();
+
+    renderPage();
+
+    await screen.findAllByRole("button", { name: "Tải CSV" });
+    expect(screen.queryByRole("button", { name: "Phân tích bằng LLM" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Phân tích bằng LLM" })).not.toBeInTheDocument();
+  });
+
+  it("sends the user to LLM settings when no profile is active", async () => {
+    stubSource({}, ratingOnlyReport());
+
+    renderPage();
+
+    const links = await screen.findAllByRole("link", { name: "Phân tích bằng LLM" });
+    expect(links.length).toBeGreaterThan(0);
+    expect(links[0]).toHaveAttribute("href", "/settings/llm");
+    expect(api.analyzeSource).not.toHaveBeenCalled();
+  });
+
+  it("shows the review and request estimate before starting", async () => {
+    useProfile();
+    stubSource({}, ratingOnlyReport());
+    const user = userEvent.setup();
+
+    renderPage();
+    const dialog = await openAnalyzeDialog(user);
+
+    expect(dialog).toHaveTextContent("Phân tích đánh giá bằng LLM?");
+    // 25 rating-only reviews / 20 per LLM request → 2 requests.
+    expect(dialog).toHaveTextContent(
+      "Sẽ phân tích 25 đánh giá bằng LLM (ước tính ~2 request LLM)."
+    );
+    expect(dialog).toHaveTextContent("Cấu hình: OpenRouter (nvidia/nemotron-3-70b)");
+    expect(dialog).toHaveTextContent("Không thu thập lại dữ liệu từ sàn");
+    expect(api.analyzeSource).not.toHaveBeenCalled();
+  });
+
+  it("counts unanalyzed reviews into the estimate", async () => {
+    useProfile();
+    const report = ratingOnlyReport({
+      totals: {
+        ...ratingOnlyReport().totals,
+        reviews_rating_only: 5,
+        sentiment: { positive: 0, neutral: 0, negative: 0, unanalyzed: 16 },
+      },
+    });
+    stubSource({}, report);
+    const user = userEvent.setup();
+
+    renderPage();
+    const dialog = await openAnalyzeDialog(user);
+
+    // 21 reviews → ceil(21 / 20) = 2 requests.
+    expect(dialog).toHaveTextContent("Sẽ phân tích 21 đánh giá");
+    expect(dialog).toHaveTextContent("~2 request LLM");
+  });
+
+  it("posts the active profile and follows the queued job inline", async () => {
+    useProfile();
+    stubSource({}, ratingOnlyReport());
+    api.analyzeSource.mockResolvedValue({
+      kind: "queued",
+      data: { job_id: "job-analyze-1", reviews_to_analyze: 25, estimated_llm_requests: 2 },
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    const dialog = await openAnalyzeDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Bắt đầu phân tích" }));
+
+    await waitFor(() => expect(api.analyzeSource).toHaveBeenCalledWith(SOURCE_ID, PROFILE_ID));
+    // The overview renders twice (desktop grid + mobile tab), so two panels exist.
+    const panels = await screen.findAllByTestId("progress-panel");
+    expect(panels[0]).toHaveAttribute("data-mode", "analyze");
+    expect(panels[0]).toHaveTextContent("job:job-analyze-1");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("informs the user when the backend says everything is up to date", async () => {
+    useProfile();
+    stubSource({}, ratingOnlyReport());
+    api.analyzeSource.mockResolvedValue({ kind: "up_to_date", data: { status: "up_to_date" } });
+    const user = userEvent.setup();
+
+    const { queryClient } = renderPage();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const dialog = await openAnalyzeDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Bắt đầu phân tích" }));
+
+    await waitFor(() =>
+      expect(toastSpies.info).toHaveBeenCalledWith("Tất cả đánh giá đã được phân tích bằng LLM.")
+    );
+    expect(screen.queryAllByTestId("progress-panel")).toHaveLength(0);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["source-report", SOURCE_ID] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["source", SOURCE_ID] });
+  });
+
+  it("attaches to the running job instead of failing on 409 analysis_running", async () => {
+    useProfile();
+    stubSource({}, ratingOnlyReport());
+    api.analyzeSource.mockRejectedValue(
+      new ApiError({
+        status: 409,
+        code: "analysis_running",
+        detail: "already running",
+        jobId: "job-running-9",
+      })
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    const dialog = await openAnalyzeDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Bắt đầu phân tích" }));
+
+    const panels = await screen.findAllByTestId("progress-panel");
+    expect(panels[0]).toHaveTextContent("job:job-running-9");
+    expect(toastSpies.info).toHaveBeenCalledWith("Đang theo dõi tác vụ phân tích đang chạy.");
+    expect(screen.queryAllByRole("alert")).toHaveLength(0);
+  });
+
+  it("falls back to the job id recorded in source stats when the error has none", async () => {
+    useProfile();
+    stubSource(
+      { stats: { last_analyze_job_id: "job-from-stats" } },
+      ratingOnlyReport()
+    );
+    api.analyzeSource.mockRejectedValue(
+      new ApiError({ status: 409, code: "analysis_running", detail: "already running" })
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    const dialog = await openAnalyzeDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Bắt đầu phân tích" }));
+
+    const panels = await screen.findAllByTestId("progress-panel");
+    expect(panels[0]).toHaveTextContent("job:job-from-stats");
+  });
+
+  it("surfaces a decrypt failure with a link to settings and a retry", async () => {
+    useProfile();
+    stubSource({}, ratingOnlyReport());
+    api.analyzeSource.mockRejectedValueOnce(
+      new ApiError({ status: 409, code: "secret_key_mismatch", detail: "cannot decrypt" })
+    );
+    api.analyzeSource.mockResolvedValueOnce({
+      kind: "queued",
+      data: { job_id: "job-retry", reviews_to_analyze: 25, estimated_llm_requests: 2 },
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    const dialog = await openAnalyzeDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Bắt đầu phân tích" }));
+
+    const alerts = await screen.findAllByRole("alert");
+    const alert = alerts.find((node) => /API key không giải mã được/.test(node.textContent ?? ""));
+    if (!alert) throw new Error("the analyze error banner was not rendered");
+    expect(within(alert).getByRole("link", { name: "Mở Cài đặt LLM" })).toHaveAttribute(
+      "href",
+      "/settings/llm"
+    );
+
+    await user.click(within(alert).getByRole("button", { name: /Thử lại/ }));
+
+    await waitFor(() => expect(api.analyzeSource).toHaveBeenCalledTimes(2));
+    const retried = await screen.findAllByTestId("progress-panel");
+    expect(retried[0]).toHaveTextContent("job:job-retry");
+  });
+
+  it("refreshes the report and toasts the analyzed count when the job completes", async () => {
+    useProfile();
+    stubSource({}, ratingOnlyReport());
+    api.analyzeSource.mockResolvedValue({
+      kind: "queued",
+      data: { job_id: "job-analyze-1", reviews_to_analyze: 25, estimated_llm_requests: 2 },
+    });
+    const user = userEvent.setup();
+
+    const { queryClient } = renderPage();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const dialog = await openAnalyzeDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Bắt đầu phân tích" }));
+    await screen.findAllByTestId("progress-panel");
+
+    act(() => {
+      (panelProps.current!.onJobComplete as (info: unknown) => void)({
+        jobId: "job-analyze-1",
+        status: "done",
+        sourceId: SOURCE_ID,
+        done: 25,
+        total: 25,
+      });
+    });
+
+    expect(toastSpies.success).toHaveBeenCalledWith("Đã phân tích 25 đánh giá");
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["source-report", SOURCE_ID] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["source", SOURCE_ID] });
+    await waitFor(() => expect(screen.queryAllByTestId("progress-panel")).toHaveLength(0));
+  });
+
+  it("uses the warning toast when some LLM batches failed", async () => {
+    useProfile();
+    stubSource({}, ratingOnlyReport());
+    api.analyzeSource.mockResolvedValue({
+      kind: "queued",
+      data: { job_id: "job-analyze-1", reviews_to_analyze: 25, estimated_llm_requests: 2 },
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    const dialog = await openAnalyzeDialog(user);
+    await user.click(within(dialog).getByRole("button", { name: "Bắt đầu phân tích" }));
+    await screen.findAllByTestId("progress-panel");
+
+    act(() => {
+      (panelProps.current!.onJobComplete as (info: unknown) => void)({
+        jobId: "job-analyze-1",
+        status: "partial",
+        sourceId: SOURCE_ID,
+        done: 20,
+        total: 25,
+      });
+    });
+
+    expect(toastSpies.success).not.toHaveBeenCalled();
+    expect(toastSpies.warning).toHaveBeenCalledWith(
+      "Đã phân tích 20 đánh giá (một số lô gặp lỗi LLM, giữ kết quả theo sao)."
+    );
   });
 });

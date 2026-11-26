@@ -15,7 +15,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 next build && playwright test",
     "test:e2e:live": "E2E_LIVE=1 E2E_BASE_URL=http://localhost:3000 playwright test tests/e2e/live.spec.ts",
-    "start:e2e": "next start --port 3100",
+    "start:e2e": "node scripts/start-standalone.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

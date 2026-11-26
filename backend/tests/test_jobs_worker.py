@@ -8,7 +8,7 @@ import pytest
 
 import app.jobs.worker as worker_module
 from app.core.config import Settings
-from app.jobs.tasks import run_ingest
+from app.jobs.tasks import run_analyze, run_ingest
 from app.jobs.worker import WorkerSettings, _resolve_redis_settings, on_shutdown, on_startup
 
 SECRET = "vN5y6rM0J9h2xL8qK3pW1zB4cF7dG0tH2sV5mN8wX4Q="
@@ -25,8 +25,13 @@ def make_settings(**overrides: Any) -> Settings:
     return Settings(**values)
 
 
-def test_worker_settings_register_the_ingest_task() -> None:
-    assert WorkerSettings.functions == [run_ingest]
+def test_worker_settings_register_the_ingest_and_analyze_tasks() -> None:
+    """``run_analyze`` must be registered, otherwise the API can enqueue a job nobody runs.
+
+    The analyze endpoint holds a per-source Redis lock and only releases it from the task's
+    ``finally`` block, so an unregistered function would block the source until the lock TTL.
+    """
+    assert WorkerSettings.functions == [run_ingest, run_analyze]
     assert WorkerSettings.max_jobs >= 1
     assert WorkerSettings.job_timeout > 0
     assert WorkerSettings.keep_result > 0

@@ -129,8 +129,17 @@ def test_warnings_without_numeric_detail_expose_empty_params() -> None:
         has_aspects=False,
     )
 
-    for code in ("sentiment_rating_only", "no_aspects", "not_ingested"):
+    for code in ("no_aspects", "not_ingested"):
         assert _by_code(warnings, code).params == {}
+
+
+def test_sentiment_rating_only_carries_the_rating_only_review_count() -> None:
+    """The banner needs ``count`` to say how many reviews are still star-derived."""
+    warnings = _warnings(totals=_totals(positive=2, negative=1, src_llm=0, src_rating=3))
+
+    warning = _by_code(warnings, "sentiment_rating_only")
+    assert warning.params == {"count": 3}
+    assert "Ingest lại" not in warning.message
 
 
 def test_params_are_json_serialisable_ints_and_strings() -> None:

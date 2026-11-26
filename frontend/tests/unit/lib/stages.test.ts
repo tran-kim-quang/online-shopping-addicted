@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  ANALYZE_STEPS,
+  ANALYZE_STAGE_TO_STEP_INDEX,
   INGEST_STEPS,
   STAGE_TO_STEP_INDEX,
+  estimateLlmRequests,
   extractJobErrorCode,
+  resolveAnalyzeStage,
   resolveStage,
 } from "@/lib/stages";
 
@@ -143,5 +147,103 @@ describe("extractJobErrorCode", () => {
     expect(extractJobErrorCode(undefined)).toBe("unknown_error");
     // An unrecognised non-empty string degrades to the generic job failure code.
     expect(extractJobErrorCode("   ")).toBe("job_failed");
+  });
+});
+
+describe("analyze stages (Phần B llm-analyze)", () => {
+  it("exposes exactly the two analyze steps emitted by run_analyze", () => {
+    expect(ANALYZE_STEPS).toEqual(["queued", "sentiment"]);
+    expect(Object.keys(ANALYZE_STAGE_TO_STEP_INDEX).sort()).toEqual([
+      "queued",
+      "sentiment",
+      "started",
+    ]);
+  });
+
+  it("maps the backend analyze stages onto the two steps", () => {
+    for (const stage of ["queued", "started", "  STARTED  "]) {
+      expect(resolveAnalyzeStage(stage)).toMatchObject({
+        stepIndex: 0,
+        stepKey: "queued",
+        terminal: null,
+        known: true,
+      });
+    }
+    expect(resolveAnalyzeStage("sentiment", 0)).toMatchObject({
+      stepIndex: 1,
+      stepKey: "sentiment",
+    });
+  });
+
+  it("never moves the highlighted step backwards", () => {
+    expect(resolveAnalyzeStage("queued", 1)).toMatchObject({ stepIndex: 1, stepKey: "sentiment" });
+    expect(resolveAnalyzeStage("started", 1)).toMatchObject({ stepIndex: 1 });
+  });
+
+  it("clamps an out-of-range current step", () => {
+    expect(resolveAnalyzeStage("queued", 99).stepIndex).toBe(1);
+    expect(resolveAnalyzeStage("queued", -3).stepIndex).toBe(0);
+  });
+
+  it("treats done and partial as the last step with a terminal flag", () => {
+    for (const stage of ["done", "partial"]) {
+      expect(resolveAnalyzeStage(stage)).toMatchObject({
+        stepIndex: 1,
+        stepKey: "sentiment",
+        terminal: stage,
+        known: true,
+      });
+    }
+  });
+
+  it("keeps the current step for failed and unknown stages", () => {
+    expect(resolveAnalyzeStage("failed", 0)).toMatchObject({
+      stepIndex: 0,
+      stepKey: "queued",
+      terminal: "failed",
+      known: true,
+    });
+    // Crawl-only stages must never light up an analyze step.
+    expect(resolveAnalyzeStage("embed", 1)).toMatchObject({
+      stepIndex: 1,
+      stepKey: "sentiment",
+      terminal: null,
+      known: false,
+    });
+    expect(resolveAnalyzeStage("classify", 0)).toMatchObject({ known: false, stepIndex: 0 });
+  });
+});
+
+describe("estimateLlmRequests", () => {
+  it("mirrors the backend ceil(reviews / SENTIMENT_BATCH_SIZE)", () => {
+    expect(estimateLlmRequests(0)).toBe(0);
+    expect(estimateLlmRequests(-5)).toBe(0);
+    expect(estimateLlmRequests(1)).toBe(1);
+    expect(estimateLlmRequests(20)).toBe(1);
+    expect(estimateLlmRequests(21)).toBe(2);
+    expect(estimateLlmRequests(25, 10)).toBe(3);
+  });
+
+  it("never divides by zero when a batch size is misconfigured", () => {
+    expect(estimateLlmRequests(5, 0)).toBe(5);
+    expect(estimateLlmRequests(5, -1)).toBe(5);
+  });
+});
+
+describe("extractJobErrorCode for analyze jobs", () => {
+  it.each([
+    ["secret_key_mismatch", "secret_key_mismatch"],
+    ["secret_key_mismatch: re-enter key", "secret_key_mismatch"],
+    ["Failed to decrypt secret: token is invalid", "secret_key_mismatch"],
+    ["llm_auth: 401", "llm_auth"],
+    ["llm_not_found", "llm_not_found"],
+    ["llm_rate_limit: 429", "llm_rate_limit"],
+    ["llm_unavailable: 503", "llm_unavailable"],
+    ["llm_bad_request", "llm_bad_request"],
+    ["llm_invalid_response: no JSON", "llm_invalid_response"],
+    ["llm_error", "llm_error"],
+    ["worker_timeout: worker heartbeat expired", "worker_timeout"],
+  ])("maps %s to %s", (raw, expected) => {
+    expect(extractJobErrorCode(raw)).toBe(expected);
   });
 });

@@ -266,3 +266,138 @@ describe("IngestProgressPanel", () => {
     await waitFor(() => expect(screen.getByText("Đã chạy 00:00")).toBeInTheDocument());
   });
 });
+
+describe("IngestProgressPanel (analyze mode)", () => {
+  function renderAnalyzePanel(
+    props: Partial<React.ComponentProps<typeof IngestProgressPanel>> = {}
+  ) {
+    const onComplete = vi.fn();
+    const onJobComplete = vi.fn();
+    const onStopWatching = vi.fn();
+    const onRetry = vi.fn();
+    const view = renderWithIntl(
+      <IngestProgressPanel
+        mode="analyze"
+        jobId="job-a1"
+        targetLabel="Nhà sách Fahasa"
+        onJobComplete={onJobComplete}
+        onStopWatching={onStopWatching}
+        onRetry={onRetry}
+        {...props}
+      />
+    );
+    return { ...view, onComplete, onJobComplete, onStopWatching, onRetry };
+  }
+
+  it("renders the two analyze steps and never the five ingest steps", () => {
+    renderAnalyzePanel();
+
+    expect(screen.getByText("Đang phân tích bằng LLM: Nhà sách Fahasa")).toBeInTheDocument();
+    const list = screen.getByRole("list", { name: /Đang phân tích bằng LLM/ });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(list).getByText("Chuẩn bị phân tích")).toBeInTheDocument();
+    expect(within(list).getByText("Phân tích cảm xúc & khía cạnh")).toBeInTheDocument();
+    expect(within(list).queryByText("Phân loại link")).not.toBeInTheDocument();
+    expect(within(list).queryByText("Tạo chỉ mục tìm kiếm")).not.toBeInTheDocument();
+  });
+
+  it("shows review-level progress from the sentiment stage", () => {
+    renderAnalyzePanel();
+
+    act(() => {
+      handlers.onProgress(progress("sentiment", 2, 5, "Đã phân tích 2/5 đánh giá"));
+    });
+
+    expect(screen.getByText("2/5")).toBeInTheDocument();
+    expect(screen.getByText("Đã phân tích 2/5 đánh giá")).toBeInTheDocument();
+    const stepLabel = screen.getByText("Phân tích cảm xúc & khía cạnh");
+    expect(stepLabel.className).toContain("font-medium");
+  });
+
+  it("reports completion with the analyzed review count and no overview button", () => {
+    const { onComplete, onJobComplete } = renderAnalyzePanel();
+
+    act(() => {
+      handlers.onProgress(progress("sentiment", 4, 5));
+      handlers.onDone({
+        seq: 9,
+        job_id: "job-a1",
+        status: "done",
+        source_id: "src-42",
+        error: null,
+      });
+    });
+
+    expect(screen.getByText("Phân tích LLM hoàn tất")).toBeInTheDocument();
+    expect(onJobComplete).toHaveBeenCalledWith({
+      jobId: "job-a1",
+      status: "done",
+      sourceId: "src-42",
+      done: 4,
+      total: 5,
+    });
+    // There is nothing to navigate to: the analyze panel stays on the current page.
+    expect(screen.queryByRole("button", { name: "Mở trang tổng quan" })).not.toBeInTheDocument();
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it("marks a partial analysis and keeps the star fallback message", () => {
+    const { onJobComplete } = renderAnalyzePanel();
+
+    act(() => {
+      handlers.onDone({
+        seq: 9,
+        job_id: "job-a1",
+        status: "partial",
+        source_id: "src-42",
+        error: "1/2 LLM batch(es) failed; kept star-rating fallback.",
+      });
+    });
+
+    expect(screen.getByText("Phân tích LLM hoàn tất một phần")).toBeInTheDocument();
+    expect(onJobComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "partial", done: 0, total: null })
+    );
+  });
+
+  it("translates a failed analyze job and offers retry plus close", async () => {
+    const user = userEvent.setup();
+    const { onRetry, onStopWatching } = renderAnalyzePanel();
+
+    act(() => {
+      handlers.onError({
+        seq: 3,
+        job_id: "job-a1",
+        status: "failed",
+        source_id: null,
+        error: "llm_unavailable: 503",
+      });
+    });
+
+    expect(screen.getByText("Phân tích LLM gặp lỗi")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/LLM/);
+
+    await user.click(screen.getByRole("button", { name: /Thử lại/ }));
+    expect(onRetry).toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Đóng" }));
+    expect(onStopWatching).toHaveBeenCalled();
+  });
+
+  it("switches the step list when the mode changes on the same job id", () => {
+    const view = renderAnalyzePanel();
+
+    view.rerender(
+      <IngestProgressPanel
+        mode="ingest"
+        jobId="job-a1"
+        targetLabel="Nhà sách Fahasa"
+        onComplete={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("list", { name: /Đang thu thập/ })).toBeInTheDocument();
+    // "Phân loại link" is both the first step label and the default status line.
+    expect(screen.getAllByText("Phân loại link").length).toBeGreaterThan(0);
+  });
+});

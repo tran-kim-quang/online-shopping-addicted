@@ -7,6 +7,7 @@ export const PRODUCT_ID_A = "11111111-1111-4111-8111-111111111111";
 export const PRODUCT_ID_B = "22222222-2222-4222-8222-222222222222";
 export const PROFILE_ID = "33333333-3333-4333-8333-333333333333";
 export const JOB_ID = "job-e2e-1";
+export const ANALYZE_JOB_ID = "job-e2e-analyze-1";
 export const CHAT_SESSION_ID = "44444444-4444-4444-8444-444444444444";
 export const CRAWLED_AT = "2026-11-26T02:30:00Z";
 
@@ -172,6 +173,7 @@ export const report = {
     rating_avg_weighted: 4.62,
     review_count_reported: 300,
     reviews_collected: 120,
+    reviews_rating_only: 0,
     coverage_pct: 40,
     sentiment: { positive: 80, neutral: 25, negative: 15, unanalyzed: 0 },
     sentiment_source: { llm: 100, rating: 20, none: 0 },
@@ -293,6 +295,55 @@ export const chatSseBody = sse([
       data_as_of: CRAWLED_AT,
       steps: 2,
       invalid_citations: 0,
+    },
+  },
+]);
+
+/** A report where every sentiment came from the stars: this is what shows the analyze CTA. */
+export const ratingOnlyReport = {
+  ...report,
+  totals: {
+    ...report.totals,
+    reviews_rating_only: 25,
+    sentiment: { positive: 80, neutral: 25, negative: 15, unanalyzed: 0 },
+    sentiment_source: { llm: 0, rating: 25, none: 0 },
+  },
+  aspects: { top_positive: [], top_negative: [] },
+  warnings: [
+    {
+      code: "sentiment_rating_only",
+      message: "Cảm xúc đang suy ra từ số sao; chưa phân tích bằng LLM.",
+      params: { count: 25 },
+      product_ids: null,
+    },
+  ],
+};
+
+/**
+ * Progress-only stream for a running analyze job (no terminal frame), so the inline panel
+ * stays on screen and its steps can be asserted.
+ */
+export const analyzeJobSseBody = sse([
+  {
+    event: "progress",
+    data: {
+      seq: 1,
+      stage: "started",
+      done: 0,
+      total: 25,
+      message: "Starting LLM sentiment analysis",
+      ts: CRAWLED_AT,
+    },
+  },
+  {
+    event: "progress",
+    data: {
+      seq: 2,
+      stage: "sentiment",
+      done: 2,
+      total: 25,
+      message: "Analyzed 2/25 review(s)",
+      ts: CRAWLED_AT,
     },
   },
 ]);

@@ -1330,3 +1330,599 @@ Không sửa: `frontend/components/**`, `frontend/lib/**`, `frontend/messages/**
 `frontend/vitest.config.mts`, `docker-compose.yml`, `docs/PLAN.md`, `docs/research/**`,
 `docs/design-system/**`, `docs/tasks/cache-policy.md` và mọi spec khác.
 Không `git commit/checkout/branch/stash/reset`.
+
+# Phần B (llm-analyze) — Tách phân tích LLM khỏi crawl, `POST /api/sources/{id}/analyze`
+
+Người thực hiện: Tester (hermes) · Ngày: 2026-11-26 · Nhánh: `feat/phase-5-frontend`
+Phạm vi: **Phần B** của `docs/tasks/llm-analyze.md` (dòng 34–41). Mục này **append**, không sửa các
+mục trước.
+
+Bối cảnh phiên: lần chạy trước crash giữa lúc viết bộ test này. Khi tiếp tục, test đã nằm trong
+working tree (**chưa commit**) nhưng **chưa có báo cáo**. Phiên này làm 4 việc: (a) rà lại từng gạch
+đầu dòng của Phần B xem còn hành vi nào chưa có test, (b) bổ sung **8 test** còn thiếu, (c) chạy lại
+toàn bộ backend + frontend, (d) viết mục này.
+
+Code Phần A (agy) đã có sẵn và em **không sửa**: `needs_sentiment_analysis(..., llm_available=)`,
+`analyze_source`, task Arq `run_analyze`, endpoint analyze + khoá Redis per-source,
+`totals.reviews_rating_only` + warning `sentiment_rating_only` (message/params mới), xoá
+`submit_ingest_url`, `openapi.json`; frontend `analyzeSource`, CTA trong `AspectsPanel` /
+`WarningsBanner` (`analyzeAction`), panel `mode="analyze"`, model step analyze trong `lib/stages`,
+`ApiError.jobId`, i18n vi/en.
+
+## 0. TL;DR
+
+| Hạng mục | Kết quả (output thật của phiên này) |
+|---|---|
+| `uv run pytest -q` — baseline **trước** khi em thêm test | **1502 passed, 1 skipped, 5 warnings in 69.51s** |
+| `uv run pytest -q` — sau khi thêm 8 test | **1510 passed, 1 skipped, 5 warnings in 95.04s** (skip = `test_tiki_live.py`, opt-in `RUN_LIVE=1`) |
+| `uv run pytest -m "not integration and not live" -q` | **1342 passed, 169 deselected** (14.75s) |
+| `uv run pytest -m integration -q` | **168 passed, 1343 deselected** (54.42s) |
+| `uv run ruff check .` / `ruff format --check .` | **All checks passed!** / **151 files already formatted** |
+| Coverage backend (1 target/lần, §6.2) | `app/ingest/sentiment.py` **99%** (162 stmts, 2 miss) · `app/jobs/tasks.py` **93%** (201, 15) · `app/api/sources.py` **87%** (216, 29 — **mọi dòng của endpoint analyze đã phủ**) · `app/ingest/pipeline.py` **78%** (306, 68 — **`analyze_source` 100%**, miss còn lại là đường crawl/chunk/embed của `ingest_source`) |
+| Test backend thêm trong phiên này | **+8** (2 contract OpenAPI, 4 khoá/fallback của endpoint, 2 pipeline) |
+| `npm run typecheck` (`tsc --noEmit`) | pass, 0 lỗi |
+| `npm run lint` (`eslint .` + `check-i18n.mjs`) | pass; `i18n check passed: 341 keys verified across vi.json and en.json` (Vòng 2: 322 → **+19**) |
+| `npm run test:coverage` | **338 passed / 338**, 23 file (33.89s); **97.90% stmts · 95.13% branch · 97.18% funcs · 99.05% lines**; `lib/**` 99.17 / 95.96 / 100 / 100 → DoD ≥ 90% ✓ |
+| Playwright (mock `page.route`, `next build` + `playwright test`) | **42 passed, 3 skipped** (3 = live smoke `E2E_LIVE`), 1.3m — `analyze.spec.ts` **7/7** |
+| axe (dialog + panel analyze, 375 & 1440) | **0 serious / 0 critical**; không scroll ngang |
+| `next build` | pass (route table in ra đủ 5 route, `/[locale]/sources/[id]` 439 kB First Load JS) |
+| Bug thật trong `backend/app/**` | **0 bug — không sửa dòng nào** (§6.1) |
+| Dữ liệu thật DB `shopqa` | **Không bị chạm**: `sources/products/reviews/chunks = 10/10/140/182`, `llm_profiles=0`, `review_summaries=1`, `rev=0004_chat` — đo lúc **18:36** và **18:47**, sau full + unit + integration + các lần coverage + E2E + build |
+| Redis | db 0 `DBSIZE = 22` ở cả hai lần đo; db 15 = **0** sau mọi lần chạy |
+| Gọi LLM thật / gọi sàn thật | **Không** — unit: `_block_real_network` + `_forbidden`; integration: `ScriptedLLM` + `FakeEmbedder`; E2E: `page.route` |
+
+Không sửa `docs/PLAN.md`, `docs/research/**`, `docs/design-system/**`, spec `docs/tasks/llm-analyze.md`
+và mọi spec khác, `backend/app/**`, `backend/openapi.json`, `backend/scripts/**`,
+`backend/tests/fixtures/tiki/**`, `frontend/lib/**`, `frontend/components/**`,
+`frontend/messages/**`, `frontend/vitest.config.mts`, `docker-compose.yml`.
+Không `git commit/checkout/branch/stash/reset`.
+
+## 1. Môi trường & lệnh chạy
+
+| Thành phần | Phiên bản |
+|---|---|
+| Python (`backend/.venv`) / pytest | 3.14.10 / **9.2.0**, `asyncio_mode=auto` |
+| SQLAlchemy / FastAPI / pydantic / httpx | **2.1.9** / 0.165.0 / 2.14.4 / 0.28.1 |
+| ruff | **0.17.6**, line-length 100, select `E,F,I,B,UP` |
+| Node / npm | 24.22.1 / 11.19.1 |
+| Next / Vitest | 15.5.29 / 4.1.12 |
+| Playwright | `@playwright/test` **1.63.0** → runner cần chromium **revision 1243**; `~/.cache/ms-playwright/chromium-1243` đã có sẵn → **không tải gì thêm** |
+| Compose | `api` :8000, `worker`, `web` :3000, `db` :5433 (rev `0004_chat`), `redis` :6380 — tất cả `Up` |
+
+```bash
+# backend (từ backend/)
+uv run pytest -q
+uv run pytest -m "not integration and not live" -q
+uv run pytest -m integration -q
+uv run ruff check . && uv run ruff format --check .
+
+# coverage: MỘT target mỗi lần (SQLAlchemy 2.1.9 vỡ C-ext khi ≥2 target, §6.2)
+uv run pytest -q -m "not integration and not live" --cov=app.ingest.sentiment --cov-report=term-missing
+uv run pytest -q -m "not integration and not live" --cov=app.jobs.tasks --cov-report=term-missing
+uv run pytest -q -m "not integration and not live" --cov=app.ingest.pipeline --cov-report=term-missing
+uv run pytest -q tests/test_api_analyze.py tests/test_api_sources_list.py tests/test_api_ingest.py \
+  tests/test_api_jobs.py tests/test_jobs_last_job_id.py --cov=app.api.sources --cov-report=term-missing
+
+# frontend (từ frontend/)
+npm run typecheck && npm run lint
+npm run test:coverage
+npm run test:e2e        # NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 next build && playwright test
+npm run build
+```
+
+## 2. Cách ly DB/Redis cho integration
+
+`tests/test_analyze_integration.py` dựng hạ tầng riêng, **không** dùng lại DB của Phase 5:
+
+- DB test: **`shopqa_phase5_analyze_test`** (override `TEST_PHASE5_ANALYZE_DB_NAME`), Postgres
+  `localhost:5433`, maintenance connection = `shopqa` (override
+  `TEST_PHASE5_ANALYZE_PG_MAINTENANCE_DB`; các biến `_PG_HOST/PORT/USER/PASSWORD` có cùng prefix).
+  `shopqa` chỉ được dùng để `CREATE DATABASE` nếu DB test chưa có — **không** migrate, **không**
+  `TRUNCATE`, **không** ghi.
+- Mỗi test: fixture session kiểm `SELECT current_database()` rồi `assert current == TEST_DB_NAME`
+  (và `assert TEST_DB_NAME != "shopqa"` ở fixture migration) **trước khi** dọn dữ liệu; chỉ dọn bảng
+  của phạm vi: `TRUNCATE review_summaries, chunks, reviews, products, shops, sources CASCADE` +
+  `DELETE FROM llm_profiles` (bảng profile không có FK về `sources` nên phải xoá riêng).
+- Migration: fixture session-scope chạy `python -m alembic upgrade head` với `env` riêng
+  (`DATABASE_URL` = DB test), `assert returncode == 0` → không đụng `.env`/DB của compose.
+- Postgres/Redis không truy cập được → `pytest.skip` (không làm đỏ unit run).
+- Redis: chỉ **db 15** (`TEST_PHASE5_ANALYZE_REDIS_DB`), `FLUSHDB` đầu/cuối mỗi test; khoá
+  `analyze:lock:*` cũng sống ở db 15 trong test. Không bao giờ `FLUSHDB` db 0.
+- API chạy **in-process** qua `httpx.ASGITransport` + `dependency_overrides` (`get_session`,
+  `build_ingest_app`); không gọi endpoint nào trên container `api` thật.
+- Không network, không LLM thật: `ScriptedLLM` trả JSON theo `negative_ids`/`fail_ids`, embedder là
+  `FakeEmbedder`/`BombEmbedder`.
+
+Kiểm chứng dữ liệu thật (trước **và** sau khi chạy toàn bộ):
+
+```text
+$ docker compose exec -T db psql -U shopqa -d shopqa -t -c \
+    "SELECT (SELECT count(*) FROM sources)||'/'||(SELECT count(*) FROM products)||'/'||
+            (SELECT count(*) FROM reviews)||'/'||(SELECT count(*) FROM chunks)||'/'||
+            (SELECT count(*) FROM llm_profiles)||'/'||(SELECT count(*) FROM review_summaries)||'/'||
+            (SELECT version_num FROM alembic_version);"
+10/10/140/182/0/1/0004_chat      # 18:36
+10/10/140/182/0/1/0004_chat      # 18:47  (sau full + unit + integration + 4 coverage + E2E + build)
+
+$ ... -c "SELECT count(*) FROM llm_profiles WHERE name LIKE 'it-%';"   -> 0
+$ docker compose exec -T redis redis-cli -n 0 dbsize   -> 22 / 22
+$ docker compose exec -T redis redis-cli -n 15 dbsize  -> 0
+```
+
+## 3. Phân bố test
+
+### 3.1 Backend (pytest)
+
+| File | Số test | Loại | Nội dung |
+|---|---|---|---|
+| `tests/test_analyze_pipeline_unit.py` **(mới)** | 13 (+2) | unit | `analyze_source`: chỉ review cần thiết, xoá `review_summaries` theo product đổi, progress đơn điệu, 1 product lỗi → `partial`, tất cả lỗi → `failed`, 1 lô LLM lỗi → `partial`, không có gì để làm → `done` ngay, source/profile không tồn tại, product biến mất, **dựng client từ profile**, **không dựng được client → raise**, lan truyền `JobCancelledError` |
+| `tests/test_jobs_analyze.py` **(mới)** | 11 | unit | `run_analyze`: stage `started → sentiment → done|partial|failed`, **không** có `classify/crawl_done/embed/index`, **không** truyền `embedder`/`registry`, forward dependency, heartbeat tick + dừng, terminal CAS, `JobCancelledError` không ghi status lần 2, release khoá ở mọi nhánh, chặn `llm_profile_id` rỗng, nhận UUID hoặc str |
+| `tests/test_api_analyze.py` **(mới)** | 29 (+4) | unit | 404 source/profile, 409 `source_not_ready` (mọi status không ready), 409 `secret_key_mismatch`, 409 `analysis_running` + `job_id`, khoá stale được thu hồi, khoá của job đã xong được trả, **2 request song song → 1 job**, **rival chiếm khoá giữa pre-check và SET NX**, fallback khi double không có `check_stale`, `up_to_date`, `estimated_llm_requests`, enqueue lỗi → nhả khoá, `extra=forbid`, `last_analyze_job_id` |
+| `tests/test_jobs_queue.py` **(mới)** | 3 | unit | `enqueue_analyze` gửi `run_analyze` + kwargs, `enqueue_ingest` không đổi, `close()` đóng pool 1 lần |
+| `tests/test_analyze_integration.py` **(mới)** | 15 | integration | Trên Postgres + Redis thật: nâng cấp **đúng** review rating-only, không chunk/embed lại, xoá `review_summaries` đúng product, no-op khi đã xong, 1 lô lỗi → partial + giữ kết quả lô khác, `run_analyze` end-to-end (không crawl, không tạo chunk, nhả khoá), `ingest_source` nâng cấp rating-only (và **không** nâng cấp khi không có profile), khoá+T​TL trên Redis thật, endpoint idempotent per-source, endpoint `up_to_date` |
+| `tests/test_openapi_export.py` | 11 (+2) | unit | Contract `POST /api/sources/{id}/analyze` (body bắt buộc, `additionalProperties: false`, 202/200/422, `AnalyzeQueuedResponse`, `status: up_to_date`) + `ReportTotals.reviews_rating_only` |
+| `tests/test_ingest_sentiment.py` | 31 (+8) | unit | `needs_sentiment_analysis` (mọi nhánh), `count_reviews_needing_analysis` theo cờ LLM, `recompute_counts`, summary tổng hợp |
+| `tests/test_ingest_integration.py` | 43 (1 sửa) | integration | Lượt 2 của sentiment: review rating-only được mở lại khi có LLM |
+| `tests/test_jobs_submit_cache.py` / `test_jobs_worker.py` / `test_reports_unit.py` / `test_reports_warning_params.py` | 9 / 4 / 50 / 9 | unit | `submit_ingest_url` đã chết; `WorkerSettings.functions == [run_ingest, run_analyze]`; `reviews_rating_only` + message/params mới của `sentiment_rating_only` |
+
+### 3.2 Frontend unit (Vitest + RTL)
+
+| File | Số test | Nội dung |
+|---|---|---|
+| `tests/unit/components/aspects-panel.test.tsx` **(mới)** | 4 | CTA trong empty state "Khía cạnh nổi bật" chỉ hiện khi `reviews_rating_only > 0`; không có CTA khi aspects đã có dữ liệu hoặc source không phân tích được |
+| `tests/unit/components/source-page-client.test.tsx` | 15 (+11) | ẩn CTA khi mọi review đã là LLM; không profile → link `/vi/settings/llm`; dialog nêu số review + ước tính request; POST đúng profile; `up_to_date` → toast info; `analysis_running` → nối SSE (kèm fallback `last_analyze_job_id`); lỗi giải mã → link settings + "Thử lại"; xong → invalidate `["source-report", id]` + `["source", id]` + toast "Đã phân tích 25 đánh giá"; `partial` → toast warning |
+| `tests/unit/components/ingest-progress-panel.test.tsx` | 20 (+6) | `mode="analyze"`: đúng 2 bước, không có bước ingest, tiến độ theo review, không có nút "Mở trang tổng quan" |
+| `tests/unit/components/warnings-banner.test.tsx` | 10 (+2) | `analyzeAction` chỉ render ở warning `sentiment_rating_only`; message mới có `{count}` và không còn khuyên ingest lại |
+| `tests/unit/lib/stages.test.ts` | 51 (+19) | model 2 bước analyze, map stage backend → bước, không lùi bước, clamp, terminal `done/partial/failed`, stage crawl không làm sáng bước analyze, `estimateLlmRequests = ceil(n/20)`, không chia 0 |
+| `tests/unit/lib/api-client.test.ts` | 47 (+6) | `analyzeSource` POST body `{llm_profile_id}`, trả `queued`/`up_to_date`, ném `ApiError` có `jobId` |
+| `tests/unit/lib/errors.test.ts` / `error-messages.test.ts` | 16 (+3) / 11 (+0 test, +2 dòng catalogue) | `ApiError.jobId` (trim, bỏ rỗng/không phải string), `analysis_running` có message i18n |
+
+### 3.3 E2E (Playwright, mock `page.route`)
+
+| File | Số test | Nội dung |
+|---|---|---|
+| `tests/e2e/analyze.spec.ts` **(mới)** | 7 | ẩn CTA khi mọi review đã LLM; không profile → link settings; dialog ước tính ("Sẽ phân tích 25 đánh giá" / "~2 request LLM" / tên model) → POST đúng body → panel SSE inline 2 bước; `409 analysis_running` → nối job đang chạy, **không** toast lỗi; `200 up_to_date` → toast info, không panel; `secret_key_mismatch` → alert + link settings + "Thử lại" (2 lần POST); axe + không scroll ngang ở 375 & 1440 |
+| `tests/e2e/flow.spec.ts` / `accessibility.spec.ts` / `llm-settings.spec.ts` | 10 / 19 / 6 | không đổi so với Vòng 2 (chạy lại để chắc không hồi quy) |
+| `tests/e2e/live.spec.ts` | 3 | skip mặc định (chỉ chạy `E2E_LIVE=1`), chỉ GET |
+
+## 4. Chi tiết theo vùng
+
+### 4.1 `needs_sentiment_analysis(review, *, llm_available=False)`
+
+| Trạng thái review | `llm_available=False` | `llm_available=True` |
+|---|---|---|
+| `analyzed_at is None` | `True` | `True` |
+| đã phân tích, `content_hash` khớp | `False` | `False` |
+| đã phân tích, nội dung đổi (`content_hash` khác) | `True` | `True` |
+| `analyzed_at` có, **không** có `content_hash` (row cũ trước `0003`) | `False` | `False` |
+| `sentiment_source="rating"`, hash khớp | `False` | **`True`** |
+| `sentiment_source="llm"` | `False` | `False` |
+| `sentiment_source is None` | `False` | `False` |
+
+Khoá bằng `test_needs_sentiment_analysis_rules` + parametrize 6 tổ hợp
+(`test_needs_sentiment_analysis_only_reopens_rating_only_rows_for_an_llm`) +
+`test_needs_sentiment_analysis_reopens_rating_only_rows_when_content_changed` +
+`test_needs_sentiment_analysis_defaults_to_the_old_behaviour` (tham số là keyword-only, mặc định
+`False` → ingest **không** có LLM giữ nguyên hành vi cũ, không lặp vô hạn fallback).
+
+`count_reviews_needing_analysis(..., llm_available=)` mặc định `True` (dùng cho analyze) và có test
+riêng cho cả hai cờ + short-circuit khi `product_ids` rỗng (không phát SQL).
+
+### 4.2 `analyze_source` — `app/ingest/pipeline.py`
+
+| Hành vi | Test khoá |
+|---|---|
+| Chỉ đụng review cần thiết: nâng cấp **đúng 2** review rating-only của product A, review product B (đã LLM) **không đổi byte nào** (so `aspects` cũ) | `test_analyze_upgrades_only_the_rating_only_reviews` (integration) — `reviews_to_analyze=2`, `reviews_llm=2`, `reviews_skipped=1` |
+| Cập nhật `products.*_review_count` | cùng test: `(positive, negative, neutral) == (1,1,0)` cho A, `(1,0,0)` cho B |
+| Không chunk/embed lại | `test_analyze_does_not_re_chunk_or_re_embed` — `count(chunks)` trước == sau |
+| Xoá `review_summaries` **chỉ** của product có review đổi | `test_analyze_invalidates_review_summaries_only_for_changed_products` — sau analyze còn đúng `[product_b.id]`; unit: `test_analyze_deletes_the_summary_only_for_changed_products` (compiled SQL có `review_summaries`, đúng 1 `Delete`) |
+| Product không đổi → giữ summary, `summaries_invalidated` không tăng | `test_analyze_marks_a_product_without_changes_as_done_and_keeps_its_summary` |
+| No-op khi mọi review đã LLM | `test_analyze_is_a_noop_when_everything_is_already_llm_analyzed` — lượt 2: `reviews_to_analyze=0`, **không** gọi LLM thêm lần nào |
+| 1 lô LLM lỗi → `partial`, lô khác giữ kết quả | `test_one_failed_llm_batch_falls_back_to_stars_and_keeps_the_rest` — `batches_total=2`, `batches_failed=1`, `reviews_llm=1`, `reviews_rating_fallback=1`; review lỗi được **persist** với sentiment theo sao để counts vẫn đúng |
+| 1 product lỗi → `partial`; tất cả lỗi → `failed` | `test_analyze_isolates_a_failing_product_and_ends_partial`, `test_analyze_ends_failed_when_every_product_fails` |
+| Progress đơn điệu `0 → 2 → 4`, `total` cố định | `test_analyze_reports_progress_monotonically` |
+| Source/product biến mất giữa scope và phân tích | `test_analyze_raises_for_an_unknown_source`, `test_analyze_counts_a_vanished_product_as_failed` |
+| Cancel không bị biến thành "product failed" | `test_analyze_propagates_cancellation_instead_of_marking_the_product_failed` — `session.commits == 0` |
+
+### 4.3 `run_analyze` — `app/jobs/tasks.py`
+
+**Không crawl, không embed** (yêu cầu "assert không gọi" của spec) được khoá ở 3 lớp:
+
+1. Unit `patch_pipeline()` thay `tasks_module.crawl_url` **và** `tasks_module.ingest_source` bằng
+   `_forbidden` (raise `AssertionError`), đồng thời assert kwargs gọi pipeline **không** có
+   `embedder`, **không** có `registry`.
+2. Integration `forbid_crawl_and_ingest(monkeypatch)` (cùng ý tưởng) + `BombEmbedder` được truyền
+   trong ctx mà **không** bị gọi.
+3. Integration assert `count(chunks) == 0` sau khi job xong, và stage không có
+   `classify/crawl_done/embed`.
+
+Ngoài ra: stage SSE `started → sentiment → done|partial|failed` (khoá cả **tập stage** bằng
+`assert not {"classify","crawl_done","embed","index"} & set(stages)`); payload cuối báo **review**
+(`done=4/5`, `llm=4/5`, `summaries_invalidated=2`) chứ không phải chunk/product; heartbeat tick
+≥ 2 lần rồi **được cancel trong `finally`** (assert số tick không tăng sau khi job xong); job đã
+terminal → return sớm, **không** chạy lại pipeline nhưng **vẫn** nhả khoá; `JobCancelledError` →
+không ghi status lần 2 (giữ status của `mark_stale`), nhả khoá, dừng < 2s; `llm_profile_id` rỗng →
+`ValueError` **trước** khi mở lifecycle (xem §6.2 mục 5).
+
+### 4.4 `POST /api/sources/{id}/analyze` — `app/api/sources.py`
+
+| Nhánh | Hành vi khoá |
+|---|---|
+| 404 | source không tồn tại (**không** chạm Redis: `redis.hashes`/`strings` rỗng, không enqueue); profile không tồn tại (không tạo job) |
+| 409 `source_not_ready` | mọi status ∉ `{done, partial}` → 409 + `error`; `{done, partial}` được chấp nhận |
+| 409 `secret_key_mismatch` | profile có `api_key_enc` nhưng `secret_box.decrypt` ném → JSON 409 (không phải 500), không job |
+| 409 `analysis_running` | khoá đang giữ bởi job **chưa** terminal → 409 kèm `job_id` của holder |
+| Khoá stale | holder `running` quá `JOB_STALE_TIMEOUT_SECONDS` → `check_stale` đánh `failed` rồi request mới lấy khoá (202, khoá = job mới) |
+| Khoá của job đã xong | holder `done` → nhả + lấy lại, 202 |
+| **2 request song song** | `asyncio.gather` 2 POST cùng source → `[202, 409]`, `job_id` trong 409 == 202, `enqueue_analyze` **1 lần**, chỉ **1** hash `job:*` trong Redis; bản integration lặp lại trên Postgres + Redis thật và kiểm thêm `stats["last_analyze_job_id"]` + giá trị khoá |
+| Race giữa pre-check và `SET NX` | rival `done`/`failed` → 202 (thu hồi khoá, job mới, `job-rival` không bị chiếm quyền); rival `running` → 409 `analysis_running`, **không** enqueue, khoá vẫn của rival |
+| `up_to_date` | không còn review cần phân tích → 200 `{"status":"up_to_date"}`, **không** job, **không** commit, **không** ghi `last_analyze_job_id`; source không có product cũng vậy |
+| 202 | `{job_id, reviews_to_analyze, estimated_llm_requests}` (đúng 3 khoá); 25 review + `SENTIMENT_BATCH_SIZE=10` → `3`; batch size `0` → vẫn `1` (không chia 0); job hash `status=queued`, `job_type=analyze`, `source_id` đúng; event `queued` có `total=25`; `stats["last_analyze_job_id"]` = job mới; `commit` 1 lần; khoá Redis có TTL = `ANALYZE_LOCK_TTL_SECONDS` (1800s) |
+| `extra="forbid"` | body có khoá lạ → 422; thiếu/sai `llm_profile_id` → 422; test trực tiếp `AnalyzeSourceRequest.model_config["extra"] == "forbid"` |
+| Enqueue lỗi | `enqueue_analyze` ném → lỗi propagate, **khoá đã được nhả** (`get_source_lock is None`) và `queue.analyze_calls == []` (không để source bị khoá 30 phút vì một job không ai chạy) |
+
+### 4.5 Report & `submit_ingest_url`
+
+- `totals.reviews_rating_only` có trong `ReportTotals`/`SourceReport` (integration:
+  `test_reported_count_lower_and_sentiment_rating_only_warnings` vẫn xanh).
+- Warning `sentiment_rating_only`: message vi **mới** = `"Cảm xúc đang suy ra từ số sao; chưa phân
+  tích bằng LLM."`, `params={"count": n}`; `count` ưu tiên `totals.reviews_rating_only`, fallback
+  `sentiment_source.rating` khi totals chỉ được điền một phần; **không** còn chuỗi "Ingest lại".
+- `submit_ingest_url` **không còn** trong `app.jobs.submit` lẫn `JobQueue`
+  (`test_submit_ingest_url_is_gone_from_the_job_layer`), chỉ còn `submit_parsed_ingest`,
+  `enqueue_ingest`, `enqueue_analyze`.
+
+### 4.6 Frontend unit
+
+- **Hiện/ẩn CTA**: `canAnalyzeWithLlm = totals.reviews_rating_only > 0` (client không tự kiểm
+  `status` — server chốt bằng 409 `source_not_ready`); có CTA ở banner `sentiment_rating_only` lẫn
+  empty state aspects; không có CTA khi aspects đã có dữ liệu hoặc `reviews_rating_only == 0`.
+- **Chưa có profile đang dùng** → `Link` tới `/vi/settings/llm` (href không có locale ở unit test,
+  nhưng E2E assert href **có** locale — pitfall next-intl).
+- **Dialog**: "Sẽ phân tích 25 đánh giá" + "~2 request LLM" + tên model; ước tính tính cả review
+  **chưa** phân tích (`unanalyzed`) chứ không chỉ `reviews_rating_only`.
+- **Sau `done`**: `invalidateQueries(["source-report", id])` **và** `["source", id]`, toast
+  "Đã phân tích 25 đánh giá", panel biến mất; `partial` → toast warning
+  "Đã phân tích 20 đánh giá (một số lô gặp lỗi LLM, giữ kết quả theo sao)."
+- **`analysis_running`**: **không** báo lỗi — mở panel và nối SSE của `job_id` trong lỗi, fallback
+  `source.stats.last_analyze_job_id` khi error không mang job id; có toast "đang theo dõi tác vụ
+  phân tích đang chạy".
+- **`up_to_date`**: toast info, không tạo panel, không POST lần 2.
+- **Lỗi theo code**: `secret_key_mismatch` → alert có link "Mở Cài đặt LLM" + "Thử lại" (gọi lại
+  `analyzeSource`).
+
+### 4.7 E2E
+
+`mock-api.ts` thêm `POST /api/sources/{id}/analyze` (mặc định 202 với `ANALYZE_JOB_ID`) và option
+`profiles` (truyền `[]` để giả "chưa cấu hình"); `fixtures.ts` thêm `ratingOnlyReport`
+(`reviews_rating_only: 25`, aspects rỗng) và `analyzeJobSseBody` (**chỉ** frame `progress`, không có
+`done` — để panel đứng yên mà assert). Vì base URL tuyệt đối, mọi `fulfill` vẫn kèm CORS +
+`OPTIONS` preflight như các spec cũ. Không request nào ra ngoài `page.route`.
+`page.getByRole("button", { name: "Phân tích bằng LLM" }).first()` vì trang render 2 bản (desktop +
+mobile tab) — pitfall đã biết.
+
+### 4.8 Năm điểm trọng tâm của Phần B — đã có test chưa?
+
+| # | Điểm cần khoá | Trạng thái | Test |
+|---|---|---|---|
+| 1 | `run_analyze` **không** gọi crawler/embedder | ✅ có (3 lớp: unit `_forbidden` + kwarg, integration `BombEmbedder` + `count(chunks)==0`) | `test_run_analyze_emits_progress_and_finishes_done`, `test_run_analyze_end_to_end_releases_the_lock_and_never_crawls`, `test_analyze_does_not_re_chunk_or_re_embed` |
+| 2 | 2 request song song → **1** job | ✅ có (unit `asyncio.gather` + integration Postgres/Redis thật + race) | `test_two_concurrent_requests_create_exactly_one_job`, `test_analyze_endpoint_over_real_db_and_redis_is_idempotent_per_source`, `test_a_rival_job_that_steals_the_lock_is_handled_by_its_status` |
+| 3 | Lỗi **1 lô** → `partial` (giữ kết quả lô khác) | ✅ có (unit + integration + task) | `test_analyze_reports_partial_when_only_some_llm_batches_failed`, `test_one_failed_llm_batch_falls_back_to_stars_and_keeps_the_rest`, `test_run_analyze_marks_the_job_partial_when_a_batch_fails` |
+| 4 | `review_summaries` bị xoá **đúng** product | ✅ có (unit compiled SQL + integration còn đúng 1 row) | `test_analyze_deletes_the_summary_only_for_changed_products`, `test_analyze_invalidates_review_summaries_only_for_changed_products`, `test_analyze_marks_a_product_without_changes_as_done_and_keeps_its_summary` |
+| 5 | Ingest có profile **nâng cấp** review rating-only cũ | ✅ có (unit rule + integration 2 chiều) | `test_needs_sentiment_analysis_only_reopens_rating_only_rows_for_an_llm`, `test_ingest_upgrades_rating_only_reviews_when_a_profile_is_used`, `test_ingest_without_a_profile_does_not_reopen_rating_only_reviews` |
+
+**8 test em bổ sung trong phiên này** (5 điểm trên đã đủ; đây là các lỗ thật còn lại):
+
+| Test | Vì sao trước đó thiếu |
+|---|---|
+| `test_openapi_export.py::test_analyze_endpoint_contract_is_typed_for_the_web_client` | `test_export_matches_committed_file_byte_for_byte` chỉ chứng minh file khớp code; **không** khoá shape mà `lib/api/schema.d.ts` dựa vào (body bắt buộc + `additionalProperties: false` + 202/200/422 + `status: up_to_date`) |
+| `test_openapi_export.py::test_report_totals_expose_reviews_rating_only` | CTA đọc `totals.reviews_rating_only`; contract chưa bị khoá (đổi sang optional/`number` sẽ vỡ client mà không ai báo) |
+| `test_api_analyze.py::test_a_rival_job_that_steals_the_lock_is_handled_by_its_status` (3 tham số) | Nhánh "acquire thất bại" (dòng 614–623) chỉ tới được khi có race giữa pre-check và `SET NX`; trước đó chỉ **tình cờ** được phủ bởi `asyncio.gather` (coverage lúc có lúc không) |
+| `test_api_analyze.py::test_terminal_holder_is_detected_when_the_events_double_has_no_check_stale` | `_is_lock_holder_terminal` có fallback `get_status` khi events double không có `check_stale` (dòng 523) — không test nào đi qua |
+| `test_analyze_pipeline_unit.py::test_analyze_builds_the_client_from_the_stored_profile` | Đường **thật của worker**: không inject `llm_client` → `analyze_source` phải dựng client từ profile (dòng 480–484). Trước đó mọi test đều inject client nên nhánh này chưa từng chạy |
+| `test_analyze_pipeline_unit.py::test_analyze_fails_when_the_client_cannot_be_initialized` | `_resolve_llm_client` trả `None` → phải **raise**, không được âm thầm phân tích bằng sao (dòng 485–486) |
+
+## 5. Coverage
+
+**Backend** (`pytest --cov`, **một** target mỗi lần — xem §6.2 mục 4):
+
+| Module | Stmts | Miss | Cover | Dòng miss & lý do |
+|---|---|---|---|---|
+| `app/ingest/sentiment.py` | 162 | 2 | **99%** | `280` = `raise` lại `JobCancelledError` khi **client LLM** tự ném (thực tế cancel đến từ heartbeat task, đã test ở `run_analyze`); `340` = nhánh `on_batch_done is None` trong vòng fallback theo sao (`analyze_source`/`ingest_source` luôn truyền callback) |
+| `app/jobs/tasks.py` | 201 | 15 | **93%** | `91, 120–126, 145–146, 154–155, 174, 180–181, 196, 254–255` — toàn bộ là nhánh **lỗi/CAS dùng chung với `run_ingest`** (emit `failed` khi CAS thua, `_safe_get_status` không có, cleanup hook ném). Đường analyze dùng đúng các helper này nhưng đi qua nhánh thành công |
+| `app/api/sources.py` | 216 | 29 | **87%** | `194–199` (health/version), `420–482` (`GET /report` + CSV của phase trước) — **mọi dòng của endpoint analyze (556–663) đã phủ**, gồm cả 2 nhánh của chốt terminal-holder |
+| `app/ingest/pipeline.py` | 306 | 68 | **78%** | `analyze_source` (437–591) **100%**, trừ `457–459` = tự mở `Database()` khi **không** truyền `session_factory` (worker/api luôn truyền). Miss còn lại thuộc `ingest_source`: `138–153, 169–173, 181` (SQL scope/count), `229–231, 236, 240–242, 259–262` (crawl/registry), `297–366` (chunk + embed), `375, 403–404, 408–413` (summary/lỗi crawl) |
+
+Đối chiếu DoD: cả 4 module ≥ 85% **trừ** `pipeline.py` 78% trên **unit-only**; phần của phase này
+(`analyze_source`) đạt 100%, phần thấp là `ingest_source` — hành vi của nó đã được chốt ở
+`test_ingest_*` + integration, và **không đo được** bằng coverage vì lỗi C-ext (§6.2 mục 4).
+
+**Frontend** (`vitest run --coverage`, `thresholds` 90/90/90/90 trong `vitest.config.mts`):
+
+| File | % Stmts | % Branch | % Funcs | % Lines |
+|---|---|---|---|---|
+| **All files** | **97.90** | **95.13** | **97.18** | **99.05** |
+| `lib` (tổng) | 99.17 | 95.96 | 100 | 100 |
+| `lib/citations.ts` | 100 | 90.90 | 100 | 100 |
+| `lib/storage.ts` | 84.61 | 83.33 | 100 | 100 |
+| `lib/url-validation.ts` | 100 | 95.00 | 100 | 100 |
+| `lib/api` (tổng) | 96.96 | 94.44 | 95.45 | 98.34 |
+| `lib/api/client.ts` | 99.06 | 95.00 | 100 | 100 |
+| `lib/api/errors.ts` | 98.27 | 95.83 | 100 | 100 |
+| `lib/api/sse.ts` | 95.12 | 92.85 | 88.23 | 96.77 |
+
+Dòng/statement miss còn lại — tất cả nằm ở file **không đổi** trong phase này (`lib/api/sse.ts`,
+`lib/citations.ts`, `lib/storage.ts`, `lib/api/errors.ts`) và là nhánh phòng thủ:
+`storage.ts` 8,18 (guard `typeof window` / `file://`); `errors.ts` 46,51,61 (mảng `detail` rỗng,
+`item` không phải record, và nhánh status 401/403 chưa có test); `client.ts` 80 (nhánh
+`listSources` **không** truyền `fresh` — mọi caller hiện tại đều truyền); `sse.ts` 203,208
+(`!response.ok` + body không phải JSON), 228 (abort trước frame đầu), 250–252 (decode `tail` khi
+stream đóng), 267 (abort trong `catch`), 355 (lần `connect()` lại sau `timeout`);
+`citations.ts` 81–82,109,122 (chỉ miss **branch**, statements 100%). `lib/stages.ts` (thêm model
+analyze) vẫn **100%** cả 4 chỉ số — Vitest ẩn khỏi text reporter vì đạt 100%.
+
+## 6. Bug & phát hiện
+
+### 6.1 Sửa trong `backend/app/**`
+
+**0 bug — không sửa dòng nào.** Mọi test đỏ trong phiên này đều do em viết sai kỳ vọng/typing của
+chính test mới (`setattr` vs `B010`, thiếu import `make_settings`), đã sửa trong **test**, không
+đụng app. Code Phần A chạy đúng như spec ở cả 5 điểm trọng tâm (§4.8).
+
+### 6.2 Ghi nhận, chưa sửa (ngoài phạm vi test)
+
+1. **Chốt terminal-holder bị lặp 2 lần trong endpoint** (`app/api/sources.py:583–588` và
+   `614–623`): pre-check đã nhả khoá của holder đã xong rồi mới `SET NX`, nên nhánh trong
+   `if not acquired` (nhả + acquire lại) **chỉ** tới được khi có race thật. Em **không** sửa (code
+   Phần A, không phải bug — đường chạy đúng), nhưng đã khoá cả 2 nhánh bằng
+   `RacyLockEvents` (§4.8) để lần refactor sau không âm thầm bỏ mất. Đề xuất: gộp thành một helper
+   `_ensure_source_lock(...)` dùng cho cả hai chỗ, hoặc bỏ block trong `if not acquired` nếu chấp
+   nhận 409 trong race.
+2. **`_is_lock_holder_terminal` duck-typing `check_stale`** (`sources.py:515–524`): fallback
+   `get_status` chỉ dùng cho double cũ; với `JobEvents` thật luôn có `check_stale`, nên fallback
+   không bao giờ chạy ở production. Giữ lại thì tốt cho test double, nhưng nên ghi chú rõ để không
+   ai tưởng đó là đường chính.
+3. **Coverage của nhánh 409 bên trong `if not acquired` phụ thuộc interleaving**: trước khi em thêm
+   test race, `asyncio.gather` có lúc đi qua pre-check (409 ở dòng 588) thay vì acquire (dòng 623) →
+   coverage "nhảy" giữa các lần chạy. Đây là **hạn chế của test dựa vào timing**, không phải flaky
+   test; cách chữa đã áp dụng: double tất định (`RacyLockEvents`) thay vì trông vào scheduler.
+4. **SQLAlchemy 2.1.9 + coverage 7.17.5 trên Python 3.14 vẫn vỡ C-ext** (đã ghi ở mục Vòng 2 §6.2):
+   `--cov` với ≥2 target hoặc target chạm module có SQL khi chạy **integration** →
+   `TypeError: 'InternalTraversal' object is not callable` tại `sqlalchemy/sql/_cache_key_cy.py:196`.
+   Vì vậy `app/ingest/pipeline.py` và `app/api/sources.py` được đo trên **unit subset**, còn hành vi
+   SQL thật vẫn được chốt bằng integration (không coverage). `COVERAGE_CORE=sysmon|ctrace` và
+   `DISABLE_SQLALCHEMY_CEXT=1` không cứu được.
+5. **`run_analyze` với `llm_profile_id` rỗng**: raise `ValueError` **trước** khi acquire khoá, nên
+   khoá (nếu có) chỉ được giải phóng bằng TTL. API không bao giờ enqueue job như vậy
+   (`AnalyzeSourceRequest.llm_profile_id` là UUID bắt buộc + profile được kiểm trước), nên đây là
+   guard phòng thủ; đã có test chốt hành vi và ghi rõ hệ quả.
+6. **`analyze_source` tự dựng `Database()` khi thiếu `session_factory`** (`pipeline.py:457–459`):
+   không testable offline (sẽ mở kết nối thật). Worker/api luôn truyền factory, nên đây là default
+   cho script/repl. Đề xuất: bỏ default hoặc đổi thành tham số bắt buộc.
+7. **`reviews_rating_only` có `default=0`** trong schema: report cũ/partial vẫn hợp lệ, và warning
+   fallback về `sentiment_source.rating` khi totals chưa điền → frontend không bao giờ thấy
+   `count=0` giả. Đã có test cho cả hai nguồn; chỉ ghi nhận vì "hai nguồn số" dễ lệch về sau.
+8. **i18n 322 → 341 key** (+19): toàn bộ key analyze (dialog, toast, lỗi, bước tiến độ, nhãn
+   `sentiment_rating_only` mới ở cả vi/en); `check-i18n.mjs` xanh, không key mồ côi.
+
+## 7. Test cũ phải sửa (có chủ đích, do hành vi đổi)
+
+| Test | Trước | Sau | Lý do |
+|---|---|---|---|
+| `tests/test_ingest_integration.py::test_sentiment_llm_and_rating_fallback_are_persisted` | lượt 2: `analyzed == 0`, `skipped == 3` | `analyzed == 2`, `skipped == 1`, `llm_count == 0`, `rating_fallback_count == 2`, `changed == 0` | `needs_sentiment_analysis(..., llm_available=True)` **cố ý** mở lại review rating-only khi có LLM (spec Phần A.1) |
+| `tests/test_jobs_worker.py::test_worker_settings_register_the_ingest_task` | `WorkerSettings.functions == [run_ingest]` | đổi tên `…_register_the_ingest_and_analyze_tasks`, `== [run_ingest, run_analyze]` | Task Arq mới phải được đăng ký, nếu không job analyze nằm trong queue mà không ai chạy → source bị khoá tới hết TTL |
+| `tests/test_reports_unit.py::_totals` (helper) | không có `reviews_rating_only` | thêm tham số `rating_only=0` | `ReportTotals` có field mới (bắt buộc khi khởi tạo) |
+| `tests/test_reports_unit.py::test_sentiment_rating_only_warning_when_all_sentiment_came_from_stars` | `"Ingest lại với LLM profile" in message` | message **mới** + `params == {"count": 3}` + `"Ingest lại" not in message` | Spec Phần A.4 đổi message/params sang hướng "bấm Phân tích bằng LLM" |
+| `tests/test_reports_warning_params.py::test_warnings_without_numeric_detail_expose_empty_params` | loop gồm `sentiment_rating_only` với `params == {}` | bỏ khỏi loop (giờ **có** params) + test riêng `…_carries_the_rating_only_review_count` | Cùng lý do trên |
+| `frontend/tests/unit/fixtures/report.ts::makeTotals` | không có `reviews_rating_only` | thêm `reviews_rating_only: 0` | Field mới trong type `SourceReport["totals"]` → `tsc` đỏ nếu thiếu |
+| `frontend/tests/unit/lib/error-messages.test.ts` (2 danh sách catalogue) | thiếu `analysis_running` | thêm vào cả 2 danh sách | Mã lỗi mới của endpoint (spec Phần A.3) |
+
+Không xoá test nào. Các thay đổi còn lại trong file cũ đều là **append describe/test mới**
+(`stages.test.ts` +102 dòng, `api-client.test.ts` +90, `errors.test.ts` +24,
+`ingest-progress-panel.test.tsx` +135, `source-page-client.test.tsx` +309, `warnings-banner.test.tsx`
++35, `aspects-panel.test.tsx` mới) và refactor import/helper trong `source-page-client.test.tsx`
+(10 dòng, không đổi assertion nào của test cũ).
+
+Số test: backend **1502 → 1510** passed (+8, cùng 1 skip live; so với cuối Vòng 2 là 1423 → 1502
+là +79 test của phiên bị crash); frontend unit **287 → 338** (+51); E2E **38 → 45**
+(35 → 42 passed, 3 skip live), riêng `analyze.spec.ts` +7.
+
+## 8. Case chưa cover (và lý do)
+
+| Case | Lý do |
+|---|---|
+| SSE analyze trong E2E tới frame `done` rồi báo cáo tự refresh | Body SSE mock về **một lần**, nếu có `done` panel nhảy thẳng trạng thái cuối → không assert được tiến độ. Việc refresh + toast đã khoá ở unit (`invalidateQueries` + toast) nên E2E chỉ cần chứng minh POST + panel + axe |
+| `analysis_running` trả **404** vì job đã bị xoá khỏi Redis | Holder biến mất giữa 2 lệnh là race hiếm; hiện `_is_lock_holder_terminal` coi "không có status" là **chưa** terminal → 409 (an toàn, không tạo job trùng). Muốn test phải patch thời điểm xoá key — giá trị thấp |
+| Review bị **xoá** giữa lúc analyze (`product` còn, `review` mất) | Đã có case product biến mất; review mất giữa batch là hành vi của `analyze_product_reviews` (phase ingest) và sẽ được đếm ở `reviews_analyzed` thấp hơn `reviews_to_analyze` |
+| LLM chậm/timeout thật khi analyze | Unit/integration dùng `ScriptedLLM`; timeout/retry là hợp đồng của `LLMClient` (test riêng ở `test_llm_client.py`), không lặp lại ở tầng analyze |
+| `estimated_llm_requests` khi `SENTIMENT_BATCH_SIZE` của frontend khác backend | Frontend hard-code 20 (`DEFAULT_SENTIMENT_BATCH_SIZE`) làm ước tính **trước** khi gọi; con số **thật** luôn lấy từ response 202 (đã assert POST body/response trong unit + E2E). Lệch cấu hình chỉ làm ước tính sớm sai, không ảnh hưởng job |
+| axe cho banner `sentiment_rating_only` **không** có CTA (source không analyzable) | `accessibility.spec.ts` quét 4 trang với report mặc định; nhánh này chỉ assert nội dung ở unit (không có nút) |
+| Coverage `app/ingest/pipeline.py` trên full suite | Bị chặn bởi lỗi C-ext SQLAlchemy + coverage (§6.2 mục 4); đã đo unit-only và chốt hành vi SQL bằng integration |
+| Live smoke (`E2E_LIVE=1`) và `test_tiki_live.py` | Skip mặc định theo thiết kế; phase này không đổi đường crawl/marketplace nên không cần chạy |
+
+## 9. File đã tạo / sửa
+
+**Backend — tạo mới (5):**
+
+```
+backend/tests/test_analyze_integration.py         # 15 integration: analyze_source + run_analyze + ingest nâng cấp rating-only + khoá/endpoint trên Postgres/Redis riêng
+backend/tests/test_analyze_pipeline_unit.py       # 13 unit: orchestration analyze_source (+2 trong phiên này: dựng client từ profile / không dựng được → raise)
+backend/tests/test_api_analyze.py                 # 29 unit: endpoint + khoá per-source (+4 trong phiên này: race acquire, fallback check_stale)
+backend/tests/test_jobs_analyze.py                # 11 unit: task Arq run_analyze
+backend/tests/test_jobs_queue.py                  # 3 unit: enqueue_analyze
+```
+
+**Backend — sửa test (8):**
+
+```
+backend/tests/ingest_fakes.py                     # FakeRedis set/get/delete (+strings), RecordingJobEvents.job_type/release_source_lock, RecordingJobQueue.enqueue_analyze(+fail_analyze), build_ingest_app(secret_box=)
+backend/tests/test_ingest_sentiment.py            # +8 unit: needs_sentiment_analysis (6 tổ hợp), count_reviews_needing_analysis theo cờ LLM
+backend/tests/test_ingest_integration.py          # 1 test sửa kỳ vọng lượt 2 (rating-only được mở lại)
+backend/tests/test_jobs_worker.py                 # WorkerSettings.functions có run_analyze
+backend/tests/test_jobs_submit_cache.py           # +1: submit_ingest_url đã bị xoá
+backend/tests/test_openapi_export.py              # +2 trong phiên này: contract analyze + totals.reviews_rating_only
+backend/tests/test_reports_unit.py                # helper _totals + message/params mới
+backend/tests/test_reports_warning_params.py      # tách test params của sentiment_rating_only
+```
+
+**Frontend — tạo mới (2):**
+
+```
+frontend/tests/e2e/analyze.spec.ts                        # 7 E2E mock: CTA, dialog ước tính, SSE inline, analysis_running, up_to_date, lỗi giải mã, axe 375/1440
+frontend/tests/unit/components/aspects-panel.test.tsx     # 4 unit: CTA trong empty state aspects
+```
+
+**Frontend — sửa test (11):**
+
+```
+frontend/tests/unit/components/source-page-client.test.tsx   # +11 test (CTA/profile/dialog/POST/up_to_date/analysis_running/retry/refresh+toast/partial)
+frontend/tests/unit/components/ingest-progress-panel.test.tsx # +6 test mode="analyze"
+frontend/tests/unit/components/warnings-banner.test.tsx      # +2 test analyzeAction
+frontend/tests/unit/lib/stages.test.ts                       # +19 test: 6 model 2 bước, 2 estimateLlmRequests, 11 extractJobErrorCode
+frontend/tests/unit/lib/api-client.test.ts                    # +6 test analyzeSource
+frontend/tests/unit/lib/errors.test.ts                       # +3 test ApiError.jobId
+frontend/tests/unit/lib/error-messages.test.ts               # +analysis_running vào 2 danh sách catalogue
+frontend/tests/unit/fixtures/report.ts                       # reviews_rating_only: 0
+frontend/tests/e2e/fixtures.ts                               # ratingOnlyReport, ANALYZE_JOB_ID, analyzeJobSseBody, PROFILE_ID
+frontend/tests/e2e/mock-api.ts                               # route POST analyze + option profiles/analyze
+frontend/tests/e2e/flow.spec.ts                              # không sửa (chạy lại để chắc không hồi quy)
+```
+
+**Báo cáo:** `docs/tasks/phase-5-test-report.md` (append mục này).
+
+Không sửa: `backend/app/**`, `backend/openapi.json`, `backend/pyproject.toml`, `backend/scripts/**`,
+`backend/tests/fixtures/tiki/**`, `frontend/lib/**`, `frontend/components/**`,
+`frontend/messages/**`, `frontend/vitest.config.mts`, `docker-compose.yml`, `docs/PLAN.md`,
+`docs/research/**`, `docs/design-system/**`, `docs/tasks/llm-analyze.md` và mọi spec khác.
+Không `git commit/checkout/branch/stash/reset`.
+
+---
+
+## 10. Round 2 — flaky E2E `analyze.spec.ts:168` + chạy đúng artefact standalone (2026-11-26)
+
+Người thực hiện: Tester (nhánh `feat/phase-5-frontend`). Phạm vi: chỉ hạ tầng test frontend
+(`frontend/playwright.config.ts`, `frontend/package.json`, `frontend/scripts/start-standalone.mjs`,
+`frontend/tests/e2e/analyze.spec.ts`). Không sửa app, không sửa spec/PLAN/research/design-system.
+
+### 10.1 TL;DR
+
+| Hạng mục | Kết quả |
+|---|---|
+| Nguyên nhân thật của flaky | **Không phải axe/animation**: tiến trình con của Chromium bị giết từ ngoài (network service → `ChunkLoadError`, hoặc cả browser/worker node → `Target crashed`/`signal=SIGKILL`) |
+| Assertion axe fail | **0** lần trong ~42 lượt chạy cả bộ (mọi lần đỏ đều chết ở `page.goto`/`click`, trước khi axe chạy) |
+| OOM / cgroup | Loại trừ: `oom_kill = 0` (`/proc/vmstat`, `memory.events` của `session-3.scope` và `app.slice`), không coredump, `systemd-oomd` inactive |
+| webServer | Chạy standalone thật (`node .next/standalone/server.js` + copy `.next/static`, `public`) — hết cảnh báo `"next start" does not work with "output: standalone"` |
+| Test a11y | Chờ trạng thái thật: `data-open`, `getAnimations()` rỗng, dialog unmount, frame SSE `2/25`; thời gian 29.9 s → **14.2 s** |
+| `reducedMotion` | `reduce` toàn cục (app có path thật ở `app/globals.css:158`) — sửa race thật `animationend` của dialog base-ui |
+| Playwright 5 lượt liên tiếp | **42 passed × 5 lượt** (73–74 s/lượt, 3 skipped là live smoke) |
+| Vitest | 23 file / **338 passed** (22.85 s) |
+| typecheck / lint / build | `tsc --noEmit` OK; `eslint .` + i18n 341 keys OK; `next build` OK (BUILD_EXIT=0) |
+| Gọi LLM thật / ghi DB `shopqa` | Không. E2E mock 100% `page.route`; không chạy pytest, không chạm Postgres/Redis |
+| Bug app phải sửa | **0** — không sửa dòng nào trong `frontend/app|components|lib/**` |
+
+### 10.2 Tái hiện và phân loại lỗi
+
+Chạy cả bộ nhiều lượt (`npx playwright test`, workers 2–4, thêm `--repeat-each=2/3`, `--workers=8` để stress).
+Trong 42 lượt chạy cả bộ ở cấu hình mặc định: **30 xanh / 12 đỏ**. Phân loại 12 lượt đỏ:
+
+| Dạng | Số lượt đỏ | Bằng chứng thật trong log/trace |
+|---|---|---|
+| Browser/renderer/page bị giết | 6 | `locator.click: Target crashed`; `Target page, context or browser has been closed`; `page.goto: Page crashed`; `browserContext.newPage: Target crashed`; `Protocol error (Runtime.evaluate): Internal server error, session closed`; `pw:browser [pid=…] <process did exit: exitCode=null, signal=SIGKILL>` |
+| Network service của Chromium bị giết → chunk không tải được → Next render error page | 2 | `ERROR:content/browser/network_service_instance_impl.cc:655] Network service crashed or was terminated, restarting service.` → `Uncaught ChunkLoadError: Loading chunk 534 failed (…/_next/static/chunks/app/%5Blocale%5D/sources/%5Bid%5D/page-8f655b245c46f79c.js)` → `Application error: a client-side exception has occurred while loading localhost` (error-context.md của `flow.spec.ts:135`) |
+| Worker node bị giết | 2 | `worker process exited unexpectedly (code=null, signal=SIGKILL)` |
+| Browser treo khi setup `page` (60 s) | 1 | `Test timeout of 60000ms exceeded while setting up "page"` (cùng lượt với race animation bên dưới) |
+| Race animation thật (test-level) | 1 | `llm-settings.spec.ts:21`: `expect(getByRole('dialog')).toBeHidden()` fail — dialog đã `data-closed` nhưng chưa unmount vì base-ui chờ `animationend` |
+| Chưa phân loại | 1 | `analyze.spec.ts:76` không thấy CTA link; lượt đó không bật `DEBUG=pw:browser` nên không có log browser (chạy riêng `--grep` test này 10 lượt: 10/10 pass) |
+
+Ghi chú: 1 lượt đỏ có 2 lỗi (treo setup + race animation) nên 13 dòng lỗi nằm trong 12 lượt đỏ.
+Các lượt stress `--repeat-each` (84 test/lượt, không tính vào 42): 6 lượt, 5 xanh, 1 đỏ do `signal=SIGKILL`.
+
+### 10.3 Bác bỏ giả thuyết “axe quét lúc AlertDialog còn animation / panel SSE chưa ổn định”
+
+- Probe quét axe **ngay** sau khi `alertdialog` được coi là visible, khi animation đang chạy thật
+  (`document.getAnimations()` cho `alert-dialog-overlay` + `alert-dialog-content` ở `currentTime` 50–66 ms):
+  6 vòng × 2 trạng thái (dialog mở, panel SSE sau khi bấm bắt đầu) → **0 violation** ở mọi vòng.
+- Trong toàn bộ ~42 lượt chạy cả bộ, `expectNoBlockingAxe` **không fail lần nào**; các test a11y khác
+  (`accessibility.spec.ts`, 24 tổ hợp) cũng chỉ đỏ khi browser chết, không đỏ vì violation.
+- Test `analyze.spec.ts:168` đỏ **sau 0.8–1.1 s** ở dòng `page.goto`/`click` — trước cả bước axe đầu tiên.
+- Vì vậy “chờ animation xong” là cải thiện đúng về mặt kỹ thuật (quét DOM đã ổn định) nhưng **không phải**
+  nguyên nhân của các lần đỏ đã báo.
+
+### 10.4 Loại trừ OOM/cgroup/timeout
+
+```
+/proc/vmstat                          → oom_kill 0
+session-3.scope/memory.events         → oom 0, oom_kill 0, oom_group_kill 0
+app.slice/memory.events               → oom_kill 0
+systemctl is-active systemd-oomd      → inactive
+coredumpctl list --since -3h          → No coredumps found
+lúc browser chết (sampler 1 s)        → browser RSS ~200–216 MB, host used 4.9/7.6 GB, avail 2.7 GB
+kernel.dmesg_restrict                 → 1 (không đọc được kernel log để truy đúng tiến trình gửi SIGKILL)
+```
+
+Không phải timeout (test chết sau ~1 s), không phải memory (RSS ~200 MB, còn 2.7 GB), không phải cổng
+(`reuseExistingServer: false`, mỗi lượt Playwright tự bật/tắt webServer). Đây là lỗi môi trường host:
+Chromium 153 + kernel 7.3.5-zen1 + máy 7.5 GB đang chạy compose stack (web/api/worker/db/redis/qdrant)
+và desktop; tần suất 1 lần/2–4 lượt, không phụ thuộc nội dung test.
+
+### 10.5 Đã thay đổi gì
+
+1. `frontend/scripts/start-standalone.mjs` (mới) + `frontend/package.json`
+   (`"start:e2e": "node scripts/start-standalone.mjs"`): copy `.next/static` → `.next/standalone/.next/static`
+   và `public` → `.next/standalone/public` (đúng layout Dockerfile:27-29) rồi chạy `server.js` với `PORT`/`HOSTNAME`.
+   Kiểm chứng: `/vi` 200, chunk `page-8f655b245c46f79c.js` 200 (73 561 bytes), `/next.svg` 200; log webServer
+   không còn cảnh báo standalone.
+2. `frontend/playwright.config.ts`:
+   - comment + `webServer` chạy standalone (mục 1);
+   - `use.reducedMotion: "reduce"` — sửa race `animationend` ở 10.2 (dialog `data-closed` mà vẫn “visible”);
+   - `channel: "chromium"` (Chrome for Testing thay `chrome-headless-shell`): với headless shell, network service
+     chết kéo browser chết theo, với full Chromium có 2 lần network service chết nhưng browser tự phục hồi và
+     test vẫn xanh.
+3. `frontend/tests/e2e/analyze.spec.ts`:
+   - `expectAnimationsSettled(page, scope)`: chờ mọi animation/transition **hữu hạn** kết thúc (bỏ qua spinner
+     `iterations: Infinity`), không tăng timeout;
+   - trước khi quét axe: `toHaveAttribute("data-open", "")` + animations settled;
+   - sau khi bấm “Bắt đầu phân tích”: `expect(dialog).toHaveCount(0)` (chờ hết animation thoát + nhả focus trap)
+     rồi mới chờ panel + frame SSE `2/25` (`filter({ visible: true })` vì ở 375 bản đầu tiên là bản desktop bị CSS ẩn);
+   - message fail của axe in thêm `targets` để lần sau đọc được node vi phạm.
+4. `docs/tasks/phase-5-test-report.md`: mục này.
+
+### 10.6 Chứng minh ổn định — 5 lượt liên tiếp (round A, cấu hình cuối)
+
+```
+round A run1 exit=0 dur=74s   42 passed (1.2m)   (3 skipped = live smoke)
+round A run2 exit=0 dur=73s   42 passed (1.2m)
+round A run3 exit=0 dur=73s   42 passed (1.2m)
+round A run4 exit=0 dur=74s   42 passed (1.2m)
+round A run5 exit=0 dur=74s   42 passed (1.2m)
+→ ROUND A GREEN=5/5   (210 test, 0 fail)
+```
+
+Kiểm chứng khác trong cùng cấu hình: `analyze.spec.ts:198` (test đã sửa) 14.2 s/lượt, xanh cả 5 lượt;
+`--repeat-each=10 --grep "sends the user to LLM settings"` → 10/10 pass. Round B (5 lượt ngay sau đó) 3/5 xanh,
+2 lượt đỏ đều là `page.goto: Page crashed`/page không render (cùng lớp lỗi host ở 10.2); 1 lượt chạy lại sau
+`next build` cũng đỏ với `browserContext.newPage: Target crashed`. Tức là: **logic test đã tất định**, phần còn
+lại là host giết tiến trình Chromium — không sửa được bằng code test và không nên che bằng retry/timeout.
+
+### 10.7 Rủi ro còn lại & khuyến nghị
+
+- Trên host này nên chạy E2E khi compose stack/desktop rảnh, hoặc tăng RAM; nếu vẫn gặp, đọc
+  `journalctl -k | grep -i oom` bằng quyền root (`kernel.dmesg_restrict=1` hiện chặn) để truy đúng nguồn SIGKILL.
+- Không dùng `retries` để che: đã chứng minh lỗi không phải assertion. Nếu CI có `retries: 1` sẵn, giữ nguyên
+  nhưng đọc “retry” là dấu hiệu hạ tầng, không phải test yếu.
+- `channel: "chromium"` cần `npx playwright install chromium` (máy này đã có `chromium-1243`); nếu runner CI
+  chỉ cài headless shell thì bỏ option này hoặc cài thêm.
+
+### 10.8 File đã tạo / sửa ở round này
+
+```
+frontend/scripts/start-standalone.mjs        (mới)  # chạy artefact standalone cho e2e
+frontend/package.json                        # start:e2e → node scripts/start-standalone.mjs
+frontend/playwright.config.ts                # webServer standalone, reducedMotion, channel chromium, comment
+frontend/tests/e2e/analyze.spec.ts           # chờ trạng thái thật + message axe có targets
+docs/tasks/phase-5-test-report.md            # mục 10 này
+```
+
+Không sửa: `frontend/app/**`, `frontend/components/**`, `frontend/lib/**`, `frontend/messages/**`,
+`docs/PLAN.md`, `docs/research/**`, `docs/design-system/**`, mọi `docs/tasks/phase-*.md` (spec),
+`backend/**`, `docker-compose.yml`. Không `git commit/checkout/branch/stash/reset`.
