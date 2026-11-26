@@ -140,7 +140,9 @@ class LocalEmbedder(metaclass=SingletonMeta):
                 load_fn = self._loader if self._loader is not None else _load_sentence_transformer
                 model = load_fn(self._model_name)
                 self._model = model
-                get_dim = getattr(model, "get_sentence_embedding_dimension", None)
+                get_dim = getattr(model, "get_embedding_dimension", None)
+                if not callable(get_dim):
+                    get_dim = getattr(model, "get_sentence_embedding_dimension", None)
                 if callable(get_dim):
                     detected = get_dim()
                     if isinstance(detected, int) and detected > 0:

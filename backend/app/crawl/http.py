@@ -47,6 +47,8 @@ _JSON_BLOCK_KEYS = frozenset(
         "captcha_id",
         "captcha_token",
         "captcha_type",
+        "need_captcha",
+        "is_captcha",
         "verify",
         "verify_url",
         "verify_type",

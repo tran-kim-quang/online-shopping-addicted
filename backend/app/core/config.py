@@ -53,6 +53,20 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP_CHARS: int = 150
     HF_HOME: str | None = None
 
+    JOB_HEARTBEAT_INTERVAL_SECONDS: float = 15.0
+    JOB_STALE_TIMEOUT_SECONDS: float = 120.0
+    JOB_QUEUED_TIMEOUT_SECONDS: float = 600.0
+    JOB_STREAM_MAX_SECONDS: float = 3600.0
+
+    SEARCH_MIN_COSINE_SIMILARITY: float = 0.6
+
+    AGENT_MAX_STEPS: int = 8
+    AGENT_TOOL_RESULT_MAX_CHARS: int = 6000
+    AGENT_REVIEW_MAX_CHARS: int = 500
+    AGENT_HISTORY_MESSAGES: int = 10
+    AGENT_CRAWL_MAX_PER_TURN: int = 1
+    AGENT_CRAWL_MAX_PER_SESSION: int = 3
+
     LOG_LEVEL: str = "INFO"
 
     @field_validator("SECRET_KEY")

@@ -14,6 +14,7 @@ from typing import Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.errors import JobCancelledError
 from app.crawl.adapters.base import AdapterRegistry
 from app.crawl.classifier import resolve_and_classify_url
 from app.crawl.errors import CrawlError, UnsupportedPlatformError
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 ProgressCallback = Callable[[ProgressEvent], Awaitable[None]]
+SourceCreatedCallback = Callable[[uuid.UUID], Awaitable[None]]
 
 
 async def _emit(
@@ -88,6 +90,7 @@ async def crawl_url(
     max_products: int | None = None,
     max_reviews: int | None = None,
     on_progress: ProgressCallback | None = None,
+    on_source_created: SourceCreatedCallback | None = None,
     concurrency: int | None = None,
     dry_run: bool = False,
 ) -> CrawlResult:
@@ -120,6 +123,8 @@ async def crawl_url(
             source = await create_source(session, url=url, status="running")
             source_id = source.id
             await session.commit()
+        if on_source_created is not None and source_id is not None:
+            await on_source_created(source_id)
 
     async def _fail(
         error_msg: str,
@@ -176,6 +181,8 @@ async def crawl_url(
                     external_ref=parsed.model_dump(exclude_none=True),
                 )
                 await session.commit()
+        except JobCancelledError:
+            raise
         except Exception as exc:
             logger.exception("Failed updating classified source %s: %s", source_id, exc)
             return await _fail(str(exc), platform=parsed.platform)
@@ -190,6 +197,8 @@ async def crawl_url(
         stats.products_total = 1
         try:
             product_data = await adapter.fetch_product(parsed)
+        except JobCancelledError:
+            raise
         except Exception as exc:
             stats.products_failed = 1
             return await _fail(str(exc))
@@ -240,6 +249,8 @@ async def crawl_url(
                     product_ids.append(prod_row.id)
                     await upsert_reviews(session, prod_row.id, reviews_data, crawled_at=now)
                     await session.commit()
+            except JobCancelledError:
+                raise
             except Exception as exc:
                 logger.exception(
                     "Failed persisting crawled product %s for source %s: %s",
@@ -271,6 +282,8 @@ async def crawl_url(
                         crawled_at=datetime.now(UTC),
                     )
                     await session.commit()
+            except JobCancelledError:
+                raise
             except Exception as exc:
                 logger.exception("Failed finalizing product source %s: %s", source_id, exc)
                 return await _fail(str(exc))
@@ -392,6 +405,8 @@ async def crawl_url(
                     len(listings),
                     f"Saved {detail.title} ({len(reviews)} reviews)",
                 )
+            except JobCancelledError:
+                raise
             except Exception as exc:
                 logger.warning(
                     "Failed crawling product %s (%s): %s",

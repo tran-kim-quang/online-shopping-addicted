@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,11 +17,18 @@ from app.llm.registry import LLMClientRegistry
 from app.security.secrets import SecretBox
 from app.security.url_validator import DNSResolver
 
+SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
+
 
 async def get_session() -> AsyncIterator[AsyncSession]:
     """Yield an async SQLAlchemy session from the singleton ``Database``."""
     async with Database().session() as session:
         yield session
+
+
+def get_session_factory() -> SessionFactory:
+    """Return the shared async session factory from the singleton ``Database``."""
+    return Database().session_factory
 
 
 def get_registry() -> LLMClientRegistry:

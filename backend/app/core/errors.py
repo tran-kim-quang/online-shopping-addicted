@@ -30,6 +30,23 @@ def sanitize_error_message(message: str, secrets: Sequence[str] = ()) -> str:
     return sanitized
 
 
+class JobCancelledError(Exception):
+    """Raised when a running worker detects its job is already in a terminal state."""
+
+    def __init__(
+        self,
+        job_id: str,
+        *,
+        status: str = "failed",
+        error: str | None = None,
+    ) -> None:
+        self.job_id = job_id
+        self.status = status
+        self.error = error
+        detail = f" ({error})" if error else ""
+        super().__init__(f"Job {job_id} is already in terminal state '{status}'{detail}.")
+
+
 class LLMError(Exception):
     """Base error for all LLM layer failures."""
 

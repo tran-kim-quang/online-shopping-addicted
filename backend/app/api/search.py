@@ -29,6 +29,7 @@ class SearchRequest(BaseModel):
     shop_id: uuid.UUID | None = None
     source_types: list[Literal["description", "specs", "review", "meta"]] | None = None
     k: int = Field(default=8, ge=1, le=50)
+    min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     llm_profile_id: uuid.UUID | None = None
 
 
@@ -91,6 +92,7 @@ async def search_chunks(
         product_ids=effective_product_ids,
         shop_id=body.shop_id,
         source_types=body.source_types,
+        min_similarity=body.min_similarity,
         k=body.k,
         embedder=active_embedder,
     )

@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
+from app.api.chat import router as chat_router
 from app.api.health import router as health_router
 from app.api.ingest import router as ingest_router
 from app.api.jobs import router as jobs_router
@@ -170,6 +171,7 @@ def create_app() -> FastAPI:
     application.include_router(jobs_router)
     application.include_router(sources_router)
     application.include_router(search_router)
+    application.include_router(chat_router)
     return application
 
 
