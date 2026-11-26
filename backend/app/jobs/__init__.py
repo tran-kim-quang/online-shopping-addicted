@@ -7,7 +7,7 @@ from app.jobs.events import (
     JobEvents,
 )
 from app.jobs.queue import JobQueue
-from app.jobs.tasks import run_ingest
+from app.jobs.tasks import run_analyze, run_ingest
 
 __all__ = [
     "JOB_TTL_SECONDS",
@@ -15,5 +15,6 @@ __all__ = [
     "JobCancelledError",
     "JobEvents",
     "JobQueue",
+    "run_analyze",
     "run_ingest",
 ]

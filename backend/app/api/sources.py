@@ -1,21 +1,71 @@
-"""Source inspection summary endpoint (``GET /api/sources/{source_id}``)."""
+"""Source listing, summary, and standalone LLM analysis endpoints."""
 
 from __future__ import annotations
 
+import math
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_session
-from app.db.models import Chunk, Review, Source
+from app.api.deps import (
+    get_job_events,
+    get_job_queue,
+    get_secret_box,
+    get_session,
+    get_settings,
+)
+from app.core.config import Settings
+from app.db.models import Chunk, LLMProfile, Review, Source
 from app.ingest.pipeline import resolve_source_scope
+from app.ingest.sentiment import count_reviews_needing_analysis
+from app.jobs.events import ANALYZE_LOCK_TTL_SECONDS, TERMINAL_JOB_STATUSES, JobEvents
+from app.jobs.queue import JobQueue
+from app.jobs.submit import compile_fresh_cache_sql, compute_refresh_after
+from app.security.secrets import SecretBox
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
+
+_UUID_RE_SQL = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+_READY_ANALYZE_STATUSES = frozenset({"done", "partial"})
+
+
+def compute_display_name(
+    *,
+    url: str,
+    url_type: str | None,
+    shop_name: str | None = None,
+    first_product_title: str | None = None,
+) -> str:
+    """Resolve human-readable display name for a source (shop name, product title, or URL)."""
+    clean_shop = (shop_name or "").strip()
+    clean_product = (first_product_title or "").strip()
+    if url_type == "shop":
+        return clean_shop or url
+    if url_type == "product":
+        return clean_product or url
+    return clean_shop or clean_product or url
+
+
+def _extract_last_job_id(stats: dict[str, Any] | None) -> str | None:
+    if not isinstance(stats, dict):
+        return None
+    raw = stats.get("last_job_id")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return None
+
+
+def _normalize_optional_filter(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
 
 
 class ShopSummary(BaseModel):
@@ -40,6 +90,34 @@ class SentimentDistribution(BaseModel):
     unanalyzed: int = 0
 
 
+class SourceListItem(BaseModel):
+    """Single row returned by ``GET /api/sources``."""
+
+    id: uuid.UUID
+    url: str
+    url_type: str | None = None
+    platform: str | None = None
+    status: str
+    error: str | None = None
+    display_name: str
+    shop_name: str | None = None
+    products_count: int = 0
+    reviews_collected: int = 0
+    chat_sessions_count: int = 0
+    crawled_at: datetime | None = None
+    refresh_after: datetime | None = None
+    ingested: bool = False
+    last_job_id: str | None = None
+    updated_at: datetime
+
+
+class SourceListResponse(BaseModel):
+    """Paginated response payload for ``GET /api/sources``."""
+
+    items: list[SourceListItem] = Field(default_factory=list)
+    total: int = 0
+
+
 class SourceSummaryResponse(BaseModel):
     """Response payload for ``GET /api/sources/{source_id}``."""
 
@@ -49,6 +127,7 @@ class SourceSummaryResponse(BaseModel):
     platform: str | None = None
     status: str
     error: str | None = None
+    display_name: str
     shop: ShopSummary | None = None
     products_count: int = 0
     product_ids: list[uuid.UUID] = Field(default_factory=list)
@@ -58,7 +137,278 @@ class SourceSummaryResponse(BaseModel):
     chunks_by_type: dict[str, int] = Field(default_factory=dict)
     crawled_at: datetime | None = None
     ingested_at: datetime | None = None
+    last_job_id: str | None = None
     stats: dict[str, Any] = Field(default_factory=dict)
+
+
+class AnalyzeSourceRequest(BaseModel):
+    """Request payload for ``POST /api/sources/{source_id}/analyze``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    llm_profile_id: uuid.UUID
+
+
+class AnalyzeUpToDateResponse(BaseModel):
+    """200 response when all reviews in scope are already analyzed by LLM."""
+
+    status: Literal["up_to_date"] = "up_to_date"
+
+
+class AnalyzeQueuedResponse(BaseModel):
+    """202 response when an async Arq LLM sentiment analysis job has been enqueued."""
+
+    job_id: str
+    reviews_to_analyze: int
+    estimated_llm_requests: int
+
+
+@router.get("", response_model=SourceListResponse)
+async def list_sources(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    status_filter: str | None = Query(default=None, alias="status"),
+    url_type: str | None = Query(default=None),
+    platform: str | None = Query(default=None),
+    fresh: bool = Query(default=False),
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+    settings: Settings = Depends(get_settings),  # noqa: B008
+) -> SourceListResponse:
+    """List sources with pagination, optional filters, and SQL-aggregated counts (no N+1)."""
+    clean_status = _normalize_optional_filter(status_filter)
+    clean_url_type = _normalize_optional_filter(url_type)
+    clean_platform = _normalize_optional_filter(platform)
+
+    where_clauses: list[str] = []
+    params: dict[str, Any] = {"limit": limit, "offset": offset}
+    if clean_status is not None:
+        where_clauses.append("s.status = :status")
+        params["status"] = clean_status
+    if clean_url_type is not None:
+        where_clauses.append("s.url_type = :url_type")
+        params["url_type"] = clean_url_type
+    if clean_platform is not None:
+        where_clauses.append("s.platform = :platform")
+        params["platform"] = clean_platform
+    if fresh:
+        fresh_sql, fresh_params = compile_fresh_cache_sql(
+            ttl_hours=settings.CRAWL_CACHE_TTL_HOURS,
+            alias="s",
+        )
+        where_clauses.append(f"({fresh_sql})")
+        params.update(fresh_params)
+
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+    count_stmt = text(f"SELECT COUNT(*)::int AS total FROM sources s {where_sql}")
+    total = int((await session.execute(count_stmt, params)).scalar_one() or 0)
+    if total == 0 or offset >= total:
+        return SourceListResponse(items=[], total=total)
+
+    list_stmt = text(
+        f"""
+        WITH page_sources AS (
+            SELECT
+                s.id,
+                s.url,
+                s.url_type,
+                s.platform,
+                s.status,
+                s.error,
+                COALESCE(s.external_ref, '{{}}'::jsonb) AS external_ref,
+                COALESCE(s.stats, '{{}}'::jsonb) AS stats,
+                s.crawled_at,
+                s.updated_at
+            FROM sources s
+            {where_sql}
+            ORDER BY s.updated_at DESC, s.id DESC
+            LIMIT :limit OFFSET :offset
+        ),
+        matched_shops AS (
+            SELECT
+                ps.id AS source_id,
+                ms.id AS shop_id,
+                ms.name AS shop_name
+            FROM page_sources ps
+            LEFT JOIN LATERAL (
+                SELECT sh.id, sh.name
+                FROM shops sh
+                WHERE
+                    (
+                        (ps.external_ref->>'shop_id') ~ '{_UUID_RE_SQL}'
+                        AND sh.id = (ps.external_ref->>'shop_id')::uuid
+                    )
+                    OR (
+                        ps.url_type = 'shop'
+                        AND ps.platform IS NOT NULL
+                        AND NULLIF(ps.external_ref->>'seller_id', '') IS NOT NULL
+                        AND sh.platform = ps.platform
+                        AND sh.external_id = (ps.external_ref->>'seller_id')
+                    )
+                    OR (
+                        ps.url_type = 'shop'
+                        AND NULLIF(ps.external_ref->>'canonical_url', '') IS NOT NULL
+                        AND sh.url = (ps.external_ref->>'canonical_url')
+                    )
+                    OR (
+                        ps.url_type = 'shop'
+                        AND NULLIF(ps.external_ref->>'shop_slug', '') IS NOT NULL
+                        AND sh.url ILIKE '%/cua-hang/' || (ps.external_ref->>'shop_slug') || '%'
+                    )
+                ORDER BY
+                    CASE
+                        WHEN (ps.external_ref->>'shop_id') ~ '{_UUID_RE_SQL}'
+                             AND sh.id = (ps.external_ref->>'shop_id')::uuid THEN 0
+                        WHEN ps.url_type = 'shop'
+                             AND ps.platform IS NOT NULL
+                             AND NULLIF(ps.external_ref->>'seller_id', '') IS NOT NULL
+                             AND sh.platform = ps.platform
+                             AND sh.external_id = (ps.external_ref->>'seller_id') THEN 1
+                        WHEN ps.url_type = 'shop'
+                             AND NULLIF(ps.external_ref->>'canonical_url', '') IS NOT NULL
+                             AND sh.url = (ps.external_ref->>'canonical_url') THEN 2
+                        ELSE 3
+                    END
+                LIMIT 1
+            ) ms ON TRUE
+        ),
+        explicit_pids AS (
+            SELECT DISTINCT
+                ps.id AS source_id,
+                elem::uuid AS product_id
+            FROM page_sources ps
+            CROSS JOIN LATERAL jsonb_array_elements_text(
+                CASE
+                    WHEN jsonb_typeof(ps.external_ref->'product_ids') = 'array'
+                    THEN ps.external_ref->'product_ids'
+                    ELSE '[]'::jsonb
+                END
+            ) AS elem
+            WHERE elem ~ '{_UUID_RE_SQL}'
+        ),
+        sources_with_explicit AS (
+            SELECT DISTINCT source_id FROM explicit_pids
+        ),
+        scoped_products AS (
+            SELECT DISTINCT
+                ep.source_id,
+                p.id AS product_id,
+                p.title,
+                p.shop_id
+            FROM explicit_pids ep
+            JOIN products p ON p.id = ep.product_id
+            UNION
+            SELECT DISTINCT
+                ps.id AS source_id,
+                p.id AS product_id,
+                p.title,
+                p.shop_id
+            FROM page_sources ps
+            JOIN products p
+              ON p.external_id = (ps.external_ref->>'product_id')
+             AND (ps.platform IS NULL OR p.platform = ps.platform)
+            WHERE ps.url_type = 'product'
+              AND NULLIF(ps.external_ref->>'product_id', '') IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM sources_with_explicit swe WHERE swe.source_id = ps.id
+              )
+            UNION
+            SELECT DISTINCT
+                ps.id AS source_id,
+                p.id AS product_id,
+                p.title,
+                p.shop_id
+            FROM page_sources ps
+            JOIN matched_shops ms ON ms.source_id = ps.id
+            JOIN products p ON p.shop_id = ms.shop_id
+            WHERE ps.url_type = 'shop'
+              AND ms.shop_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM sources_with_explicit swe WHERE swe.source_id = ps.id
+              )
+        ),
+        prod_agg AS (
+            SELECT
+                sp.source_id,
+                COUNT(*)::int AS products_count,
+                (ARRAY_AGG(sp.title ORDER BY sp.product_id ASC))[1] AS first_product_title,
+                (
+                    ARRAY_AGG(sp.shop_id ORDER BY sp.product_id ASC)
+                    FILTER (WHERE sp.shop_id IS NOT NULL)
+                )[1] AS first_product_shop_id
+            FROM scoped_products sp
+            GROUP BY sp.source_id
+        ),
+        rev_agg AS (
+            SELECT
+                sp.source_id,
+                COUNT(r.id)::int AS reviews_collected
+            FROM scoped_products sp
+            JOIN reviews r ON r.product_id = sp.product_id
+            GROUP BY sp.source_id
+        ),
+        chat_agg AS (
+            SELECT
+                cs.source_id,
+                COUNT(*)::int AS chat_sessions_count
+            FROM chat_sessions cs
+            JOIN page_sources ps ON ps.id = cs.source_id
+            GROUP BY cs.source_id
+        )
+        SELECT
+            ps.id,
+            ps.url,
+            ps.url_type,
+            ps.platform,
+            ps.status,
+            ps.error,
+            COALESCE(ms.shop_name, prod_shop.name) AS shop_name,
+            pa.first_product_title,
+            COALESCE(pa.products_count, 0) AS products_count,
+            COALESCE(ra.reviews_collected, 0) AS reviews_collected,
+            COALESCE(ca.chat_sessions_count, 0) AS chat_sessions_count,
+            ps.crawled_at,
+            jsonb_exists(ps.stats, 'ingest') AS ingested,
+            NULLIF(ps.stats->>'last_job_id', '') AS last_job_id,
+            ps.updated_at
+        FROM page_sources ps
+        LEFT JOIN matched_shops ms ON ms.source_id = ps.id
+        LEFT JOIN prod_agg pa ON pa.source_id = ps.id
+        LEFT JOIN shops prod_shop ON prod_shop.id = pa.first_product_shop_id
+        LEFT JOIN rev_agg ra ON ra.source_id = ps.id
+        LEFT JOIN chat_agg ca ON ca.source_id = ps.id
+        ORDER BY ps.updated_at DESC, ps.id DESC
+        """
+    )
+
+    rows = (await session.execute(list_stmt, params)).mappings().all()
+    items = [
+        SourceListItem(
+            id=row["id"],
+            url=row["url"],
+            url_type=row["url_type"],
+            platform=row["platform"],
+            status=row["status"],
+            error=row["error"],
+            display_name=compute_display_name(
+                url=row["url"],
+                url_type=row["url_type"],
+                shop_name=row["shop_name"],
+                first_product_title=row["first_product_title"],
+            ),
+            shop_name=row["shop_name"],
+            products_count=int(row["products_count"] or 0),
+            reviews_collected=int(row["reviews_collected"] or 0),
+            chat_sessions_count=int(row["chat_sessions_count"] or 0),
+            crawled_at=row["crawled_at"],
+            refresh_after=compute_refresh_after(row["crawled_at"], settings.CRAWL_CACHE_TTL_HOURS),
+            ingested=bool(row["ingested"]),
+            last_job_id=row["last_job_id"],
+            updated_at=row["updated_at"],
+        )
+        for row in rows
+    ]
+    return SourceListResponse(items=items, total=total)
 
 
 @router.get("/{source_id}", response_model=SourceSummaryResponse)
@@ -126,6 +476,8 @@ async def get_source_summary(
 
     ingested_dates = [p.ingested_at for p in products if p.ingested_at is not None]
     ingested_at = max(ingested_dates) if ingested_dates else None
+    first_product_title = products[0].title if products else None
+    stats = source.stats or {}
 
     return SourceSummaryResponse(
         id=source.id,
@@ -134,6 +486,12 @@ async def get_source_summary(
         platform=source.platform,
         status=source.status,
         error=source.error,
+        display_name=compute_display_name(
+            url=source.url,
+            url_type=source.url_type,
+            shop_name=shop.name if shop is not None else None,
+            first_product_title=first_product_title,
+        ),
         shop=shop_summary,
         products_count=len(products),
         product_ids=product_ids,
@@ -143,5 +501,163 @@ async def get_source_summary(
         chunks_by_type=chunks_by_type,
         crawled_at=source.crawled_at,
         ingested_at=ingested_at,
-        stats=source.stats or {},
+        last_job_id=_extract_last_job_id(stats),
+        stats=stats,
+    )
+
+
+async def _is_lock_holder_terminal(
+    job_events: JobEvents,
+    holder_job_id: str,
+    settings: Settings,
+) -> bool:
+    """Return True if ``holder_job_id`` has already reached a terminal job state."""
+    check_stale = getattr(job_events, "check_stale", None)
+    if callable(check_stale):
+        status_info = await check_stale(
+            holder_job_id,
+            stale_timeout_seconds=settings.JOB_STALE_TIMEOUT_SECONDS,
+            queued_timeout_seconds=settings.JOB_QUEUED_TIMEOUT_SECONDS,
+        )
+    else:
+        status_info = await job_events.get_status(holder_job_id)
+    return status_info is not None and status_info.get("status") in TERMINAL_JOB_STATUSES
+
+
+def _analysis_running_response(source_id: uuid.UUID, running_job_id: str | None) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={
+            "error": "analysis_running",
+            "job_id": running_job_id,
+            "detail": (
+                f"LLM analysis job {running_job_id} is already running for source {source_id}."
+            ),
+        },
+    )
+
+
+@router.post(
+    "/{source_id}/analyze",
+    responses={
+        200: {"model": AnalyzeUpToDateResponse},
+        202: {"model": AnalyzeQueuedResponse},
+    },
+)
+async def analyze_source_reviews_endpoint(
+    source_id: uuid.UUID,
+    body: AnalyzeSourceRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+    settings: Settings = Depends(get_settings),  # noqa: B008
+    secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
+    job_events: JobEvents = Depends(get_job_events),  # noqa: B008
+    job_queue: JobQueue = Depends(get_job_queue),  # noqa: B008
+) -> JSONResponse:
+    """Enqueue standalone LLM sentiment & aspect analysis for an existing source."""
+    source = await session.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found.")
+
+    if source.status not in _READY_ANALYZE_STATUSES:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "error": "source_not_ready",
+                "detail": (
+                    f"Source {source.id} is not ready for analysis (status='{source.status}')."
+                ),
+            },
+        )
+
+    profile = await session.get(LLMProfile, body.llm_profile_id)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="LLM profile not found.")
+
+    # Decrypt API key up front so SecretBoxError returns 409 secret_key_mismatch JSON.
+    if profile.api_key_enc:
+        secret_box.decrypt(profile.api_key_enc)
+
+    source_id_str = str(source.id)
+
+    # Check if an active analysis job already holds the per-source lock.
+    existing_holder = await job_events.get_source_lock(source_id_str)
+    if existing_holder is not None:
+        if await _is_lock_holder_terminal(job_events, existing_holder, settings):
+            await job_events.release_source_lock(source_id_str, existing_holder)
+        else:
+            return _analysis_running_response(source.id, existing_holder)
+
+    _shop, products = await resolve_source_scope(session, source)
+    product_ids = [p.id for p in products]
+    reviews_to_analyze = await count_reviews_needing_analysis(
+        session,
+        product_ids,
+        llm_available=True,
+    )
+    if reviews_to_analyze == 0:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=AnalyzeUpToDateResponse(status="up_to_date").model_dump(mode="json"),
+        )
+
+    job_id = str(uuid.uuid4())
+    lock_ttl = max(
+        ANALYZE_LOCK_TTL_SECONDS,
+        int(settings.JOB_STALE_TIMEOUT_SECONDS + settings.JOB_QUEUED_TIMEOUT_SECONDS),
+    )
+
+    acquired, holder = await job_events.acquire_source_lock(
+        source_id_str,
+        job_id,
+        ttl_seconds=lock_ttl,
+    )
+    if not acquired:
+        if holder is not None and await _is_lock_holder_terminal(job_events, holder, settings):
+            await job_events.release_source_lock(source_id_str, holder)
+            acquired, holder = await job_events.acquire_source_lock(
+                source_id_str,
+                job_id,
+                ttl_seconds=lock_ttl,
+            )
+        if not acquired:
+            return _analysis_running_response(source.id, holder)
+
+    try:
+        await job_events.create_job(
+            job_id,
+            url=source.url,
+            source_id=source_id_str,
+            job_type="analyze",
+        )
+        await job_events.emit(
+            job_id,
+            stage="queued",
+            done=0,
+            total=reviews_to_analyze,
+            message=f"Queued LLM sentiment analysis for {reviews_to_analyze} review(s)",
+        )
+        merged_stats = dict(source.stats or {})
+        merged_stats["last_analyze_job_id"] = job_id
+        source.stats = merged_stats
+        await session.commit()
+
+        await job_queue.enqueue_analyze(
+            job_id=job_id,
+            source_id=source_id_str,
+            llm_profile_id=str(profile.id),
+        )
+    except Exception:
+        await job_events.release_source_lock(source_id_str, job_id)
+        raise
+
+    batch_size = max(1, int(settings.SENTIMENT_BATCH_SIZE))
+    estimated_llm_requests = math.ceil(reviews_to_analyze / batch_size)
+    queued_payload = AnalyzeQueuedResponse(
+        job_id=job_id,
+        reviews_to_analyze=reviews_to_analyze,
+        estimated_llm_requests=estimated_llm_requests,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content=queued_payload.model_dump(mode="json"),
     )

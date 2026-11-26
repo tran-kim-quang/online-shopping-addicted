@@ -14,7 +14,7 @@ import subprocess
 import sys
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -82,7 +82,7 @@ def make_settings(**overrides: Any) -> Settings:
         "DATABASE_URL": TEST_DATABASE_URL,
         "REDIS_URL": TEST_REDIS_URL,
         "EMBEDDING_BACKEND": "none",
-        "CRAWL_CACHE_TTL_HOURS": 24,
+        "CRAWL_CACHE_TTL_HOURS": 48,
     }
     values.update(overrides)
     return Settings(**values)
@@ -657,10 +657,18 @@ async def test_sentiment_llm_and_rating_fallback_are_persisted(
         refreshed.neutral_review_count,
     ) == (1, 2, 0)
 
-    # Second pass must skip every already-analysed review.
+    # Second pass: the LLM row is skipped, but the two rating-only rows are reopened because
+    # an LLM is now available (``needs_sentiment_analysis(..., llm_available=True)``) — that
+    # is what lets a source pick up LLM sentiment without re-crawling.
     again = await analyze_product_reviews(session, product.id, llm_client=llm_client, batch_size=20)
-    assert again.analyzed == 0
-    assert again.skipped == 3
+    assert again.analyzed == 2
+    assert again.skipped == 1
+    # The scripted reply still only answers r0 (already LLM-analyzed, hence not in the batch),
+    # so both reopened rows keep their star fallback — but they were re-sent, which is the
+    # intended "upgrade once an LLM exists" behaviour.
+    assert again.llm_count == 0
+    assert again.rating_fallback_count == 2
+    assert again.changed == 0, "re-analysing must not flip already-correct rows"
 
 
 # ---------------------------------------------------------------------------
@@ -1042,6 +1050,7 @@ async def test_api_ingest_returns_cached_after_an_ingested_source(
     session_factory: Any,
 ) -> None:
     url = "https://tiki.vn/gao-st25-p1001.html"
+    crawled_at = datetime.now(UTC) - timedelta(hours=2)
     async with session_factory() as session:
         source = await create_source(session, url=url, status="done")
         await update_source(
@@ -1050,7 +1059,7 @@ async def test_api_ingest_returns_cached_after_an_ingested_source(
             status="done",
             stats={"ingest": {"chunks_total": 4}},
             external_ref={"product_id": "1001", "canonical_url": url},
-            crawled_at=datetime.now(UTC),
+            crawled_at=crawled_at,
         )
         await session.commit()
         source_id = source.id
@@ -1061,12 +1070,86 @@ async def test_api_ingest_returns_cached_after_an_ingested_source(
         transport=httpx.ASGITransport(app=app), base_url="http://testserver"
     ) as client:
         cached = await client.post("/api/ingest", json={"url": url})
-        forced = await client.post("/api/ingest", json={"url": url, "force": True})
+        legacy_force = await client.post("/api/ingest", json={"url": url, "force": True})
 
     assert cached.status_code == 200
-    assert cached.json() == {"source_id": str(source_id), "cached": True}
-    assert forced.status_code == 202
-    assert forced.json()["cached"] is False
+    body = cached.json()
+    assert body["source_id"] == str(source_id)
+    assert body["cached"] is True
+    assert datetime.fromisoformat(body["crawled_at"]) == crawled_at
+    assert datetime.fromisoformat(body["refresh_after"]) == crawled_at + timedelta(hours=48)
+    assert events.created == [], "a cache hit must not create a job"
+
+    assert legacy_force.status_code == 422, "there is no API path to bypass the cache"
+    assert events.created == []
+
+
+@pytest.mark.parametrize(
+    ("age", "expected_status"),
+    [
+        (timedelta(hours=47, minutes=59), 200),
+        (timedelta(hours=48, minutes=1), 202),
+    ],
+)
+async def test_api_ingest_cache_window_boundary(
+    session_factory: Any,
+    age: timedelta,
+    expected_status: int,
+) -> None:
+    url = "https://tiki.vn/gao-st25-p1001.html"
+    async with session_factory() as session:
+        source = await create_source(session, url=url, status="done")
+        await update_source(
+            session,
+            source.id,
+            status="done",
+            stats={"ingest": {"chunks_total": 4}},
+            external_ref={"product_id": "1001", "canonical_url": url},
+            crawled_at=datetime.now(UTC) - age,
+        )
+        await session.commit()
+
+    events = RecordingJobEvents()
+    app = await _app_with_db(session_factory, events=events)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        response = await client.post("/api/ingest", json={"url": url})
+
+    assert response.status_code == expected_status
+    assert response.json()["cached"] is (expected_status == 200)
+    assert bool(events.created) is (expected_status == 202)
+
+
+@pytest.mark.parametrize("status", ["failed", "partial"])
+async def test_api_ingest_never_serves_failed_or_partial_sources_from_cache(
+    session_factory: Any,
+    status: str,
+) -> None:
+    """Only ``done`` sources inside the TTL are reusable; retrying after a failure re-crawls."""
+    url = "https://tiki.vn/gao-st25-p1001.html"
+    async with session_factory() as session:
+        source = await create_source(session, url=url, status=status)
+        await update_source(
+            session,
+            source.id,
+            status=status,
+            stats={"ingest": {"chunks_total": 4}},
+            external_ref={"product_id": "1001", "canonical_url": url},
+            crawled_at=datetime.now(UTC),
+        )
+        await session.commit()
+
+    events = RecordingJobEvents()
+    app = await _app_with_db(session_factory, events=events)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        response = await client.post("/api/ingest", json={"url": url})
+
+    assert response.status_code == 202
+    assert response.json()["cached"] is False
+    assert len(events.created) == 1
 
 
 async def test_api_ingest_ignores_stale_ingested_sources(session_factory: Any) -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -14,6 +14,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.errors import JobCancelledError
 from app.db.models import LLMProfile, Product, Review
 from app.llm.client import LLMClient
 from app.llm.structured import complete_json
@@ -74,6 +75,9 @@ class SentimentSummary(BaseModel):
     llm_count: int = 0
     rating_fallback_count: int = 0
     skipped: int = 0
+    changed: int = 0
+    batches_total: int = 0
+    batches_failed: int = 0
     positive: int = 0
     negative: int = 0
     neutral: int = 0
@@ -94,13 +98,38 @@ def review_content_hash(review: Review) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
-def needs_sentiment_analysis(review: Review) -> bool:
-    """Return True if a review has never been analyzed or its content hash changed."""
+def needs_sentiment_analysis(review: Review, *, llm_available: bool = False) -> bool:
+    """Return True if a review needs (re-)analysis.
+
+    Returns True when:
+      - never analyzed (``analyzed_at is None``),
+      - content hash changed since last analysis, or
+      - previously analyzed via star-rating fallback (``sentiment_source == "rating"``)
+        and an LLM is now available (``llm_available=True``).
+    """
     if review.analyzed_at is None:
         return True
     if review.content_hash is not None and review.content_hash != review_content_hash(review):
         return True
+    if llm_available and review.sentiment_source == "rating":
+        return True
     return False
+
+
+async def count_reviews_needing_analysis(
+    session: AsyncSession,
+    product_ids: Sequence[uuid.UUID],
+    *,
+    llm_available: bool = True,
+) -> int:
+    """Count reviews across ``product_ids`` that satisfy :func:`needs_sentiment_analysis`."""
+    if not product_ids:
+        return 0
+    result = await session.execute(select(Review).where(Review.product_id.in_(product_ids)))
+    reviews = result.scalars().all()
+    return sum(
+        1 for review in reviews if needs_sentiment_analysis(review, llm_available=llm_available)
+    )
 
 
 def _sanitize_review_text(text: str) -> str:
@@ -189,8 +218,9 @@ async def analyze_product_reviews(
     llm_client: LLMClient | None = None,
     profile: LLMProfile | None = None,
     batch_size: int | None = None,
+    on_batch_done: Callable[[int], Awaitable[None]] | None = None,
 ) -> SentimentSummary:
-    """Analyze unanalyzed/changed reviews for ``product_id`` and recompute product counters.
+    """Analyze unanalyzed/changed/rating-only reviews for ``product_id`` and recompute counters.
 
     Uses ``llm_client`` in batches of ``SENTIMENT_BATCH_SIZE`` when available, falling back
     to star-rating heuristics when no profile/client is provided, when the LLM fails, or for
@@ -202,11 +232,12 @@ async def analyze_product_reviews(
         .order_by(Review.created_at_source.desc().nullslast(), Review.id.asc())
     )
     all_reviews = list(result.scalars().all())
+    llm_available = llm_client is not None
 
     pending: list[tuple[Review, str]] = []
     skipped = 0
     for review in all_reviews:
-        if needs_sentiment_analysis(review):
+        if needs_sentiment_analysis(review, llm_available=llm_available):
             pending.append((review, review_content_hash(review)))
         else:
             skipped += 1
@@ -215,6 +246,9 @@ async def analyze_product_reviews(
     now = datetime.now(UTC)
     llm_count = 0
     rating_fallback_count = 0
+    changed_count = 0
+    batches_total = 0
+    batches_failed = 0
 
     if pending and llm_client is not None:
         model = (
@@ -232,6 +266,7 @@ async def analyze_product_reviews(
             batch_pairs = pending[offset : offset + eff_batch_size]
             batch_reviews = [pair[0] for pair in batch_pairs]
             messages = build_sentiment_messages(batch_reviews)
+            batches_total += 1
 
             try:
                 parsed = await complete_json(
@@ -241,7 +276,10 @@ async def analyze_product_reviews(
                     json_mode=json_mode,
                     model=model,
                 )
+            except JobCancelledError:
+                raise
             except Exception as exc:
+                batches_failed += 1
                 logger.warning(
                     "LLM sentiment batch failed for product %s (%d reviews), "
                     "falling back to star rating: %s",
@@ -250,31 +288,72 @@ async def analyze_product_reviews(
                     exc,
                 )
                 for review, c_hash in batch_pairs:
+                    prev_state = (
+                        review.sentiment,
+                        review.sentiment_source,
+                        review.aspects,
+                        review.content_hash,
+                    )
                     _apply_rating_fallback(review, now=now, content_hash=c_hash)
+                    if (
+                        review.sentiment,
+                        review.sentiment_source,
+                        review.aspects,
+                        review.content_hash,
+                    ) != prev_state:
+                        changed_count += 1
                     rating_fallback_count += 1
-                continue
+            else:
+                by_id: dict[str, ReviewSentimentItem] = {}
+                for item in parsed.items:
+                    key = item.id.strip()
+                    if key and key not in by_id:
+                        by_id[key] = item
 
-            by_id: dict[str, ReviewSentimentItem] = {}
-            for item in parsed.items:
-                key = item.id.strip()
-                if key and key not in by_id:
-                    by_id[key] = item
+                for review, c_hash in batch_pairs:
+                    prev_state = (
+                        review.sentiment,
+                        review.sentiment_source,
+                        review.aspects,
+                        review.content_hash,
+                    )
+                    matched = by_id.get(str(review.id)) or by_id.get(review.external_id)
+                    if matched is not None:
+                        review.sentiment = matched.sentiment
+                        review.sentiment_source = "llm"
+                        review.aspects = [aspect.model_dump() for aspect in matched.aspects]
+                        review.analyzed_at = now
+                        review.content_hash = c_hash
+                        llm_count += 1
+                    else:
+                        _apply_rating_fallback(review, now=now, content_hash=c_hash)
+                        rating_fallback_count += 1
+                    if (
+                        review.sentiment,
+                        review.sentiment_source,
+                        review.aspects,
+                        review.content_hash,
+                    ) != prev_state:
+                        changed_count += 1
 
-            for review, c_hash in batch_pairs:
-                matched = by_id.get(str(review.id)) or by_id.get(review.external_id)
-                if matched is not None:
-                    review.sentiment = matched.sentiment
-                    review.sentiment_source = "llm"
-                    review.aspects = [aspect.model_dump() for aspect in matched.aspects]
-                    review.analyzed_at = now
-                    review.content_hash = c_hash
-                    llm_count += 1
-                else:
-                    _apply_rating_fallback(review, now=now, content_hash=c_hash)
-                    rating_fallback_count += 1
+            if on_batch_done is not None:
+                await on_batch_done(len(batch_pairs))
     elif pending:
         for review, c_hash in pending:
+            prev_state = (
+                review.sentiment,
+                review.sentiment_source,
+                review.aspects,
+                review.content_hash,
+            )
             _apply_rating_fallback(review, now=now, content_hash=c_hash)
+            if (
+                review.sentiment,
+                review.sentiment_source,
+                review.aspects,
+                review.content_hash,
+            ) != prev_state:
+                changed_count += 1
             rating_fallback_count += 1
 
     await session.flush()
@@ -285,6 +364,9 @@ async def analyze_product_reviews(
         llm_count=llm_count,
         rating_fallback_count=rating_fallback_count,
         skipped=skipped,
+        changed=changed_count,
+        batches_total=batches_total,
+        batches_failed=batches_failed,
         positive=pos,
         negative=neg,
         neutral=neu,

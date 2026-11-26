@@ -8,7 +8,7 @@ database in ``test_ingest_integration.py``.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -32,7 +32,7 @@ CANONICAL_URL = "https://tiki.vn/san-pham-p1001.html"
 
 
 def make_settings(**overrides: Any) -> Settings:
-    values: dict[str, Any] = {"SECRET_KEY": SECRET, "CRAWL_CACHE_TTL_HOURS": 24}
+    values: dict[str, Any] = {"SECRET_KEY": SECRET, "CRAWL_CACHE_TTL_HOURS": 48}
     values.update(overrides)
     return Settings(**values)
 
@@ -182,11 +182,12 @@ async def test_ingested_source_within_ttl_is_returned_as_cache_hit(
     job_events: RecordingJobEvents,
     job_queue: RecordingJobQueue,
 ) -> None:
+    crawled_at = datetime.now(UTC) - timedelta(hours=2)
     cached = make_source_row(
         url=CANONICAL_URL,
         status="done",
         stats={"ingest": {"chunks_total": 12}},
-        crawled_at=datetime.now(UTC),
+        crawled_at=crawled_at,
         external_ref={"canonical_url": CANONICAL_URL, "product_id": "1001"},
     )
     session = CapturingSession([Rows([cached])])
@@ -197,7 +198,12 @@ async def test_ingested_source_within_ttl_is_returned_as_cache_hit(
         await client.aclose()
 
     assert response.status_code == 200
-    assert response.json() == {"source_id": str(cached.id), "cached": True}
+    body = response.json()
+    assert body["source_id"] == str(cached.id)
+    assert body["cached"] is True
+    # Cache hits now tell the client how old the data is and when it auto-refreshes.
+    assert datetime.fromisoformat(body["crawled_at"]) == crawled_at
+    assert datetime.fromisoformat(body["refresh_after"]) == crawled_at + timedelta(hours=48)
     assert job_queue.calls == []
     assert job_events.created == []
 
@@ -226,20 +232,57 @@ async def test_cache_query_requires_ingest_stats_and_a_recent_done_crawl(
     assert "sources.crawled_at >=" in compiled
 
 
-async def test_force_bypasses_the_cache_lookup(
+async def test_cache_hit_refresh_after_follows_the_configured_ttl(
     job_events: RecordingJobEvents,
     job_queue: RecordingJobQueue,
 ) -> None:
-    session = CapturingSession([Rows([])])
-    client = make_client(session=session, job_events=job_events, job_queue=job_queue)
+    crawled_at = datetime.now(UTC) - timedelta(hours=1)
+    cached = make_source_row(
+        url=CANONICAL_URL,
+        status="done",
+        stats={"ingest": {"chunks_total": 3}},
+        crawled_at=crawled_at,
+        external_ref={"canonical_url": CANONICAL_URL, "product_id": "1001"},
+    )
+    session = CapturingSession([Rows([cached])])
+    client = make_client(
+        session=session,
+        job_events=job_events,
+        job_queue=job_queue,
+        settings=make_settings(CRAWL_CACHE_TTL_HOURS=6),
+    )
     try:
-        response = await post_ingest(client, force=True)
+        response = await post_ingest(client)
     finally:
         await client.aclose()
 
-    assert response.status_code == 202
-    assert session.executed == 0
-    assert job_queue.calls[0]["force"] is True
+    assert response.status_code == 200
+    assert datetime.fromisoformat(response.json()["refresh_after"]) == crawled_at + timedelta(
+        hours=6
+    )
+
+
+@pytest.mark.parametrize("field", ["force", "bypass_cache"])
+async def test_extra_request_fields_are_rejected_with_422(
+    field: str,
+    job_events: RecordingJobEvents,
+    job_queue: RecordingJobQueue,
+) -> None:
+    """``IngestRequest`` forbids extras, so legacy ``force`` clients fail loudly."""
+    session = CapturingSession([Rows([])])
+    client = make_client(session=session, job_events=job_events, job_queue=job_queue)
+    try:
+        response = await post_ingest(client, **{field: True})
+    finally:
+        await client.aclose()
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert any(item["loc"] == ["body", field] for item in detail)
+    assert any(item["type"] == "extra_forbidden" for item in detail)
+    assert session.executed == 0, "a rejected payload must not reach the database"
+    assert job_queue.calls == []
+    assert job_events.created == []
 
 
 async def test_zero_ttl_disables_the_cache(
@@ -294,7 +337,6 @@ async def test_cache_miss_enqueues_a_job(
             "llm_profile_id": None,
             "max_products": 5,
             "max_reviews": 10,
-            "force": False,
         }
     ]
 

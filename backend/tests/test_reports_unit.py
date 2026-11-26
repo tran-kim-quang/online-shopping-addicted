@@ -97,7 +97,7 @@ def test_to_utc_normalizes_naive_and_offset_aware_datetimes() -> None:
     assert _to_utc(offset) == datetime(2026, 11, 26, 12, 0, tzinfo=UTC)
 
 
-def test_cache_ttl_uses_settings_when_provided_then_falls_back_to_24h(
+def test_cache_ttl_uses_settings_when_provided_then_falls_back_to_48h(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _Settings:
@@ -109,7 +109,7 @@ def test_cache_ttl_uses_settings_when_provided_then_falls_back_to_24h(
         raise RuntimeError("settings unavailable")
 
     monkeypatch.setattr(sr, "get_settings", _boom)
-    assert _resolve_cache_ttl_hours(None) == 24
+    assert _resolve_cache_ttl_hours(None) == 48
 
 
 # ---------------------------------------------------------------------------
@@ -228,12 +228,14 @@ def _totals(
     src_llm: int = 1,
     src_rating: int = 0,
     src_none: int = 0,
+    rating_only: int = 0,
 ) -> ReportTotals:
     return ReportTotals(
         sentiment=SentimentCounts(
             positive=positive, neutral=neutral, negative=negative, unanalyzed=unanalyzed
         ),
         sentiment_source=SentimentSourceCounts(llm=src_llm, rating=src_rating, none=src_none),
+        reviews_rating_only=rating_only,
     )
 
 
@@ -290,10 +292,33 @@ def test_reported_count_lower_warning_when_more_reviews_than_reported() -> None:
 
 
 def test_sentiment_rating_only_warning_when_all_sentiment_came_from_stars() -> None:
+    """The warning now points at the new analyze endpoint instead of asking for a re-ingest."""
     warnings = _warnings(totals=_totals(positive=2, negative=1, src_llm=0, src_rating=3))
 
     entry = next(w for w in warnings if w.code == "sentiment_rating_only")
-    assert "Ingest lại với LLM profile" in entry.message
+    assert entry.message == "Cảm xúc đang suy ra từ số sao; chưa phân tích bằng LLM."
+    assert entry.params == {"count": 3}
+    assert "Ingest lại" not in entry.message
+
+
+def test_sentiment_rating_only_params_prefer_totals_reviews_rating_only() -> None:
+    """``totals.reviews_rating_only`` is the counted source of truth when the report set it."""
+    warnings = _warnings(
+        totals=_totals(positive=2, negative=1, src_llm=0, src_rating=3, rating_only=5),
+    )
+
+    entry = next(w for w in warnings if w.code == "sentiment_rating_only")
+    assert entry.params == {"count": 5}
+
+
+def test_sentiment_rating_only_params_fall_back_to_sentiment_source_rating() -> None:
+    """A partially populated totals object (rating_only=0) must not report ``count=0``."""
+    warnings = _warnings(
+        totals=_totals(positive=2, negative=1, src_llm=0, src_rating=3, rating_only=0),
+    )
+
+    entry = next(w for w in warnings if w.code == "sentiment_rating_only")
+    assert entry.params == {"count": 3}
 
 
 def test_sentiment_rating_only_is_not_raised_when_llm_sentiment_exists() -> None:
@@ -336,9 +361,23 @@ def test_stale_data_warning_uses_configured_ttl_hours() -> None:
 
     entry = next(w for w in warnings if w.code == "stale_data")
     assert "hơn 24 giờ" in entry.message
+    assert entry.params == {"ttl_hours": 24}
     assert "stale_data" not in _codes(
         _warnings(source=make_source(crawled_at=NOW - timedelta(hours=1)), ttl_hours=24)
     )
+
+
+def test_stale_data_warning_follows_the_48h_cache_window() -> None:
+    just_inside = make_source(crawled_at=NOW - timedelta(hours=47, minutes=59))
+    just_outside = make_source(crawled_at=NOW - timedelta(hours=48, minutes=1))
+
+    assert "stale_data" not in _codes(_warnings(source=just_inside, ttl_hours=48))
+
+    warnings = _warnings(source=just_outside, ttl_hours=48)
+    entry = next(w for w in warnings if w.code == "stale_data")
+    assert entry.params == {"ttl_hours": 48}
+    assert "hơn 48 giờ" in entry.message
+    assert "lần mở tiếp theo sẽ tự thu thập mới" in entry.message
 
 
 def test_missing_price_and_sold_count_warnings_list_offending_products() -> None:

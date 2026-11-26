@@ -856,7 +856,8 @@ async def test_unanalyzed_reviews_warning_lists_products(session: AsyncSession) 
 async def test_not_ingested_and_stale_data_warnings(session: AsyncSession) -> None:
     seeded = await seed_catalog(session)
     seeded["source"].stats = {}
-    seeded["source"].crawled_at = NOW - timedelta(hours=48)
+    # Beyond the 48h cache window (the warning uses a strict ``>`` comparison).
+    seeded["source"].crawled_at = NOW - timedelta(hours=49)
     await session.commit()
 
     report = await build_source_report(session, seeded["source"], now=NOW, settings=None)
@@ -866,6 +867,51 @@ async def test_not_ingested_and_stale_data_warnings(session: AsyncSession) -> No
     assert "stale_data" in codes
     stale = next(w for w in report.warnings if w.code == "stale_data")
     assert f"hơn {Settings(SECRET_KEY=SECRET).CRAWL_CACHE_TTL_HOURS} giờ" in stale.message
+    assert "lần mở tiếp theo sẽ tự thu thập mới" in stale.message
+
+
+async def test_stale_data_warning_follows_the_48h_window(session: AsyncSession) -> None:
+    seeded = await seed_catalog(session)
+    source = seeded["source"]
+
+    source.crawled_at = NOW - timedelta(hours=47, minutes=59)
+    await session.commit()
+    inside = await build_source_report(session, source, now=NOW, settings=None)
+    assert "stale_data" not in [w.code for w in inside.warnings]
+
+    source.crawled_at = NOW - timedelta(hours=48, minutes=1)
+    await session.commit()
+    outside = await build_source_report(session, source, now=NOW, settings=None)
+    stale = next(w for w in outside.warnings if w.code == "stale_data")
+    assert stale.params == {"ttl_hours": 48}
+
+
+async def test_report_source_info_exposes_refresh_after_from_crawled_at(
+    session: AsyncSession,
+) -> None:
+    seeded = await seed_catalog(session)
+    crawled_at = NOW - timedelta(hours=3)
+    seeded["source"].crawled_at = crawled_at
+    await session.commit()
+
+    report = await build_source_report(session, seeded["source"], now=NOW)
+
+    assert report.source.crawled_at is not None
+    assert report.source.refresh_after == crawled_at + timedelta(hours=48)
+    assert report.source.refresh_after.tzinfo is UTC
+
+
+async def test_report_source_info_refresh_after_is_null_without_crawled_at(
+    session: AsyncSession,
+) -> None:
+    seeded = await seed_catalog(session)
+    seeded["source"].crawled_at = None
+    await session.commit()
+
+    report = await build_source_report(session, seeded["source"], now=NOW)
+
+    assert report.source.crawled_at is None
+    assert report.source.refresh_after is None
 
 
 # ---------------------------------------------------------------------------

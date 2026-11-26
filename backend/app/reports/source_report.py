@@ -28,8 +28,10 @@ class ReportSourceInfo(BaseModel):
     url_type: str | None = None
     platform: str | None = None
     status: str
+    display_name: str | None = None
     crawled_at: datetime | None = None
     ingested_at: datetime | None = None
+    refresh_after: datetime | None = None
 
 
 class ReportShopInfo(BaseModel):
@@ -79,6 +81,7 @@ class ReportTotals(BaseModel):
     rating_avg_weighted: float | None = None
     review_count_reported: int = 0
     reviews_collected: int = 0
+    reviews_rating_only: int = 0
     coverage_pct: float | None = None
     sentiment: SentimentCounts = Field(default_factory=SentimentCounts)
     sentiment_source: SentimentSourceCounts = Field(default_factory=SentimentSourceCounts)
@@ -102,6 +105,8 @@ class ProductReportRow(BaseModel):
     brand: str | None = None
     category: str | None = None
     url: str
+    image_url: str | None = None
+    short_description: str | None = None
     price: float | None = None
     list_price: float | None = None
     discount_pct: float | None = None
@@ -157,6 +162,7 @@ class ReportWarning(BaseModel):
 
     code: str
     message: str
+    params: dict[str, int | float | str] = Field(default_factory=dict)
     product_ids: list[uuid.UUID] | None = None
 
 
@@ -219,7 +225,7 @@ def _resolve_cache_ttl_hours(settings: Settings | None) -> int:
     try:
         return get_settings().CRAWL_CACHE_TTL_HOURS
     except Exception:
-        return 24
+        return 48
 
 
 def _build_rankings(rows: list[ProductReportRow], top_n: int) -> ReportRankings:
@@ -352,6 +358,11 @@ def _build_warnings(
                     f"Mới thu thập {collected_sum}/{reported_sum} review "
                     f"ở {len(partial_rows)} sản phẩm."
                 ),
+                params={
+                    "collected": collected_sum,
+                    "reported": reported_sum,
+                    "products": len(partial_rows),
+                },
                 product_ids=[r.product_id for r in partial_rows],
             )
         )
@@ -370,6 +381,7 @@ def _build_warnings(
                     f"Số review thu thập được nhiều hơn số liệu sàn báo ở {len(lower_rows)} "
                     "sản phẩm (một số sàn không đếm đánh giá chỉ chấm sao)."
                 ),
+                params={"products": len(lower_rows)},
                 product_ids=[r.product_id for r in lower_rows],
             )
         )
@@ -383,13 +395,12 @@ def _build_warnings(
         and totals.sentiment_source.llm == 0
         and totals.sentiment_source.rating == analyzed_count
     ):
+        rating_only_count = totals.reviews_rating_only or totals.sentiment_source.rating
         warnings.append(
             ReportWarning(
                 code="sentiment_rating_only",
-                message=(
-                    "Cảm xúc suy ra từ số sao; chưa có phân tích khía cạnh. "
-                    "Ingest lại với LLM profile để có."
-                ),
+                message="Cảm xúc đang suy ra từ số sao; chưa phân tích bằng LLM.",
+                params={"count": rating_only_count},
             )
         )
 
@@ -399,6 +410,7 @@ def _build_warnings(
             ReportWarning(
                 code="no_aspects",
                 message="Chưa có dữ liệu khía cạnh (aspects) từ đánh giá.",
+                params={},
             )
         )
 
@@ -408,6 +420,7 @@ def _build_warnings(
             ReportWarning(
                 code="unanalyzed_reviews",
                 message=f"Còn {totals.sentiment.unanalyzed} review chưa được phân tích cảm xúc.",
+                params={"count": totals.sentiment.unanalyzed},
                 product_ids=unanalyzed_product_ids or None,
             )
         )
@@ -422,6 +435,7 @@ def _build_warnings(
                     "Nguồn dữ liệu chưa được ingest (chưa tạo chunk/embedding); "
                     "chỉ hiển thị dữ liệu đã crawl."
                 ),
+                params={},
             )
         )
 
@@ -432,7 +446,11 @@ def _build_warnings(
             warnings.append(
                 ReportWarning(
                     code="stale_data",
-                    message=(f"Dữ liệu đã được crawl cách đây hơn {ttl_hours} giờ; có thể đã cũ."),
+                    message=(
+                        f"Dữ liệu đã được thu thập cách đây hơn {ttl_hours} giờ; "
+                        "lần mở tiếp theo sẽ tự thu thập mới."
+                    ),
+                    params={"ttl_hours": ttl_hours},
                 )
             )
 
@@ -443,6 +461,7 @@ def _build_warnings(
             ReportWarning(
                 code="missing_price",
                 message=f"Có {len(missing_price_ids)} sản phẩm thiếu thông tin giá.",
+                params={"products": len(missing_price_ids)},
                 product_ids=missing_price_ids,
             )
         )
@@ -456,6 +475,7 @@ def _build_warnings(
                 message=(
                     f"Có {len(missing_sold_ids)} sản phẩm thiếu số lượng đã bán (sold_count)."
                 ),
+                params={"products": len(missing_sold_ids)},
                 product_ids=missing_sold_ids,
             )
         )
@@ -495,14 +515,34 @@ async def build_source_report(
     ingested_dates = [p.ingested_at for p in products if p.ingested_at is not None]
     ingested_at = max(ingested_dates) if ingested_dates else None
 
+    first_title = products[0].title if products else None
+    if source.url_type == "shop":
+        resolved_display_name = (shop.name.strip() if shop and shop.name else "") or source.url
+    elif source.url_type == "product":
+        resolved_display_name = (first_title.strip() if first_title else "") or source.url
+    else:
+        resolved_display_name = (
+            (shop.name.strip() if shop and shop.name else "")
+            or (first_title.strip() if first_title else "")
+            or source.url
+        )
+
+    refresh_after = (
+        _to_utc(source.crawled_at) + timedelta(hours=ttl_hours)
+        if source.crawled_at is not None
+        else None
+    )
+
     source_info = ReportSourceInfo(
         id=source.id,
         url=source.url,
         url_type=source.url_type,
         platform=source.platform,
         status=source.status,
+        display_name=resolved_display_name,
         crawled_at=source.crawled_at,
         ingested_at=ingested_at,
+        refresh_after=refresh_after,
     )
 
     shop_info: ReportShopInfo | None = None
@@ -713,6 +753,19 @@ async def build_source_report(
             neg = int(prod.negative_review_count or 0)
             last_review_at = None
 
+        first_image: str | None = None
+        raw_images = getattr(prod, "images", None)
+        if isinstance(raw_images, list) and raw_images:
+            candidate = raw_images[0]
+            if isinstance(candidate, str) and candidate.strip():
+                first_image = candidate.strip()
+            elif isinstance(candidate, dict):
+                for key in ("base_url", "large_url", "medium_url", "url"):
+                    val = candidate.get(key)
+                    if isinstance(val, str) and val.strip():
+                        first_image = val.strip()
+                        break
+
         analyzed = pos + neu + neg
         product_rows.append(
             ProductReportRow(
@@ -722,6 +775,8 @@ async def build_source_report(
                 brand=prod.brand,
                 category=prod.category,
                 url=prod.url,
+                image_url=first_image,
+                short_description=getattr(prod, "short_description", None),
                 price=_to_number(prod.price),
                 list_price=_to_number(prod.list_price),
                 discount_pct=_compute_discount_pct(prod.price, prod.list_price),
@@ -767,6 +822,7 @@ async def build_source_report(
         rating_avg_weighted=rating_avg_weighted,
         review_count_reported=review_count_reported,
         reviews_collected=reviews_collected,
+        reviews_rating_only=int(rev_totals.src_rating or 0),
         coverage_pct=_compute_pct(reviews_collected, review_count_reported),
         sentiment=SentimentCounts(
             positive=int(rev_totals.pos or 0),

@@ -19,9 +19,12 @@ from app.ingest.embedding import (
     get_embedder,
 )
 from app.ingest.pipeline import (
+    AnalyzeResult,
+    AnalyzeStats,
     IngestResult,
     IngestStats,
     IngestTimings,
+    analyze_source,
     ingest_source,
     resolve_source_scope,
 )
@@ -32,11 +35,14 @@ from app.ingest.sentiment import (
     SentimentBatchResponse,
     SentimentSummary,
     analyze_product_reviews,
+    count_reviews_needing_analysis,
     rating_to_sentiment,
     recompute_product_sentiment_counts,
 )
 
 __all__ = [
+    "AnalyzeResult",
+    "AnalyzeStats",
     "AspectSentiment",
     "ChunkDraft",
     "ChunkSyncStats",
@@ -52,12 +58,14 @@ __all__ = [
     "SentimentBatchResponse",
     "SentimentSummary",
     "analyze_product_reviews",
+    "analyze_source",
     "build_product_chunks",
     "chunk_description",
     "chunk_meta",
     "chunk_reviews",
     "chunk_specs",
     "compute_content_hash",
+    "count_reviews_needing_analysis",
     "get_embedder",
     "hybrid_search",
     "ingest_source",

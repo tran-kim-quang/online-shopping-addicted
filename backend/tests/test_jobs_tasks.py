@@ -225,12 +225,42 @@ async def test_run_ingest_forwards_limits_and_parses_profile_id(
         llm_profile_id=str(profile_id),
         max_products=5,
         max_reviews=10,
-        force=True,
     )
 
     assert crawl_calls[0]["max_products"] == 5
     assert crawl_calls[0]["max_reviews"] == 10
     assert ingest_calls[0]["llm_profile_id"] == profile_id
+
+
+async def test_run_ingest_ignores_legacy_force_kwarg_from_a_queued_old_job(
+    monkeypatch: Any,
+    events: RecordingJobEvents,
+    caplog: Any,
+) -> None:
+    """A job enqueued before the deploy still carries ``force=True`` in its Arq kwargs.
+
+    Removing the parameter would make the new worker raise ``TypeError`` for that
+    in-flight job, so unexpected kwargs must be tolerated (logged, then dropped).
+    """
+    crawl_calls = patch_crawl(monkeypatch, crawl_result())
+    patch_ingest(monkeypatch, ingest_result())
+
+    with caplog.at_level("WARNING", logger="app.jobs.tasks"):
+        result = await run_ingest({"job_events": events}, JOB_ID, URL, force=True)
+
+    assert result["status"] == "done"
+    assert crawl_calls, "the job must still crawl despite the unknown kwarg"
+    assert any("force" in record.getMessage() for record in caplog.records)
+
+
+def test_cache_bypass_is_gone_from_the_public_job_api() -> None:
+    """Neither the task nor the queue exposes ``force`` any more (only tolerate legacy runs)."""
+    import inspect
+
+    from app.jobs.queue import JobQueue
+
+    assert "force" not in inspect.signature(run_ingest).parameters
+    assert "force" not in inspect.signature(JobQueue.enqueue_ingest).parameters
 
 
 async def test_run_ingest_rejects_malformed_profile_id(
