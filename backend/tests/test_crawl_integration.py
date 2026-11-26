@@ -138,8 +138,8 @@ async def test_migration_0002_creates_tables(session_factory: Any) -> None:
         revision = (await session.execute(text("SELECT version_num FROM alembic_version"))).scalar()
 
     assert {"sources", "shops", "products", "reviews"} <= tables
-    # Phase 3 applies 0003_ingestion after this fixture's ``upgrade head``.
-    assert revision == "0003_ingestion"
+    # Phase 4 adds 0004_chat on top of 0002_crawl_tables (this fixture's ``upgrade head``).
+    assert revision == "0004_chat"
 
 
 async def test_migration_0002_creates_expected_constraints_and_indexes(

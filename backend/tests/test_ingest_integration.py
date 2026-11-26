@@ -310,14 +310,15 @@ async def seed_catalog(session: AsyncSession) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Migration 0003
+# Migration head
 # ---------------------------------------------------------------------------
 
 
-async def test_migration_head_is_0003(session: AsyncSession) -> None:
+async def test_migration_head_is_0004(session: AsyncSession) -> None:
     revision = (await session.execute(text("SELECT version_num FROM alembic_version"))).scalar()
 
-    assert revision == "0003_ingestion"
+    # Phase 4 (A1) adds ``0004_chat``; the ingest tables from 0003 are asserted below.
+    assert revision == "0004_chat"
 
 
 async def test_migration_0003_creates_unaccent_and_immutable_wrapper(session: AsyncSession) -> None:
@@ -470,10 +471,11 @@ async def test_vector_only_matches_are_returned_without_fts_hits(session: AsyncS
     embedder = catalog["embedder"]
     embedder.mapping["hương vị tuyệt vời"] = embedder.basis(0)
 
-    hits = await hybrid_search(session, "hương vị tuyệt vời", embedder=embedder)
+    hits = await hybrid_search(session, "hương vị tuyệt vời", embedder=embedder, min_similarity=0)
 
-    # Vector search has no similarity cut-off: every embedded chunk is a candidate,
-    # ordered by cosine distance (basis(0) chunks first, basis(1) last).
+    # Vector search keeps every embedded chunk as a candidate when ``min_similarity=0``
+    # (Phase 4 F2 applies the ``SEARCH_MIN_COSINE_SIMILARITY=0.6`` cut-off by default, which
+    # would drop the orthogonal description chunk), ordered by cosine distance.
     assert len(hits) == 3
     assert all(hit.fts_rank is None for hit in hits)
     assert all(hit.vector_rank is not None for hit in hits)
@@ -509,8 +511,11 @@ async def test_rrf_ranks_chunks_present_in_both_lists_above_single_list_hits(
     # ranks the embedded ones, so both appear in both lists.
     embedder.mapping["gạo"] = embedder.basis(0)
 
-    hits = await hybrid_search(session, "gạo", embedder=embedder)
+    hits = await hybrid_search(session, "gạo", embedder=embedder, min_similarity=0)
 
+    # ``min_similarity=0`` keeps the orthogonal description chunk in the vector branch: the
+    # Phase 4 default (0.6) would drop it, leaving only the two chunks that appear in both
+    # lists and defeating the point of this RRF ordering test.
     assert len(hits) == 3
     fused = [hit for hit in hits if hit.fts_rank is not None and hit.vector_rank is not None]
     single = [hit for hit in hits if hit.fts_rank is None or hit.vector_rank is None]

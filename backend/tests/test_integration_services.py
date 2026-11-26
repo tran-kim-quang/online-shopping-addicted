@@ -1,7 +1,10 @@
 """Integration tests: real Postgres (pgvector) + Redis from docker compose.
 
-Run with ``uv run pytest -m integration -q``. They skip automatically when the
-services are unreachable, so ``pytest -m "not integration"`` never depends on them.
+B0 (Phase 4): these tests used to run against the project database ``shopqa`` (which holds
+real crawled data) and to ``DELETE`` rows from its ``llm_profiles`` table. They now create
+and use a dedicated database (``shopqa_phase1_test`` by default) and Redis DB 15, assert
+``current_database()`` before writing, and skip automatically when the services are down.
+Run with ``uv run pytest -m integration -q``.
 """
 
 from __future__ import annotations
@@ -29,21 +32,44 @@ from tests.mock_openai import build_mock_app
 pytestmark = pytest.mark.integration
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-# Overridable so the auto-skip path can be demonstrated (e.g. point at a dead port).
-DATABASE_URL_ASYNC = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql+asyncpg://shopqa:shopqa@localhost:5433/shopqa"
+
+# Dedicated test database/Redis DB: never the project DB (real data) or Redis DB 0.
+TEST_DB_NAME = os.environ.get("TEST_PHASE1_DB_NAME", "shopqa_phase1_test")
+PG_HOST = os.environ.get("TEST_PHASE1_PG_HOST", "localhost")
+PG_PORT = int(os.environ.get("TEST_PHASE1_PG_PORT", "5433"))
+PG_USER = os.environ.get("TEST_PHASE1_PG_USER", "shopqa")
+PG_PASSWORD = os.environ.get("TEST_PHASE1_PG_PASSWORD", "shopqa")
+PG_MAINTENANCE_DB = os.environ.get("TEST_PHASE1_PG_MAINTENANCE_DB", "shopqa")
+TEST_REDIS_DB = int(os.environ.get("TEST_PHASE1_REDIS_DB", "15"))
+PROJECT_DB_NAME = "shopqa"
+
+MAINTENANCE_DSN = f"postgresql://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_MAINTENANCE_DB}"
+DATABASE_URL_ASYNC = (
+    f"postgresql+asyncpg://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{TEST_DB_NAME}"
 )
 PG_DSN = DATABASE_URL_ASYNC.replace("+asyncpg", "")
-REDIS_URL = os.environ.get("TEST_REDIS_URL", "redis://localhost:6380/0")
-API_KEY = "sk-test-key-1234567890"
+REDIS_URL = f"redis://{PG_HOST}:6380/{TEST_REDIS_DB}"
+API_KEY = os.environ.get("TEST_API_KEY", "sk-test-key-1234567890")
+
+
+async def _ensure_test_database() -> None:
+    conn = await asyncpg.connect(MAINTENANCE_DSN)
+    try:
+        exists = await conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", TEST_DB_NAME)
+        if not exists:
+            await conn.execute(f'CREATE DATABASE "{TEST_DB_NAME}"')
+    finally:
+        await conn.close()
 
 
 async def _require_services() -> None:
+    assert TEST_DB_NAME != PROJECT_DB_NAME, "tests must not run against the project DB"
     try:
-        conn = await asyncio.wait_for(asyncpg.connect(PG_DSN), timeout=5)
+        conn = await asyncio.wait_for(asyncpg.connect(MAINTENANCE_DSN), timeout=5)
     except Exception as exc:  # pragma: no cover - environment dependent
-        pytest.skip(f"Postgres not reachable at {PG_DSN}: {exc}")
+        pytest.skip(f"Postgres not reachable at {MAINTENANCE_DSN}: {exc}")
     await conn.close()
+    await _ensure_test_database()
 
     client = aioredis.from_url(REDIS_URL)
     try:
@@ -63,9 +89,24 @@ class LiveHarness:
 
 
 @pytest.fixture
-async def live_harness(behavior):
-    """App running its real lifespan (Database + Redis + SecretBox singletons)."""
+async def live_harness(behavior, monkeypatch):
+    """App running its real lifespan (Database + Redis + SecretBox singletons).
+
+    The singletons read ``DATABASE_URL``/``REDIS_URL`` from the environment, so the test
+    DSNs must be installed *before* the lifespan starts — otherwise this fixture would write
+    ``llm_profiles`` rows into the project database.
+    """
     await _require_services()
+
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL_ASYNC)
+    monkeypatch.setenv("REDIS_URL", REDIS_URL)
+    from app.core.config import get_settings
+    from app.core.singleton import SingletonMeta
+
+    get_settings.cache_clear()
+    SingletonMeta.reset()
+    cached_settings = get_settings
+    singleton_meta = SingletonMeta
 
     app = create_app()
     mock_app = build_mock_app(behavior)
@@ -101,9 +142,15 @@ async def live_harness(behavior):
             await client.aclose()
             conn = await asyncpg.connect(PG_DSN)
             try:
+                current = await conn.fetchval("SELECT current_database()")
+                assert current == TEST_DB_NAME
                 await conn.execute("DELETE FROM llm_profiles WHERE name LIKE 'it-%'")
             finally:
                 await conn.close()
+            # Drop the cached Settings/engine created with the test DSNs so later tests
+            # (which expect the conftest environment) are unaffected.
+            cached_settings.cache_clear()
+            singleton_meta.reset()
 
 
 async def test_alembic_upgrade_head_and_vector_extension() -> None:

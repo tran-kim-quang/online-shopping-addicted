@@ -54,6 +54,8 @@ class MockBehavior(BaseModel):
     # --- failure injection ------------------------------------------------
     fail_status: int | None = None
     fail_message: str = "upstream exploded"
+    # When set, only fail once more than this many chat completions have been served.
+    fail_after_calls: int | None = None
     malformed_tool_args: bool = False
     tool_args_non_object: bool = False
     empty_content: bool = False
@@ -65,11 +67,20 @@ class MockBehavior(BaseModel):
     stream_tool_call_count: int = 1
     stream_usage_chunk: bool = False
     stream_empty: bool = False
+    # Draft prose streamed before the tool calls in the same step (exercises ``discard``).
+    stream_draft_text: str = ""
 
     # --- scripted content -------------------------------------------------
     # Consumed in order for every non-tool, non-error reply; the last entry
     # repeats once the queue is exhausted.
     scripted_texts: list[str] = Field(default_factory=list)
+    # Per-request scripted tool calls: each entry is the list of calls to return for one
+    # chat completion ({"name": ..., "args": {...}, "id": ...}). An empty list means "no
+    # tool calls, answer with text". The last entry repeats (like ``scripted_texts``), so
+    # append a trailing ``[]`` to let the agent finish. When empty, the legacy behaviour
+    # (call the first tool once with ``DEFAULT_TOOL_ARGS``) is used.
+    tool_call_script: list[list[dict[str, Any]]] = Field(default_factory=list)
+
     # Text returned for ReAct-style prompts (takes precedence over reply_text).
     react_reply: str | None = None
     # Text returned for plain chat replies when scripted_texts is empty.
@@ -220,7 +231,9 @@ def build_mock_app(behavior: MockBehavior) -> FastAPI:
 
         if (failure := _auth_failure(behavior, request)) is not None:
             return failure
-        if behavior.fail_status is not None:
+        if behavior.fail_status is not None and (
+            behavior.fail_after_calls is None or behavior.chat_calls > behavior.fail_after_calls
+        ):
             return _error_response(behavior.fail_status, behavior.fail_message, "server_error")
         if body.get("response_format") is not None and not behavior.supports_json_mode:
             return _error_response(
@@ -239,38 +252,72 @@ def build_mock_app(behavior: MockBehavior) -> FastAPI:
         else:
             arguments = json.dumps(DEFAULT_TOOL_ARGS)
 
+        # Scripted per-step tool calls (multi-tool turns, repeated tool names, bad args).
+        scripted_calls: list[dict[str, Any]] | None = None
+        if behavior.tool_call_script and tools:
+            entry = (
+                behavior.tool_call_script.pop(0)
+                if len(behavior.tool_call_script) > 1
+                else behavior.tool_call_script[0]
+            )
+            scripted_calls = [
+                {
+                    "id": str(call.get("id") or f"call_script_{idx + 1}"),
+                    "type": "function",
+                    "function": {
+                        "name": str(call.get("name") or tool_name),
+                        "arguments": json.dumps(call.get("args") or {}, ensure_ascii=False),
+                    },
+                }
+                for idx, call in enumerate(entry)
+            ]
+            wants_tool_call = bool(scripted_calls)
+
         if body.get("stream"):
             if behavior.stream_empty:
                 return _sse([])
             chunks: list[str] = []
             chunks.append(_chunk({"role": "assistant", "content": ""}))
             if wants_tool_call:
-                call_count = max(1, min(behavior.stream_tool_call_count, len(tools)))
-                names = [
-                    (tools[i].get("function") or {}).get("name", tool_name)
-                    for i in range(call_count)
-                ]
+                if behavior.stream_draft_text:
+                    draft = behavior.stream_draft_text
+                    chunks.append(_chunk({"content": draft}))
+                if scripted_calls is not None:
+                    stream_calls = [
+                        (call["id"], call["function"]["name"], call["function"]["arguments"])
+                        for call in scripted_calls
+                    ]
+                else:
+                    call_count = max(1, min(behavior.stream_tool_call_count, len(tools)))
+                    stream_calls = [
+                        (
+                            f"call_stream_{idx + 1}",
+                            (tools[idx].get("function") or {}).get("name", tool_name),
+                            arguments,
+                        )
+                        for idx in range(call_count)
+                    ]
 
                 # Opening chunks (name + first half of the arguments), one per call.
-                for idx, name in enumerate(names):
+                for idx, (call_id, name, call_args) in enumerate(stream_calls):
                     opening: dict[str, Any] = {
                         "type": "function",
-                        "function": {"name": name, "arguments": arguments[:5]},
+                        "function": {"name": name, "arguments": call_args[:5]},
                     }
                     if not behavior.stream_tool_calls_without_index:
                         opening["index"] = idx
                     if not behavior.stream_omit_tool_ids:
-                        opening["id"] = f"call_stream_{idx + 1}"
+                        opening["id"] = call_id
                     chunks.append(_chunk({"tool_calls": [opening]}))
 
                 # Continuations arrive keyed only by index (or id): the client must
                 # merge them back into the right call.
-                for idx in range(call_count):
-                    cont: dict[str, Any] = {"function": {"arguments": arguments[5:]}}
+                for idx, (call_id, _name, call_args) in enumerate(stream_calls):
+                    cont: dict[str, Any] = {"function": {"arguments": call_args[5:]}}
                     if not behavior.stream_tool_calls_without_index:
                         cont["index"] = idx
                     if not behavior.stream_omit_tool_ids:
-                        cont["id"] = f"call_stream_{idx + 1}"
+                        cont["id"] = call_id
                     chunks.append(_chunk({"tool_calls": [cont]}))
 
                 chunks.append(_chunk({}, finish_reason="tool_calls"))
@@ -314,7 +361,9 @@ def build_mock_app(behavior: MockBehavior) -> FastAPI:
         if wants_tool_call:
             return _completion_payload(
                 content=None,
-                tool_calls=[
+                tool_calls=scripted_calls
+                if scripted_calls is not None
+                else [
                     {
                         "id": "call_1",
                         "type": "function",

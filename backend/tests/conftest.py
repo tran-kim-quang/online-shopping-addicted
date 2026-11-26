@@ -64,9 +64,13 @@ async def fake_resolver(_host: str) -> list[str]:
 @pytest.fixture(autouse=True)
 def _reset_singletons() -> Any:
     """Isolate Singleton instances (and their locks) between tests."""
+    from app.core.config import get_settings
+
     SingletonMeta.reset()
+    get_settings.cache_clear()
     yield
     SingletonMeta.reset()
+    get_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)
