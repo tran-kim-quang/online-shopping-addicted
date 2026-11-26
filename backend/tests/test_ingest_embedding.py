@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import warnings
 from typing import Any
 
 import pytest
@@ -187,6 +188,26 @@ async def test_local_embedder_detects_dim_from_the_model() -> None:
 
     assert embedder.dim == 12
     assert len(vectors[0]) == 12
+
+
+async def test_local_embedder_prefers_the_new_dimension_api_without_warnings() -> None:
+    """F5: use ``get_embedding_dimension`` first and never call the deprecated getter."""
+
+    class NewApiModel(FakeModel):
+        def get_embedding_dimension(self) -> int:
+            return self.dim
+
+        def get_sentence_embedding_dimension(self) -> int:  # pragma: no cover - must not run
+            raise AssertionError("deprecated dimension getter must not be called")
+
+    embedder = LocalEmbedder(model_name="new/api", loader=lambda _name: NewApiModel(dim=3))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        vectors = await embedder.embed(["x"])
+
+    assert embedder.dim == 3
+    assert len(vectors[0]) == 3
 
 
 async def test_local_embedder_runs_encode_in_a_worker_thread() -> None:

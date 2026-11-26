@@ -19,12 +19,14 @@ class ToolCallsStep(BaseModel):
 
     tool_calls: list[ToolCall]
     assistant_message: dict[str, Any]
+    usage: dict[str, Any] | None = None
 
 
 class FinalStep(BaseModel):
     """Agent step returning a final answer to the user."""
 
     content: str
+    usage: dict[str, Any] | None = None
 
 
 AgentStep = ToolCallsStep | FinalStep
@@ -79,8 +81,9 @@ class NativeToolCalling:
             return ToolCallsStep(
                 tool_calls=result.tool_calls,
                 assistant_message=assistant_message,
+                usage=result.usage,
             )
-        return FinalStep(content=result.content or "")
+        return FinalStep(content=result.content or "", usage=result.usage)
 
 
 def _build_react_system_prompt(tools: list[ToolSpec]) -> str:
@@ -125,9 +128,15 @@ class ReactJsonToolCalling:
 
         last_raw = ""
         last_error = "Unknown ReAct parsing error."
+        total_usage: dict[str, int] = {}
 
         for attempt in range(self.max_retries + 1):
             result = await client.chat(working_messages, model=model)
+            if isinstance(result.usage, dict):
+                for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                    val = result.usage.get(key)
+                    if isinstance(val, int):
+                        total_usage[key] = total_usage.get(key, 0) + val
             last_raw = result.content or ""
             extracted = extract_json_object(last_raw)
 
@@ -142,7 +151,7 @@ class ReactJsonToolCalling:
                     if not isinstance(data, dict):
                         last_error = "JSON root must be an object."
                     elif "final" in data and isinstance(data["final"], str):
-                        return FinalStep(content=data["final"])
+                        return FinalStep(content=data["final"], usage=total_usage or None)
                     elif "tool" in data and isinstance(data["tool"], str):
                         tool_name = data["tool"]
                         args = data.get("args", {})
@@ -163,6 +172,7 @@ class ReactJsonToolCalling:
                             return ToolCallsStep(
                                 tool_calls=[call],
                                 assistant_message={"role": "assistant", "content": last_raw},
+                                usage=total_usage or None,
                             )
                     else:
                         last_error = (

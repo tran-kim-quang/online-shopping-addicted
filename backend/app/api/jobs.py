@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.api.deps import get_job_events
+from app.api.deps import get_job_events, get_settings
+from app.core.config import Settings
 from app.jobs.events import JobEvents
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -27,6 +28,7 @@ class JobStatusResponse(BaseModel):
     error: str | None = None
     url: str | None = None
     updated_at: str | None = None
+    heartbeat_at: str | None = None
     last_event: dict[str, Any] | None = None
 
 
@@ -56,9 +58,18 @@ def _format_sse_frame(event_name: str, data: dict[str, Any] | None) -> str:
 async def get_job_status(
     job_id: str,
     job_events: JobEvents = Depends(get_job_events),  # noqa: B008
+    settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> JobStatusResponse:
     """Return current job status, ``source_id``, and most recent progress event."""
-    status_info = await job_events.get_status(job_id)
+    check_stale = getattr(job_events, "check_stale", None)
+    if callable(check_stale):
+        status_info = await check_stale(
+            job_id,
+            stale_timeout_seconds=settings.JOB_STALE_TIMEOUT_SECONDS,
+            queued_timeout_seconds=settings.JOB_QUEUED_TIMEOUT_SECONDS,
+        )
+    else:
+        status_info = await job_events.get_status(job_id)
     if status_info is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
     last_ev = await job_events.last_event(job_id)
@@ -70,6 +81,7 @@ async def stream_job_events(
     job_id: str,
     request: Request,
     job_events: JobEvents = Depends(get_job_events),  # noqa: B008
+    settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> StreamingResponse:
     """Stream job progress events via SSE with replay, ``Last-Event-ID`` resume, and keepalive."""
     status_info = await job_events.get_status(job_id)
@@ -83,6 +95,9 @@ async def stream_job_events(
             job_id,
             last_event_id=last_event_id,
             keepalive_seconds=SSE_KEEPALIVE_SECONDS,
+            stale_timeout_seconds=settings.JOB_STALE_TIMEOUT_SECONDS,
+            queued_timeout_seconds=settings.JOB_QUEUED_TIMEOUT_SECONDS,
+            max_stream_seconds=settings.JOB_STREAM_MAX_SECONDS,
         ):
             yield _format_sse_frame(event_name, payload)
 

@@ -17,13 +17,15 @@ from app.core.config import get_settings
 from app.db.models import LLMProfile, Product, Review
 from app.llm.client import LLMClient
 from app.llm.structured import complete_json
+from app.security.prompt import (
+    REVIEW_END_DELIMITER,
+    REVIEW_START_DELIMITER,
+    sanitize_delimiters,
+)
 
 logger = logging.getLogger(__name__)
 
 SentimentLabel = Literal["positive", "neutral", "negative"]
-
-REVIEW_START_DELIMITER = "<<<REVIEW_START>>>"
-REVIEW_END_DELIMITER = "<<<REVIEW_END>>>"
 
 _SYSTEM_PROMPT = (
     "Bạn là chuyên gia phân tích cảm xúc đánh giá sản phẩm thương mại điện tử tiếng Việt.\n"
@@ -103,10 +105,12 @@ def needs_sentiment_analysis(review: Review) -> bool:
 
 def _sanitize_review_text(text: str) -> str:
     """Neutralize literal delimiters inside untrusted review text."""
-    return (
-        text.replace(REVIEW_START_DELIMITER, "[REVIEW_START]")
-        .replace(REVIEW_END_DELIMITER, "[REVIEW_END]")
-        .strip()
+    return sanitize_delimiters(
+        text,
+        start_delimiter=REVIEW_START_DELIMITER,
+        end_delimiter=REVIEW_END_DELIMITER,
+        start_replacement="[REVIEW_START]",
+        end_replacement="[REVIEW_END]",
     )
 
 

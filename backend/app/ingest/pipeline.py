@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
+from app.core.errors import JobCancelledError
 from app.crawl.types import ProgressEvent
 from app.db.models import LLMProfile, Product, Review, Shop, Source
 from app.ingest.chunking import build_product_chunks, sync_product_chunks
@@ -340,6 +341,8 @@ async def ingest_source(
                     f"Chunks synced for '{product.title}' "
                     f"(total={sync_stats.total}, embedded={sync_stats.embedded})",
                 )
+        except JobCancelledError:
+            raise
         except Exception as exc:
             logger.exception(
                 "Failed ingesting product %s for source %s: %s",
@@ -366,7 +369,10 @@ async def ingest_source(
 
     final_status: Literal["done", "partial", "failed"]
     error_summary: str | None = None
-    if total_products > 0 and stats.products_ingested == 0 and stats.products_failed > 0:
+    if total_products == 0:
+        final_status = "failed"
+        error_summary = "no_products"
+    elif total_products > 0 and stats.products_ingested == 0 and stats.products_failed > 0:
         final_status = "failed"
         error_summary = f"All {stats.products_failed} product(s) failed during ingestion."
     elif stats.products_failed > 0 or initial_source_status == "partial":
