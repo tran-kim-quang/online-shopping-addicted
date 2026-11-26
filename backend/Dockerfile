@@ -8,7 +8,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_HTTP_TIMEOUT=120 \
+    UV_HTTP_TIMEOUT=300 \
+    HF_HOME=/models \
     PATH="/app/.venv/bin:$PATH"
 
 COPY pyproject.toml uv.lock* ./

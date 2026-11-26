@@ -13,11 +13,10 @@ from app.crawl.errors import BlockedError, NotFoundError, UpstreamError
 from app.crawl.http import (
     DEFAULT_BROWSER_HEADERS,
     CrawlHttp,
-    _mock_public_resolver,
     _parse_retry_after,
 )
 from app.security.url_validator import UnsafeURLError
-from tests.crawl_fakes import make_crawl_http
+from tests.crawl_fakes import make_crawl_http, public_resolver
 
 URL = "https://tiki.vn/api/v2/products/1"
 
@@ -426,8 +425,22 @@ async def test_async_context_manager_closes_owned_client() -> None:
     assert http.client.is_closed is True
 
 
-async def test_mock_public_resolver_is_offline_placeholder() -> None:
-    assert await _mock_public_resolver("anything.example") == ["93.184.216.34"]
+async def test_no_implicit_resolver_for_injected_clients() -> None:
+    """R4: test doubles are no longer baked into production code paths."""
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _r: httpx.Response(200)))
+    http = CrawlHttp(client=client)
+
+    assert http._resolver is None
+    await client.aclose()
+
+
+async def test_explicit_public_resolver_is_used_for_injected_clients() -> None:
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _r: httpx.Response(200)))
+    http = CrawlHttp(client=client, resolver=public_resolver)
+
+    assert http._resolver is public_resolver
+    assert await public_resolver("tiki.vn") == ["93.184.216.34"]
+    await client.aclose()
 
 
 async def test_explicit_settings_overrides_are_used() -> None:
@@ -468,11 +481,12 @@ async def test_custom_resolver_is_kept_for_injected_clients() -> None:
     await client.aclose()
 
 
-async def test_mock_transport_gets_offline_resolver_by_default() -> None:
+async def test_mock_transport_has_no_offline_resolver_by_default() -> None:
+    """R4: ``CrawlHttp`` never inspects the transport to pick a resolver."""
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _r: httpx.Response(200)))
     http = CrawlHttp(client=client)
 
-    assert http._resolver is _mock_public_resolver
+    assert http._resolver is None
     await client.aclose()
 
 

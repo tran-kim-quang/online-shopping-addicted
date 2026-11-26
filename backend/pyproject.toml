@@ -23,6 +23,19 @@ dependencies = [
     "httpcore>=1.0.9,<1.1",
     "openai>=1.40",
     "cryptography>=43.0",
+    "arq>=0.26",
+    "torch>=2.5",
+    "sentence-transformers>=3.3",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu" },
 ]
 
 [dependency-groups]

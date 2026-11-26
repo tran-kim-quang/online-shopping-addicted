@@ -7,8 +7,11 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    CHAR,
     CheckConstraint,
+    Computed,
     DateTime,
     Float,
     ForeignKey,
@@ -21,7 +24,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -233,14 +236,41 @@ class Product(Base):
         default=dict,
         server_default=text("'{}'::jsonb"),
     )
+    positive_review_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    negative_review_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    neutral_review_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
     crawled_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
     )
+    ingested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
     shop: Mapped[Shop | None] = relationship(back_populates="products")
     reviews: Mapped[list[Review]] = relationship(
+        back_populates="product",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    chunks: Mapped[list[Chunk]] = relationship(
         back_populates="product",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -254,6 +284,14 @@ class Review(Base):
     __table_args__ = (
         UniqueConstraint("product_id", "external_id", name="uq_reviews_product_external_id"),
         Index("ix_reviews_product_id_rating", "product_id", "rating"),
+        CheckConstraint(
+            "sentiment IS NULL OR sentiment IN ('positive', 'neutral', 'negative')",
+            name="ck_reviews_sentiment",
+        ),
+        CheckConstraint(
+            "sentiment_source IS NULL OR sentiment_source IN ('llm', 'rating')",
+            name="ck_reviews_sentiment_source",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -288,6 +326,19 @@ class Review(Base):
         default=dict,
         server_default=text("'{}'::jsonb"),
     )
+    sentiment: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    sentiment_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    aspects: Mapped[list[Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+    )
+    analyzed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     crawled_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -295,3 +346,74 @@ class Review(Base):
     )
 
     product: Mapped[Product] = relationship(back_populates="reviews")
+
+
+class Chunk(Base):
+    """Searchable text chunk with generated tsvector and optional pgvector embedding."""
+
+    __tablename__ = "chunks"
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('description', 'specs', 'review', 'meta')",
+            name="ck_chunks_source_type",
+        ),
+        UniqueConstraint(
+            "product_id",
+            "source_type",
+            "source_ref",
+            "content_hash",
+            name="uq_chunks_product_source_hash",
+        ),
+        Index("ix_chunks_tsv", "tsv", postgresql_using="gin"),
+        Index("ix_chunks_product_id", "product_id"),
+        Index("ix_chunks_shop_id", "shop_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    shop_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("shops.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_ref: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        server_default="",
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    tsv: Mapped[Any] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "to_tsvector('simple', f_unaccent(coalesce(text, '')))",
+            persisted=True,
+        ),
+        nullable=True,
+    )
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dim: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    product: Mapped[Product] = relationship(back_populates="chunks")
