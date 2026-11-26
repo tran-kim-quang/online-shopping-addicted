@@ -2,11 +2,50 @@
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
+from typing import Annotated, Any
 
 from cryptography.fernet import Fernet
-from pydantic import SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+DEFAULT_CORS_ALLOW_ORIGINS: tuple[str, ...] = ("http://localhost:3000",)
+
+
+def parse_cors_origins(value: Any) -> list[str]:
+    """Parse ``CORS_ALLOW_ORIGINS`` from comma-separated string, JSON array, or sequence.
+
+    Wildcard ``*`` is explicitly rejected.
+    """
+    if value is None:
+        return list(DEFAULT_CORS_ALLOW_ORIGINS)
+    items: list[str]
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return []
+        if stripped.startswith("["):
+            parsed = json.loads(stripped)
+            if not isinstance(parsed, list):
+                raise ValueError("CORS_ALLOW_ORIGINS JSON value must be a list of origins.")
+            items = [str(item) for item in parsed]
+        else:
+            items = stripped.split(",")
+    elif isinstance(value, (list, tuple, set)):
+        items = [str(item) for item in value]
+    else:
+        raise ValueError("CORS_ALLOW_ORIGINS must be a comma-separated string or list of origins.")
+
+    origins: list[str] = []
+    for item in items:
+        origin = item.strip()
+        if not origin:
+            continue
+        if origin == "*":
+            raise ValueError("Wildcard '*' is not allowed in CORS_ALLOW_ORIGINS.")
+        origins.append(origin)
+    return origins
 
 
 class Settings(BaseSettings):
@@ -68,6 +107,14 @@ class Settings(BaseSettings):
     AGENT_CRAWL_MAX_PER_SESSION: int = 3
 
     LOG_LEVEL: str = "INFO"
+    CORS_ALLOW_ORIGINS: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: list(DEFAULT_CORS_ALLOW_ORIGINS),
+    )
+
+    @field_validator("CORS_ALLOW_ORIGINS", mode="before")
+    @classmethod
+    def _validate_cors_origins(cls, value: Any) -> list[str]:
+        return parse_cors_origins(value)
 
     @field_validator("SECRET_KEY")
     @classmethod

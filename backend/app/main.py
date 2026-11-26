@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.chat import router as chat_router
@@ -18,7 +20,7 @@ from app.api.reports import router as reports_router
 from app.api.search import router as search_router
 from app.api.sources import router as sources_router
 from app.cache.redis import RedisClient
-from app.core.config import get_settings
+from app.core.config import DEFAULT_CORS_ALLOW_ORIGINS, get_settings, parse_cors_origins
 from app.core.errors import (
     LLMAuthError,
     LLMBadRequestError,
@@ -86,12 +88,32 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await Database().dispose()
 
 
+def _resolve_cors_origins() -> list[str]:
+    """Read configured CORS origins, falling back gracefully when ``SECRET_KEY`` is unset."""
+    try:
+        return list(get_settings().CORS_ALLOW_ORIGINS)
+    except Exception:
+        raw = os.getenv("CORS_ALLOW_ORIGINS")
+        if raw is not None:
+            return parse_cors_origins(raw)
+        return list(DEFAULT_CORS_ALLOW_ORIGINS)
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application instance."""
     application = FastAPI(
         title="Shop QA API",
         version="0.1.0",
         lifespan=lifespan,
+    )
+
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=_resolve_cors_origins(),
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
+        allow_headers=["Content-Type", "Last-Event-ID"],
+        expose_headers=["Content-Disposition"],
     )
 
     @application.exception_handler(UnsafeURLError)

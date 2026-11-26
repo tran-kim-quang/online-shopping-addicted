@@ -35,6 +35,7 @@ x-backend-env: &backend-env
   AGENT_CRAWL_MAX_PER_TURN: ${AGENT_CRAWL_MAX_PER_TURN:-1}
   AGENT_CRAWL_MAX_PER_SESSION: ${AGENT_CRAWL_MAX_PER_SESSION:-3}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3000}
 
 services:
   db:
@@ -96,6 +97,19 @@ services:
     environment:
       <<: *backend-env
     command: ["arq", "app.jobs.worker.WorkerSettings"]
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
 
 volumes:
   pgdata:

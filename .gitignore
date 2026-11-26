@@ -33,3 +33,10 @@ eval/results/
 
 # Local data exports (may contain crawled review text)
 exports/
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env*.local
+frontend/*.tsbuildinfo

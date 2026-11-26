@@ -7,7 +7,8 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, update
+from sqlalchemy import case, cast, func, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,7 +71,20 @@ async def update_source(
     if error is not _UNSET:
         values["error"] = error
     if stats is not _UNSET:
-        values["stats"] = stats or {}
+        new_stats = dict(stats or {})
+        if "last_job_id" in new_stats:
+            values["stats"] = new_stats
+        else:
+            # Preserve ``last_job_id`` (written by ``on_source_created``) across crawl updates.
+            values["stats"] = case(
+                (
+                    Source.stats.has_key("last_job_id"),
+                    func.jsonb_build_object("last_job_id", Source.stats["last_job_id"]).op("||")(
+                        cast(new_stats, JSONB)
+                    ),
+                ),
+                else_=cast(new_stats, JSONB),
+            )
     if crawled_at is not _UNSET:
         values["crawled_at"] = crawled_at
 

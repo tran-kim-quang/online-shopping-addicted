@@ -1,0 +1,83 @@
+import { isApiError } from "@/lib/api/errors";
+
+export type TranslationFn = (
+  key: string,
+  values?: Record<string, string | number>
+) => string;
+
+const KNOWN_ERROR_KEYS = new Set([
+  "empty_url",
+  "invalid_url",
+  "unsupported_platform",
+  "unsupported_url",
+  "unsafe_url",
+  "source_not_ready",
+  "secret_key_mismatch",
+  "api_key_required_on_host_change",
+  "llm_probe_failed",
+  "llm_auth",
+  "llm_not_found",
+  "llm_rate_limit",
+  "llm_unavailable",
+  "llm_bad_request",
+  "llm_invalid_response",
+  "llm_error",
+  "worker_timeout",
+  "blocked",
+  "no_products",
+  "not_found",
+  "validation_error",
+  "network_error",
+  "stream_error",
+  "job_failed",
+  "unknown_error",
+]);
+
+const PLATFORM_LABELS: Readonly<Record<string, string>> = {
+  tiki: "Tiki",
+  shopee: "Shopee",
+  lazada: "Lazada",
+  amazon: "Amazon",
+  ebay: "eBay",
+  tiktok_shop: "TikTok Shop",
+};
+
+export function formatPlatformName(platform?: string | null): string {
+  if (!platform) return "Unknown";
+  return PLATFORM_LABELS[platform.toLowerCase()] ?? platform;
+}
+
+export function translateErrorCode(
+  tErrors: TranslationFn,
+  code: string,
+  options?: { platform?: string; fallbackDetail?: string }
+): string {
+  if (code === "unsupported_platform") {
+    return tErrors("unsupported_platform", {
+      platform: formatPlatformName(options?.platform),
+    });
+  }
+  if (KNOWN_ERROR_KEYS.has(code)) {
+    return tErrors(code);
+  }
+  if (options?.fallbackDetail && options.fallbackDetail.trim()) {
+    return options.fallbackDetail;
+  }
+  return tErrors("unknown_error");
+}
+
+export function translateUnknownError(
+  tErrors: TranslationFn,
+  error: unknown
+): string {
+  if (isApiError(error)) {
+    return translateErrorCode(tErrors, error.code, {
+      platform: error.platform,
+      fallbackDetail: error.detail,
+    });
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return tErrors("unknown_error");
+}

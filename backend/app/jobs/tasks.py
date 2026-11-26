@@ -76,6 +76,41 @@ async def _stop_heartbeat(heartbeat_task: asyncio.Task[None] | None) -> None:
             await heartbeat_task
 
 
+async def _record_source_last_job_id(
+    source_id: uuid.UUID,
+    job_id: str,
+    *,
+    session_factory: Any = None,
+) -> None:
+    """Persist ``sources.stats['last_job_id'] = job_id`` so UI can resume SSE on running sources."""
+    factory = session_factory
+    if factory is None:
+        from app.db.database import Database
+
+        try:
+            factory = Database().session_factory
+        except RuntimeError:
+            return
+
+    try:
+        from app.db.models import Source
+
+        async with factory() as session:
+            source = await session.get(Source, source_id)
+            if source is not None:
+                merged = dict(source.stats or {})
+                merged["last_job_id"] = job_id
+                source.stats = merged
+                await session.commit()
+    except Exception as exc:
+        logger.warning(
+            "Failed recording last_job_id=%s on source %s: %s",
+            job_id,
+            source_id,
+            exc,
+        )
+
+
 async def _set_status_or_cancel(
     events: JobEvents,
     job_id: str,
@@ -150,10 +185,16 @@ async def run_ingest(
 
         async def _on_source_created(created_source_id: uuid.UUID) -> None:
             # G2: Record source_id on the job hash as soon as crawl creates the Source row
-            # so worker_timeout can also mark sources.status='failed' if the worker dies mid-crawl.
+            # so worker_timeout can also mark sources.status='failed' if the worker dies mid-crawl,
+            # and store last_job_id in sources.stats so the UI can follow SSE for running sources.
             nonlocal source_id_str
             source_id_str = str(created_source_id)
             await _set_status_or_cancel(events, job_id, "running", source_id=source_id_str)
+            await _record_source_last_job_id(
+                created_source_id,
+                job_id,
+                session_factory=session_factory,
+            )
 
         async def _on_crawl_progress(ev: ProgressEvent) -> None:
             # Remap terminal crawl stages so SSE stays open until ingestion finishes.
