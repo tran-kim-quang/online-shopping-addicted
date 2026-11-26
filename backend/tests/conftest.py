@@ -75,6 +75,10 @@ def _block_real_network(request, monkeypatch) -> Any:
     if request.node.get_closest_marker("integration") is not None:
         yield
         return
+    if request.node.get_closest_marker("live") is not None:
+        # Live smoke tests are explicitly opt-in (RUN_LIVE=1) and hit real sites.
+        yield
+        return
 
     import socket
 

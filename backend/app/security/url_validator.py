@@ -66,7 +66,13 @@ def _is_non_public(ip: IPAddress) -> bool:
     )
 
 
-def _check_ip(ip: IPAddress, *, allow_private: bool) -> None:
+def check_ip(ip: IPAddress, *, allow_private: bool) -> None:
+    """Validate an IP address against SSRF rules.
+
+    Metadata IPs are always forbidden regardless of ``allow_private``.
+    IPv4-mapped IPv6 addresses (e.g. ``::ffff:127.0.0.1``) are unwrapped and
+    checked against both IPv6 and IPv4 rules.
+    """
     candidates: list[IPAddress] = [ip]
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
         candidates.append(ip.ipv4_mapped)
@@ -76,6 +82,9 @@ def _check_ip(ip: IPAddress, *, allow_private: bool) -> None:
             raise UnsafeURLError(f"Access to metadata IP '{candidate}' is forbidden.")
         if not allow_private and _is_non_public(candidate):
             raise UnsafeURLError(f"Access to non-public IP '{candidate}' is forbidden.")
+
+
+_check_ip = check_ip
 
 
 async def validate_outbound_url(

@@ -1,0 +1,37 @@
+{
+  "data": {
+    "products": [],
+    "seller": {
+      "avg_rating_point": 4.676,
+      "badge_img": {
+        "height": 14,
+        "url": "https://salt.tikicdn.com/ts/upload/5d/4c/f7/0261315e75127c2ff73efd7a1f1ffdf2.png",
+        "width": 68
+      },
+      "days_since_joined": 3431,
+      "icon": "https://vcdn.tikicdn.com/ts/seller/d1/3f/ae/13ce3d83ab6b6c5e77e6377ad61dc4a5.jpg",
+      "id": 1,
+      "info": [
+        {
+          "sub_title": "5.6tr+",
+          "title": "4.7 / 5",
+          "type": "review"
+        },
+        {
+          "sub_title": "Theo dõi",
+          "title": "515.6k+",
+          "type": "normal"
+        }
+      ],
+      "is_followed": false,
+      "is_official": true,
+      "name": "Tiki Trading",
+      "review_count": 5609223,
+      "store_id": 40395,
+      "store_level": "OFFICIAL_STORE",
+      "total_follower": 515629,
+      "url": "https://tiki.vn/cua-hang/tiki-trading"
+    }
+  },
+  "new_version": 1
+}
