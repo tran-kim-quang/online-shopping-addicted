@@ -14,6 +14,7 @@ from app.api.health import router as health_router
 from app.api.ingest import router as ingest_router
 from app.api.jobs import router as jobs_router
 from app.api.llm_profiles import router as llm_profiles_router
+from app.api.reports import router as reports_router
 from app.api.search import router as search_router
 from app.api.sources import router as sources_router
 from app.cache.redis import RedisClient
@@ -170,6 +171,7 @@ def create_app() -> FastAPI:
     application.include_router(ingest_router)
     application.include_router(jobs_router)
     application.include_router(sources_router)
+    application.include_router(reports_router)
     application.include_router(search_router)
     application.include_router(chat_router)
     return application
