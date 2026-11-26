@@ -11,9 +11,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_session
+from app.api.deps import get_session, get_settings
+from app.core.config import Settings
 from app.db.models import Chunk, Review, Source
 from app.ingest.pipeline import resolve_source_scope
+from app.jobs.submit import compile_fresh_cache_sql, compute_refresh_after
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
@@ -90,6 +92,7 @@ class SourceListItem(BaseModel):
     reviews_collected: int = 0
     chat_sessions_count: int = 0
     crawled_at: datetime | None = None
+    refresh_after: datetime | None = None
     ingested: bool = False
     last_job_id: str | None = None
     updated_at: datetime
@@ -132,7 +135,9 @@ async def list_sources(
     status_filter: str | None = Query(default=None, alias="status"),
     url_type: str | None = Query(default=None),
     platform: str | None = Query(default=None),
+    fresh: bool = Query(default=False),
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> SourceListResponse:
     """List sources with pagination, optional filters, and SQL-aggregated counts (no N+1)."""
     clean_status = _normalize_optional_filter(status_filter)
@@ -150,6 +155,13 @@ async def list_sources(
     if clean_platform is not None:
         where_clauses.append("s.platform = :platform")
         params["platform"] = clean_platform
+    if fresh:
+        fresh_sql, fresh_params = compile_fresh_cache_sql(
+            ttl_hours=settings.CRAWL_CACHE_TTL_HOURS,
+            alias="s",
+        )
+        where_clauses.append(f"({fresh_sql})")
+        params.update(fresh_params)
 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
@@ -354,6 +366,7 @@ async def list_sources(
             reviews_collected=int(row["reviews_collected"] or 0),
             chat_sessions_count=int(row["chat_sessions_count"] or 0),
             crawled_at=row["crawled_at"],
+            refresh_after=compute_refresh_after(row["crawled_at"], settings.CRAWL_CACHE_TTL_HOURS),
             ingested=bool(row["ingested"]),
             last_job_id=row["last_job_id"],
             updated_at=row["updated_at"],

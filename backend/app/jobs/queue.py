@@ -43,7 +43,6 @@ class JobQueue(metaclass=SingletonMeta):
         llm_profile_id: str | None = None,
         max_products: int | None = None,
         max_reviews: int | None = None,
-        force: bool = False,
     ) -> Any:
         """Enqueue ``run_ingest`` on the Arq Redis queue."""
         pool = await self.get_pool()
@@ -54,7 +53,6 @@ class JobQueue(metaclass=SingletonMeta):
             llm_profile_id,
             max_products,
             max_reviews,
-            force,
             _job_id=job_id,
         )
 

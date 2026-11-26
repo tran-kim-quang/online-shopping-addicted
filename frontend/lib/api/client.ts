@@ -53,17 +53,21 @@ export interface ListSourcesParams {
   status?: string;
   url_type?: string;
   platform?: string;
+  fresh?: boolean;
 }
 
 export async function listSources(
   params: ListSourcesParams = {}
 ): Promise<SourceListResponse> {
-  const query: Record<string, string | number> = {};
+  const query: NonNullable<
+    paths["/api/sources"]["get"]["parameters"]["query"]
+  > = {};
   if (params.limit !== undefined) query.limit = params.limit;
   if (params.offset !== undefined) query.offset = params.offset;
   if (params.status) query.status = params.status;
   if (params.url_type) query.url_type = params.url_type;
   if (params.platform) query.platform = params.platform;
+  if (params.fresh !== undefined) query.fresh = params.fresh;
 
   const { data, error, response } = await apiClient.GET("/api/sources", {
     params: { query },

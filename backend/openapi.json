@@ -408,6 +408,16 @@
             "title": "Cached",
             "type": "boolean"
           },
+          "crawled_at": {
+            "format": "date-time",
+            "title": "Crawled At",
+            "type": "string"
+          },
+          "refresh_after": {
+            "format": "date-time",
+            "title": "Refresh After",
+            "type": "string"
+          },
           "source_id": {
             "format": "uuid",
             "title": "Source Id",
@@ -415,7 +425,9 @@
           }
         },
         "required": [
-          "source_id"
+          "source_id",
+          "crawled_at",
+          "refresh_after"
         ],
         "title": "IngestCachedResponse",
         "type": "object"
@@ -452,13 +464,9 @@
         "type": "object"
       },
       "IngestRequest": {
+        "additionalProperties": false,
         "description": "Request payload for ``POST /api/ingest``.",
         "properties": {
-          "force": {
-            "default": false,
-            "title": "Force",
-            "type": "boolean"
-          },
           "llm_profile_id": {
             "anyOf": [
               {
@@ -1202,6 +1210,18 @@
             ],
             "title": "Platform"
           },
+          "refresh_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh After"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -1810,6 +1830,18 @@
             "default": 0,
             "title": "Products Count",
             "type": "integer"
+          },
+          "refresh_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh After"
           },
           "reviews_collected": {
             "default": 0,
@@ -2938,6 +2970,16 @@
                 }
               ],
               "title": "Platform"
+            }
+          },
+          {
+            "in": "query",
+            "name": "fresh",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Fresh",
+              "type": "boolean"
             }
           }
         ],

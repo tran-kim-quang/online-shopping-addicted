@@ -79,7 +79,7 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
   const { activeProfileId } = useActiveProfile();
 
   const [activeJobId, setActiveJobId] = React.useState<string | null>(null);
-  const [isRecrawling, setIsRecrawling] = React.useState(false);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [filteredProductIds, setFilteredProductIds] = React.useState<
     string[] | null
   >(null);
@@ -109,20 +109,22 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
       count < 1,
   });
 
-  const handleRecrawl = async () => {
+  const handleRetryIngest = async () => {
     if (!source) return;
-    setIsRecrawling(true);
+    setIsRefreshing(true);
     try {
       const res = await submitIngest({
         url: source.url,
         llm_profile_id: activeProfileId,
-        force: true,
       });
       if (res.kind === "queued") {
         setActiveJobId(res.data.job_id);
-        toast.success(t("recrawlStarted"));
+      } else if (res.data.source_id && res.data.source_id !== sourceId) {
+        router.push(`/sources/${res.data.source_id}`);
       } else {
-        await queryClient.invalidateQueries({ queryKey: ["source", sourceId] });
+        await queryClient.invalidateQueries({
+          queryKey: ["source", sourceId],
+        });
         await queryClient.invalidateQueries({
           queryKey: ["source-report", sourceId],
         });
@@ -130,7 +132,7 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
     } catch (err) {
       toast.error(translateUnknownError(tErrors, err));
     } finally {
-      setIsRecrawling(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -215,6 +217,7 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
     : "pending";
 
   const report = reportQuery.data;
+
   const isSingleProduct =
     source.url_type === "product" ||
     (report ? report.source.url_type === "product" : false);
@@ -250,8 +253,8 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
               }
             }}
             onStopWatching={() => setActiveJobId(null)}
-            onRetryForce={() => void handleRecrawl()}
-            isRetrying={isRecrawling}
+            onRetry={() => void handleRetryIngest()}
+            isRetrying={isRefreshing}
           />
         </div>
       );
@@ -274,13 +277,13 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
           </div>
           <Button
             size="sm"
-            onClick={() => void handleRecrawl()}
-            disabled={isRecrawling}
+            onClick={() => void handleRetryIngest()}
+            disabled={isRefreshing}
           >
             <RefreshCw
-              className={cn("size-3.5", isRecrawling && "animate-spin")}
+              className={cn("size-3.5", isRefreshing && "animate-spin")}
             />
-            <span>{t("recrawl")}</span>
+            <span>{tCommon("retry")}</span>
           </Button>
         </div>
       );
@@ -454,20 +457,6 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void handleRecrawl()}
-            disabled={isRecrawling}
-          >
-            <RefreshCw
-              className={cn("size-4", isRecrawling && "animate-spin")}
-              aria-hidden="true"
-            />
-            <span>{t("recrawl")}</span>
-          </Button>
         </div>
       </header>
 

@@ -559,6 +559,16 @@ export interface components {
              */
             cached: boolean;
             /**
+             * Crawled At
+             * Format: date-time
+             */
+            crawled_at: string;
+            /**
+             * Refresh After
+             * Format: date-time
+             */
+            refresh_after: string;
+            /**
              * Source Id
              * Format: uuid
              */
@@ -584,11 +594,6 @@ export interface components {
          * @description Request payload for ``POST /api/ingest``.
          */
         IngestRequest: {
-            /**
-             * Force
-             * @default false
-             */
-            force: boolean;
             /** Llm Profile Id */
             llm_profile_id?: string | null;
             /** Max Products */
@@ -850,6 +855,8 @@ export interface components {
             ingested_at?: string | null;
             /** Platform */
             platform?: string | null;
+            /** Refresh After */
+            refresh_after?: string | null;
             /** Status */
             status: string;
             /** Url */
@@ -1119,6 +1126,8 @@ export interface components {
              * @default 0
              */
             products_count: number;
+            /** Refresh After */
+            refresh_after?: string | null;
             /**
              * Reviews Collected
              * @default 0
@@ -1752,6 +1761,7 @@ export interface operations {
                 status?: string | null;
                 url_type?: string | null;
                 platform?: string | null;
+                fresh?: boolean;
             };
             header?: never;
             path?: never;

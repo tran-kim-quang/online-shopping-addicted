@@ -64,19 +64,47 @@ function parseDate(value: string | Date | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function extractDateParts(
+  date: Date,
+  locale: string,
+  options: Intl.DateTimeFormatOptions
+): Record<string, string> {
+  const parts = new Intl.DateTimeFormat(locale, options).formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const part of parts) {
+    if (part.type !== "literal") {
+      map[part.type] = part.value;
+    }
+  }
+  return map;
+}
+
 export function formatDateTime(
   value: string | Date | null | undefined,
   locale: AppLocale | string
 ): string {
   const date = parseDate(value);
   if (!date) return EMPTY_VALUE;
-  return new Intl.DateTimeFormat(toIntlLocale(locale), {
+  if (locale.startsWith("en")) {
+    return new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    })
+      .format(date)
+      .replace(/\u202f/g, " ");
+  }
+  const parts = extractDateParts(date, "vi-VN", {
     year: "numeric",
-    month: "short",
+    month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(date);
+    hourCycle: "h23",
+  });
+  return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
 }
 
 export function formatShortDateTime(
@@ -85,12 +113,24 @@ export function formatShortDateTime(
 ): string {
   const date = parseDate(value);
   if (!date) return EMPTY_VALUE;
-  return new Intl.DateTimeFormat(toIntlLocale(locale), {
+  if (locale.startsWith("en")) {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    })
+      .format(date)
+      .replace(/\u202f/g, " ");
+  }
+  const parts = extractDateParts(date, "vi-VN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(date);
+    hourCycle: "h23",
+  });
+  return `${parts.day}/${parts.month} ${parts.hour}:${parts.minute}`;
 }
 
 export function formatRelativeTime(

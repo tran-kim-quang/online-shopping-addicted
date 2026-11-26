@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     CRAWL_MAX_PRODUCTS: int = 100
     CRAWL_MAX_REVIEWS_PER_PRODUCT: int = 200
     CRAWL_CONCURRENCY: int = 2
-    CRAWL_CACHE_TTL_HOURS: int = 24
+    CRAWL_CACHE_TTL_HOURS: int = 48
 
     EMBEDDING_BACKEND: str = "local"
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"

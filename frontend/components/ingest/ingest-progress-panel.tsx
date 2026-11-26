@@ -31,7 +31,7 @@ export interface IngestProgressPanelProps {
   targetLabel: string;
   onComplete: (sourceId: string) => void;
   onStopWatching?: () => void;
-  onRetryForce?: () => void;
+  onRetry?: () => void;
   isRetrying?: boolean;
 }
 
@@ -51,7 +51,7 @@ export function IngestProgressPanel({
   targetLabel,
   onComplete,
   onStopWatching,
-  onRetryForce,
+  onRetry,
   isRetrying = false,
 }: IngestProgressPanelProps) {
   const t = useTranslations("ingest");
@@ -286,16 +286,16 @@ export function IngestProgressPanel({
           </div>
 
           <div className="flex items-center gap-2">
-            {state.terminalStatus === "failed" && onRetryForce && (
+            {state.terminalStatus === "failed" && onRetry && (
               <Button
                 size="sm"
-                onClick={onRetryForce}
+                onClick={onRetry}
                 disabled={isRetrying}
               >
                 <RefreshCw
                   className={cn("size-3.5", isRetrying && "animate-spin")}
                 />
-                <span>{t("retryForce")}</span>
+                <span>{t("retry")}</span>
               </Button>
             )}
             {(state.terminalStatus === "done" ||

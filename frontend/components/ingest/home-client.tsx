@@ -3,7 +3,6 @@
 import * as React from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 import {
   AlertCircle,
   ArrowRight,
@@ -140,13 +139,12 @@ export function HomeClient() {
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [maxProducts, setMaxProducts] = React.useState("");
   const [maxReviews, setMaxReviews] = React.useState("");
-  const [force, setForce] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [activeJob, setActiveJob] = React.useState<ActiveJob | null>(null);
 
   const recentQuery = useQuery({
     queryKey: ["sources", "recent"],
-    queryFn: () => listSources({ limit: 30, offset: 0 }),
+    queryFn: () => listSources({ limit: 30, offset: 0, fresh: true }),
     staleTime: 15_000,
   });
 
@@ -155,7 +153,6 @@ export function HomeClient() {
       targetUrl: string;
       maxProductsVal?: number;
       maxReviewsVal?: number;
-      forceVal: boolean;
     }) => {
       setIsSubmitting(true);
       setUrlError(null);
@@ -165,28 +162,9 @@ export function HomeClient() {
           llm_profile_id: activeProfileId,
           max_products: params.maxProductsVal ?? null,
           max_reviews: params.maxReviewsVal ?? null,
-          force: params.forceVal,
         });
 
         if (res.kind === "cached") {
-          toast.info(
-            t("cachedToast", {
-              time: formatDateTime(new Date(), locale),
-            }),
-            {
-              action: {
-                label: t("recrawlAction"),
-                onClick: () => {
-                  void startIngest({
-                    targetUrl: params.targetUrl,
-                    maxProductsVal: params.maxProductsVal,
-                    maxReviewsVal: params.maxReviewsVal,
-                    forceVal: true,
-                  });
-                },
-              },
-            }
-          );
           router.push(`/sources/${res.data.source_id}`);
           return;
         }
@@ -213,7 +191,7 @@ export function HomeClient() {
         setIsSubmitting(false);
       }
     },
-    [activeProfileId, locale, queryClient, router, t, tErrors]
+    [activeProfileId, queryClient, router, tErrors]
   );
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -245,7 +223,6 @@ export function HomeClient() {
         parsedMaxReviews !== undefined && Number.isFinite(parsedMaxReviews)
           ? parsedMaxReviews
           : undefined,
-      forceVal: force,
     });
   };
 
@@ -278,12 +255,11 @@ export function HomeClient() {
               setActiveJob(null);
               void queryClient.invalidateQueries({ queryKey: ["sources"] });
             }}
-            onRetryForce={() => {
+            onRetry={() => {
               void startIngest({
                 targetUrl: activeJob.url,
                 maxProductsVal: activeJob.maxProducts,
                 maxReviewsVal: activeJob.maxReviews,
-                forceVal: true,
               });
             }}
             isRetrying={isSubmitting}
@@ -394,15 +370,6 @@ export function HomeClient() {
                         </p>
                       </div>
                     </div>
-                    <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-foreground">
-                      <input
-                        type="checkbox"
-                        checked={force}
-                        onChange={(e) => setForce(e.target.checked)}
-                        className="size-4 rounded border-input accent-primary"
-                      />
-                      <span>{t("forceLabel")}</span>
-                    </label>
                   </CollapsibleContent>
                 </Collapsible>
               </form>
@@ -477,11 +444,8 @@ export function HomeClient() {
         ) : recentItems.length === 0 ? (
           <Card className="border border-dashed border-border bg-card/60">
             <CardContent className="py-10 text-center">
-              <p className="font-medium text-foreground">
-                {t("recentEmptyTitle")}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t("recentEmptyDescription")}
+              <p className="text-sm text-muted-foreground">
+                {t("recentEmpty")}
               </p>
             </CardContent>
           </Card>

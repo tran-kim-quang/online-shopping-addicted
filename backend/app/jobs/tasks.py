@@ -137,14 +137,23 @@ async def run_ingest(
     llm_profile_id: str | uuid.UUID | None = None,
     max_products: int | None = None,
     max_reviews: int | None = None,
-    force: bool = False,
+    **legacy_kwargs: Any,
 ) -> dict[str, Any]:
     """Arq task: crawl ``url`` then run ``ingest_source``, streaming progress via ``JobEvents``.
 
     Dependencies may be injected via ``ctx`` for unit/integration testing:
     ``session_factory``, ``registry``, ``embedder``, ``llm_client``, ``job_events``, ``settings``.
+
+    ``legacy_kwargs`` keeps jobs enqueued before the cache-bypass removal (they still carry
+    ``force=...`` in their serialized Arq payload) from dying with ``TypeError``: unknown
+    kwargs are logged and dropped.
     """
-    _ = force  # Cache bypass is enforced at enqueue time; kept in signature per spec.
+    if legacy_kwargs:
+        logger.warning(
+            "run_ingest job %s received unexpected kwargs %s; ignoring them.",
+            job_id,
+            sorted(legacy_kwargs),
+        )
     events: JobEvents = ctx.get("job_events") or JobEvents()
     session_factory = ctx.get("session_factory")
     registry = ctx.get("registry")

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -32,11 +33,12 @@ router = APIRouter(prefix="/api", tags=["ingest"])
 class IngestRequest(BaseModel):
     """Request payload for ``POST /api/ingest``."""
 
+    model_config = ConfigDict(extra="forbid")
+
     url: str = Field(min_length=1, max_length=2048)
     llm_profile_id: uuid.UUID | None = None
     max_products: int | None = Field(default=None, ge=1, le=500)
     max_reviews: int | None = Field(default=None, ge=0, le=1000)
-    force: bool = False
 
 
 class IngestCachedResponse(BaseModel):
@@ -44,6 +46,8 @@ class IngestCachedResponse(BaseModel):
 
     source_id: uuid.UUID
     cached: bool = True
+    crawled_at: datetime
+    refresh_after: datetime
 
 
 class IngestQueuedResponse(BaseModel):
@@ -112,12 +116,27 @@ async def create_ingest(
         llm_profile_id=body.llm_profile_id,
         max_products=body.max_products,
         max_reviews=body.max_reviews,
-        force=body.force,
     )
     if result.cached and result.source_id is not None:
+        if result.crawled_at is not None and result.refresh_after is not None:
+            cached_payload = IngestCachedResponse(
+                source_id=result.source_id,
+                cached=True,
+                crawled_at=result.crawled_at,
+                refresh_after=result.refresh_after,
+            )
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content=cached_payload.model_dump(mode="json"),
+            )
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content={"source_id": str(result.source_id), "cached": True},
+            content={
+                "source_id": str(result.source_id),
+                "cached": True,
+                "crawled_at": None,
+                "refresh_after": None,
+            },
         )
 
     payload: dict[str, Any] = {

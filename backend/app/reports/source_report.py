@@ -31,6 +31,7 @@ class ReportSourceInfo(BaseModel):
     display_name: str | None = None
     crawled_at: datetime | None = None
     ingested_at: datetime | None = None
+    refresh_after: datetime | None = None
 
 
 class ReportShopInfo(BaseModel):
@@ -223,7 +224,7 @@ def _resolve_cache_ttl_hours(settings: Settings | None) -> int:
     try:
         return get_settings().CRAWL_CACHE_TTL_HOURS
     except Exception:
-        return 24
+        return 48
 
 
 def _build_rankings(rows: list[ProductReportRow], top_n: int) -> ReportRankings:
@@ -446,7 +447,10 @@ def _build_warnings(
             warnings.append(
                 ReportWarning(
                     code="stale_data",
-                    message=(f"Dữ liệu đã được crawl cách đây hơn {ttl_hours} giờ; có thể đã cũ."),
+                    message=(
+                        f"Dữ liệu đã được thu thập cách đây hơn {ttl_hours} giờ; "
+                        "lần mở tiếp theo sẽ tự thu thập mới."
+                    ),
                     params={"ttl_hours": ttl_hours},
                 )
             )
@@ -524,6 +528,12 @@ async def build_source_report(
             or source.url
         )
 
+    refresh_after = (
+        _to_utc(source.crawled_at) + timedelta(hours=ttl_hours)
+        if source.crawled_at is not None
+        else None
+    )
+
     source_info = ReportSourceInfo(
         id=source.id,
         url=source.url,
@@ -533,6 +543,7 @@ async def build_source_report(
         display_name=resolved_display_name,
         crawled_at=source.crawled_at,
         ingested_at=ingested_at,
+        refresh_after=refresh_after,
     )
 
     shop_info: ReportShopInfo | None = None
