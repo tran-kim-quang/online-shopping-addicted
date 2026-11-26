@@ -189,35 +189,3 @@ async def submit_parsed_ingest(
         canonical_url=parsed.canonical_url,
         job_id=job_id,
     )
-
-
-async def submit_ingest_url(
-    url: str,
-    *,
-    session: AsyncSession,
-    settings: Settings,
-    job_events: JobEvents,
-    job_queue: JobQueue,
-    resolver: DNSResolver | None = None,
-    llm_profile_id: uuid.UUID | None = None,
-    max_products: int | None = None,
-    max_reviews: int | None = None,
-    resolve_short_url_fn: ResolveShortUrlFn | None = None,
-) -> IngestSubmitResult:
-    """Classify ``url``, respect TTL cache, and enqueue an Arq ingest job when needed."""
-    parsed = await classify_ingest_url(
-        url,
-        settings=settings,
-        resolver=resolver,
-        resolve_short_url_fn=resolve_short_url_fn,
-    )
-    return await submit_parsed_ingest(
-        parsed,
-        session=session,
-        settings=settings,
-        job_events=job_events,
-        job_queue=job_queue,
-        llm_profile_id=llm_profile_id,
-        max_products=max_products,
-        max_reviews=max_reviews,
-    )

@@ -3,6 +3,7 @@ export interface ApiErrorOptions {
   code: string;
   detail: string;
   platform?: string;
+  jobId?: string;
   errors?: Record<string, string>;
 }
 
@@ -11,6 +12,7 @@ export class ApiError extends Error {
   readonly code: string;
   readonly detail: string;
   readonly platform?: string;
+  readonly jobId?: string;
   readonly errors?: Record<string, string>;
 
   constructor(options: ApiErrorOptions) {
@@ -20,6 +22,7 @@ export class ApiError extends Error {
     this.code = options.code;
     this.detail = options.detail;
     this.platform = options.platform;
+    this.jobId = options.jobId;
     this.errors = options.errors;
   }
 }
@@ -79,6 +82,10 @@ export function normalizeApiError(
       typeof body.platform === "string" && body.platform.trim()
         ? body.platform.trim()
         : undefined;
+    const jobId =
+      typeof body.job_id === "string" && body.job_id.trim()
+        ? body.job_id.trim()
+        : undefined;
 
     let errors: Record<string, string> | undefined;
     if (isRecord(body.errors)) {
@@ -93,7 +100,7 @@ export function normalizeApiError(
       }
     }
 
-    return new ApiError({ status, code, detail, platform, errors });
+    return new ApiError({ status, code, detail, platform, jobId, errors });
   }
 
   if (typeof body === "string" && body.trim()) {

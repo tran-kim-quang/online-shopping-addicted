@@ -11,9 +11,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export interface AspectsPanelProps {
   aspects: SourceReport["aspects"];
+  analyzeAction?: React.ReactNode;
 }
 
-export function AspectsPanel({ aspects }: AspectsPanelProps) {
+export function AspectsPanel({ aspects, analyzeAction }: AspectsPanelProps) {
   const t = useTranslations("source.aspects");
   const locale = useLocale() as AppLocale;
 
@@ -37,6 +38,9 @@ export function AspectsPanel({ aspects }: AspectsPanelProps) {
             <p className="mt-1 text-xs text-muted-foreground">
               {t("emptyDescription")}
             </p>
+            {analyzeAction && (
+              <div className="mt-3 flex justify-center">{analyzeAction}</div>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

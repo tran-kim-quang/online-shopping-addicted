@@ -96,7 +96,17 @@
     "retry": "Retry",
     "openSource": "Open overview",
     "backHome": "Back",
-    "jobStatus": "Status: {status}"
+    "jobStatus": "Status: {status}",
+    "analyze": {
+      "title": "Analyzing with LLM: {target}",
+      "completedTitle": "LLM analysis complete",
+      "partialTitle": "LLM analysis partially complete",
+      "failedTitle": "LLM analysis failed",
+      "steps": {
+        "queued": "Preparing analysis",
+        "sentiment": "Analyzing sentiment & aspects"
+      }
+    }
   },
   "source": {
     "tabOverview": "Overview",
@@ -158,8 +168,22 @@
       "praised": "Praised",
       "complained": "Complained",
       "emptyTitle": "No aspect breakdown yet",
-      "emptyDescription": "Re-ingest with an LLM profile to extract praised and complained aspects from review text.",
+      "emptyDescription": "No LLM aspect analysis has been run on these reviews yet.",
       "emptySide": "None yet"
+    },
+    "analyze": {
+      "button": "Analyze with LLM",
+      "dialogTitle": "Analyze reviews with LLM?",
+      "dialogDescription": "This will analyze {reviews} reviews with LLM (estimated ~{requests} LLM requests).",
+      "dialogProfile": "Profile: {profile} ({model})",
+      "dialogNote": "Does not re-crawl the marketplace or rebuild the search index.",
+      "dialogConfirm": "Start analysis",
+      "starting": "Starting…",
+      "doneToast": "Analyzed {count} reviews",
+      "partialToast": "Analyzed {count} reviews (some batches failed and kept rating-based sentiment).",
+      "upToDate": "All reviews are already analyzed with LLM.",
+      "attachedRunning": "Attached to running analysis job.",
+      "openLlmSettings": "Open LLM Settings"
     },
     "productsTable": {
       "title": "Products ({count})",
@@ -188,7 +212,7 @@
   "warnings": {
     "partial_reviews": "Collected {collected}/{reported} reviews across {products} product(s).",
     "reported_count_lower": "Collected more reviews than platform-reported count for {products} product(s) (rating-only reviews may be excluded by the platform).",
-    "sentiment_rating_only": "Sentiment was inferred from star ratings; aspect extraction is unavailable. Re-ingest with an LLM profile to enable it.",
+    "sentiment_rating_only": "Sentiment is inferred from star ratings ({count} reviews); not analyzed with LLM yet.",
     "no_aspects": "No review aspects extracted yet.",
     "unanalyzed_reviews": "{count} review(s) have not been analyzed for sentiment.",
     "not_ingested": "Source has not been indexed (no chunks/embeddings); showing crawled data only.",
@@ -351,6 +375,7 @@
     "unsupported_url": "Unsupported URL. Only Tiki product links (*-p<id>.html), shop links (/cua-hang/<slug>), and ti.ki short links are accepted.",
     "unsafe_url": "URL is unsafe or not permitted.",
     "source_not_ready": "Source is still processing or not indexed yet.",
+    "analysis_running": "An LLM analysis job is already running for this source.",
     "secret_key_mismatch": "Stored API key cannot be decrypted with the current SECRET_KEY. Re-enter the key in LLM Settings.",
     "api_key_required_on_host_change": "Base URL points to a different host. Enter a new API key (or explicitly clear it) so the stored key is never sent to another provider.",
     "llm_probe_failed": "Chat model capability probe failed. Check Base URL, API key, and model name.",

@@ -19,17 +19,29 @@ import {
   type JobTerminalEventData,
 } from "@/lib/api/sse";
 import {
+  ANALYZE_STEPS,
   INGEST_STEPS,
   extractJobErrorCode,
+  resolveAnalyzeStage,
   resolveStage,
 } from "@/lib/stages";
 import { formatElapsedTimer } from "@/lib/format";
 import { translateErrorCode } from "@/lib/error-messages";
 
+export interface JobCompletionInfo {
+  jobId: string;
+  status: "done" | "partial";
+  sourceId: string | null;
+  done: number;
+  total: number | null;
+}
+
 export interface IngestProgressPanelProps {
   jobId: string;
   targetLabel: string;
-  onComplete: (sourceId: string) => void;
+  mode?: "ingest" | "analyze";
+  onComplete?: (sourceId: string) => void;
+  onJobComplete?: (info: JobCompletionInfo) => void;
   onStopWatching?: () => void;
   onRetry?: () => void;
   isRetrying?: boolean;
@@ -49,13 +61,18 @@ interface ProgressState {
 export function IngestProgressPanel({
   jobId,
   targetLabel,
+  mode = "ingest",
   onComplete,
+  onJobComplete,
   onStopWatching,
   onRetry,
   isRetrying = false,
 }: IngestProgressPanelProps) {
   const t = useTranslations("ingest");
+  const tCommon = useTranslations("common");
   const tErrors = useTranslations("errors");
+  const isAnalyze = mode === "analyze";
+  const steps = isAnalyze ? ANALYZE_STEPS : INGEST_STEPS;
 
   const [state, setState] = React.useState<ProgressState>({
     currentStepIndex: 0,
@@ -71,6 +88,10 @@ export function IngestProgressPanel({
 
   const onCompleteRef = React.useRef(onComplete);
   onCompleteRef.current = onComplete;
+  const onJobCompleteRef = React.useRef(onJobComplete);
+  onJobCompleteRef.current = onJobComplete;
+  const lastDoneRef = React.useRef(0);
+  const lastTotalRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
     setState({
@@ -83,8 +104,10 @@ export function IngestProgressPanel({
       errorRaw: null,
       reconnecting: false,
     });
+    lastDoneRef.current = 0;
+    lastTotalRef.current = null;
     setElapsedSeconds(0);
-  }, [jobId]);
+  }, [jobId, mode]);
 
   React.useEffect(() => {
     if (state.terminalStatus !== null) return;
@@ -95,10 +118,19 @@ export function IngestProgressPanel({
   }, [state.terminalStatus]);
 
   React.useEffect(() => {
+    const stepCount = isAnalyze ? ANALYZE_STEPS.length : INGEST_STEPS.length;
     const unsubscribe = subscribeJobEvents(jobId, {
       onProgress: (ev: JobProgressEventData) => {
+        if (typeof ev.done === "number") {
+          lastDoneRef.current = ev.done;
+        }
+        if (ev.total !== undefined) {
+          lastTotalRef.current = ev.total;
+        }
         setState((prev) => {
-          const resolved = resolveStage(ev.stage, prev.currentStepIndex);
+          const resolved = isAnalyze
+            ? resolveAnalyzeStage(ev.stage, prev.currentStepIndex)
+            : resolveStage(ev.stage, prev.currentStepIndex);
           return {
             ...prev,
             currentStepIndex: resolved.stepIndex,
@@ -110,16 +142,25 @@ export function IngestProgressPanel({
         });
       },
       onDone: (ev: JobTerminalEventData) => {
+        const terminalStatus = ev.status === "partial" ? "partial" : "done";
         setState((prev) => ({
           ...prev,
-          currentStepIndex: INGEST_STEPS.length - 1,
-          terminalStatus: ev.status === "partial" ? "partial" : "done",
+          currentStepIndex: stepCount - 1,
+          terminalStatus,
           sourceId: ev.source_id,
           reconnecting: false,
         }));
+        const info: JobCompletionInfo = {
+          jobId: ev.job_id,
+          status: terminalStatus,
+          sourceId: ev.source_id,
+          done: lastDoneRef.current,
+          total: lastTotalRef.current,
+        };
         if (ev.source_id) {
-          onCompleteRef.current(ev.source_id);
+          onCompleteRef.current?.(ev.source_id);
         }
+        onJobCompleteRef.current?.(info);
       },
       onError: (ev: JobTerminalEventData) => {
         setState((prev) => ({
@@ -141,7 +182,7 @@ export function IngestProgressPanel({
     });
 
     return unsubscribe;
-  }, [jobId]);
+  }, [jobId, isAnalyze]);
 
   const errorCode = extractJobErrorCode(state.errorRaw);
   const errorMessage = state.errorRaw
@@ -155,17 +196,34 @@ export function IngestProgressPanel({
       ? Math.min(100, Math.round((state.done / state.total) * 100))
       : null;
 
+  const titleText = isAnalyze
+    ? state.terminalStatus === "failed"
+      ? t("analyze.failedTitle")
+      : state.terminalStatus === "partial"
+        ? t("analyze.partialTitle")
+        : state.terminalStatus === "done"
+          ? t("analyze.completedTitle")
+          : t("analyze.title", { target: targetLabel })
+    : state.terminalStatus === "failed"
+      ? t("failedTitle")
+      : state.terminalStatus === "done" || state.terminalStatus === "partial"
+        ? t("completedTitle")
+        : t("title", { target: targetLabel });
+
+  const stepLabel = (stepKey: string) =>
+    isAnalyze ? t(`analyze.steps.${stepKey}`) : t(`steps.${stepKey}`);
+
   return (
-    <Card className="mx-auto w-full max-w-2xl border border-border bg-card shadow-xs">
+    <Card
+      className={cn(
+        "w-full border border-border bg-card shadow-xs",
+        !isAnalyze && "mx-auto max-w-2xl"
+      )}
+    >
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-lg font-semibold text-[var(--heading)]">
-            {state.terminalStatus === "failed"
-              ? t("failedTitle")
-              : state.terminalStatus === "done" ||
-                  state.terminalStatus === "partial"
-                ? t("completedTitle")
-                : t("title", { target: targetLabel })}
+            {titleText}
           </CardTitle>
           <span className="font-mono text-xs text-muted-foreground tabular-nums">
             {t("elapsed", { duration: formatElapsedTimer(elapsedSeconds) })}
@@ -174,8 +232,15 @@ export function IngestProgressPanel({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        <ol className="space-y-2.5" aria-label={t("title", { target: targetLabel })}>
-          {INGEST_STEPS.map((stepKey, idx) => {
+        <ol
+          className="space-y-2.5"
+          aria-label={
+            isAnalyze
+              ? t("analyze.title", { target: targetLabel })
+              : t("title", { target: targetLabel })
+          }
+        >
+          {steps.map((stepKey, idx) => {
             const isCompleted =
               state.terminalStatus === "done" ||
               state.terminalStatus === "partial" ||
@@ -222,7 +287,7 @@ export function IngestProgressPanel({
                           "text-muted-foreground"
                       )}
                     >
-                      {t(`steps.${stepKey}`)}
+                      {stepLabel(stepKey)}
                     </span>
                   </div>
 
@@ -238,7 +303,7 @@ export function IngestProgressPanel({
                     <Progress
                       value={progressPercent}
                       className="h-1.5"
-                      aria-label={t(`steps.${stepKey}`)}
+                      aria-label={stepLabel(stepKey)}
                     />
                   </div>
                 )}
@@ -253,7 +318,8 @@ export function IngestProgressPanel({
         >
           {state.reconnecting
             ? t("reconnecting")
-            : state.lastMessage || t("steps.classify")}
+            : state.lastMessage ||
+              (isAnalyze ? t("analyze.steps.queued") : t("steps.classify"))}
         </div>
 
         {errorMessage && (
@@ -280,7 +346,7 @@ export function IngestProgressPanel({
             )}
             {onStopWatching && state.terminalStatus === "failed" && (
               <Button variant="outline" size="sm" onClick={onStopWatching}>
-                {t("backHome")}
+                {isAnalyze ? tCommon("close") : t("backHome")}
               </Button>
             )}
           </div>
@@ -298,9 +364,11 @@ export function IngestProgressPanel({
                 <span>{t("retry")}</span>
               </Button>
             )}
-            {(state.terminalStatus === "done" ||
-              state.terminalStatus === "partial") &&
-              state.sourceId && (
+            {!isAnalyze &&
+              (state.terminalStatus === "done" ||
+                state.terminalStatus === "partial") &&
+              state.sourceId &&
+              onComplete && (
                 <Button
                   size="sm"
                   onClick={() => onComplete(state.sourceId!)}

@@ -9,12 +9,17 @@ import {
   ChevronDown,
   Download,
   ExternalLink,
+  Loader2,
   RefreshCw,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "cn";
 import { Link, useRouter, type AppLocale } from "@/i18n/routing";
 import { useActiveProfile } from "@/components/providers";
-import { IngestProgressPanel } from "@/components/ingest/ingest-progress-panel";
+import {
+  IngestProgressPanel,
+  type JobCompletionInfo,
+} from "@/components/ingest/ingest-progress-panel";
 import { WarningsBanner } from "@/components/report/warnings-banner";
 import { KpiGrid } from "@/components/report/kpi-grid";
 import { RatingDistributionChart } from "@/components/report/rating-distribution-chart";
@@ -23,8 +28,18 @@ import { AspectsPanel } from "@/components/report/aspects-panel";
 import { ProductsTable } from "@/components/report/products-table";
 import { ProductDetailCard } from "@/components/report/product-detail-card";
 import { ChatPanel } from "@/components/chat/chat-panel";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,6 +54,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  analyzeSource,
   getProductsCsvUrl,
   getReviewsCsvUrl,
   getSource,
@@ -46,7 +62,12 @@ import {
   submitIngest,
 } from "@/lib/api/client";
 import { isApiError } from "@/lib/api/errors";
-import { formatDateTime, formatRelativeTime } from "@/lib/format";
+import {
+  formatDateTime,
+  formatNumber,
+  formatRelativeTime,
+} from "@/lib/format";
+import { estimateLlmRequests } from "@/lib/stages";
 import { translateUnknownError } from "@/lib/error-messages";
 
 const IN_PROGRESS_STATUSES = new Set(["pending", "queued", "running"]);
@@ -76,10 +97,21 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
   const locale = useLocale() as AppLocale;
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { activeProfileId } = useActiveProfile();
+  const { activeProfile, activeProfileId } = useActiveProfile();
 
   const [activeJobId, setActiveJobId] = React.useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [analyzeDialogOpen, setAnalyzeDialogOpen] = React.useState(false);
+  const [isStartingAnalyze, setIsStartingAnalyze] = React.useState(false);
+  const [activeAnalyzeJob, setActiveAnalyzeJob] = React.useState<{
+    jobId: string;
+    reviewsToAnalyze: number;
+    estimatedRequests: number;
+  } | null>(null);
+  const [analyzeError, setAnalyzeError] = React.useState<{
+    code: string;
+    message: string;
+  } | null>(null);
   const [filteredProductIds, setFilteredProductIds] = React.useState<
     string[] | null
   >(null);
@@ -218,6 +250,119 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
 
   const report = reportQuery.data;
 
+  const reviewsRatingOnly = report?.totals.reviews_rating_only ?? 0;
+  const reviewsToAnalyze =
+    reviewsRatingOnly + (report?.totals.sentiment?.unanalyzed ?? 0);
+  const estimatedLlmRequests = estimateLlmRequests(reviewsToAnalyze);
+  const canAnalyzeWithLlm = reviewsRatingOnly > 0;
+
+  const startLlmAnalysis = async () => {
+    if (!activeProfileId) return;
+    setIsStartingAnalyze(true);
+    setAnalyzeError(null);
+    try {
+      const res = await analyzeSource(sourceId, activeProfileId);
+      setAnalyzeDialogOpen(false);
+      if (res.kind === "up_to_date") {
+        toast.info(t("analyze.upToDate"));
+        void queryClient.invalidateQueries({
+          queryKey: ["source-report", sourceId],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["source", sourceId],
+        });
+        return;
+      }
+      setActiveAnalyzeJob({
+        jobId: res.data.job_id,
+        reviewsToAnalyze: res.data.reviews_to_analyze,
+        estimatedRequests: res.data.estimated_llm_requests,
+      });
+    } catch (err) {
+      setAnalyzeDialogOpen(false);
+      if (isApiError(err) && err.code === "analysis_running") {
+        const statsJobId =
+          source.stats &&
+          typeof source.stats === "object" &&
+          typeof source.stats.last_analyze_job_id === "string"
+            ? source.stats.last_analyze_job_id
+            : null;
+        const runningJobId = err.jobId ?? statsJobId;
+        if (runningJobId) {
+          setActiveAnalyzeJob({
+            jobId: runningJobId,
+            reviewsToAnalyze,
+            estimatedRequests: estimatedLlmRequests,
+          });
+          toast.info(t("analyze.attachedRunning"));
+          return;
+        }
+      }
+      const code = isApiError(err) ? err.code : "unknown_error";
+      setAnalyzeError({
+        code,
+        message: translateUnknownError(tErrors, err),
+      });
+    } finally {
+      setIsStartingAnalyze(false);
+    }
+  };
+
+  const handleAnalyzeComplete = (info: JobCompletionInfo) => {
+    const analyzedCount =
+      info.done > 0
+        ? info.done
+        : activeAnalyzeJob?.reviewsToAnalyze ?? reviewsToAnalyze;
+    setActiveAnalyzeJob(null);
+    setAnalyzeError(null);
+    void queryClient.invalidateQueries({
+      queryKey: ["source-report", sourceId],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["source", sourceId],
+    });
+    const formattedCount = formatNumber(analyzedCount, locale);
+    if (info.status === "partial") {
+      toast.warning(t("analyze.partialToast", { count: formattedCount }));
+    } else {
+      toast.success(t("analyze.doneToast", { count: formattedCount }));
+    }
+  };
+
+  const renderAnalyzeTrigger = (size: "xs" | "sm", className?: string) => {
+    if (!canAnalyzeWithLlm) return undefined;
+    if (!activeProfileId) {
+      return (
+        <Link
+          href="/settings/llm"
+          className={cn(
+            buttonVariants({
+              variant: size === "sm" ? "default" : "outline",
+              size,
+            }),
+            className
+          )}
+        >
+          <Sparkles className="size-3.5" aria-hidden="true" />
+          <span>{t("analyze.button")}</span>
+        </Link>
+      );
+    }
+    return (
+      <Button
+        type="button"
+        variant={size === "sm" ? "default" : "outline"}
+        size={size}
+        disabled={Boolean(activeAnalyzeJob) || isStartingAnalyze}
+        onClick={() => setAnalyzeDialogOpen(true)}
+        className={className}
+      >
+        <Sparkles className="size-3.5" aria-hidden="true" />
+        <span>{t("analyze.button")}</span>
+      </Button>
+    );
+  };
+
   const isSingleProduct =
     source.url_type === "product" ||
     (report ? report.source.url_type === "product" : false);
@@ -325,11 +470,75 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
 
     return (
       <div className="min-w-0 space-y-5">
+        {activeAnalyzeJob && (
+          <IngestProgressPanel
+            mode="analyze"
+            jobId={activeAnalyzeJob.jobId}
+            targetLabel={source.display_name}
+            onJobComplete={handleAnalyzeComplete}
+            onStopWatching={() => setActiveAnalyzeJob(null)}
+            onRetry={() => void startLlmAnalysis()}
+            isRetrying={isStartingAnalyze}
+          />
+        )}
+
+        {analyzeError && !activeAnalyzeJob && (
+          <div
+            role="alert"
+            className="flex flex-col gap-3 rounded-[10px] border border-destructive/30 bg-card p-3.5 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="flex items-start gap-2">
+              <AlertCircle
+                className="mt-0.5 size-4 shrink-0"
+                aria-hidden="true"
+              />
+              <span>{analyzeError.message}</span>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {analyzeError.code === "secret_key_mismatch" && (
+                <Link
+                  href="/settings/llm"
+                  className={buttonVariants({ variant: "outline", size: "xs" })}
+                >
+                  {t("analyze.openLlmSettings")}
+                </Link>
+              )}
+              <Button
+                type="button"
+                size="xs"
+                onClick={() => void startLlmAnalysis()}
+                disabled={isStartingAnalyze}
+              >
+                <RefreshCw
+                  className={cn(
+                    "size-3",
+                    isStartingAnalyze && "animate-spin"
+                  )}
+                  aria-hidden="true"
+                />
+                <span>{tCommon("retry")}</span>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => setAnalyzeError(null)}
+              >
+                {tCommon("close")}
+              </Button>
+            </div>
+          </div>
+        )}
+
         <WarningsBanner
           warnings={report.warnings ?? []}
           onFilterProducts={
             !isSingleProduct ? handleFilterFromWarning : undefined
           }
+          analyzeAction={renderAnalyzeTrigger(
+            "xs",
+            "h-6 shrink-0 self-start border-warning/40 bg-card/80 text-xs font-medium text-warning hover:bg-card sm:self-center"
+          )}
         />
 
         <KpiGrid totals={report.totals} />
@@ -346,7 +555,10 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
           />
         )}
 
-        <AspectsPanel aspects={report.aspects} />
+        <AspectsPanel
+          aspects={report.aspects}
+          analyzeAction={renderAnalyzeTrigger("sm")}
+        />
 
         {isSingleProduct && firstProduct ? (
           <ProductDetailCard product={firstProduct} />
@@ -502,6 +714,52 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
           </TabsContent>
         </Tabs>
       </div>
+
+      <AlertDialog open={analyzeDialogOpen} onOpenChange={setAnalyzeDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("analyze.dialogTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("analyze.dialogDescription", {
+                reviews: formatNumber(reviewsToAnalyze, locale),
+                requests: formatNumber(estimatedLlmRequests, locale),
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-1.5 rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+            {activeProfile && (
+              <p className="font-medium text-foreground">
+                {t("analyze.dialogProfile", {
+                  profile: activeProfile.name,
+                  model: activeProfile.small_model || activeProfile.chat_model,
+                })}
+              </p>
+            )}
+            <p>{t("analyze.dialogNote")}</p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isStartingAnalyze}>
+              {tCommon("cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void startLlmAnalysis()}
+              disabled={isStartingAnalyze}
+            >
+              {isStartingAnalyze ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                  <span>{t("analyze.starting")}</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="size-3.5" aria-hidden="true" />
+                  <span>{t("analyze.dialogConfirm")}</span>
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

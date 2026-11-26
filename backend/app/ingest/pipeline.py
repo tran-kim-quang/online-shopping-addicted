@@ -11,16 +11,16 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, SecretStr
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.errors import JobCancelledError
 from app.crawl.types import ProgressEvent
-from app.db.models import LLMProfile, Product, Review, Shop, Source
+from app.db.models import LLMProfile, Product, Review, ReviewSummary, Shop, Source
 from app.ingest.chunking import build_product_chunks, sync_product_chunks
 from app.ingest.embedding import Embedder, NullEmbedder, get_embedder
-from app.ingest.sentiment import analyze_product_reviews
+from app.ingest.sentiment import analyze_product_reviews, count_reviews_needing_analysis
 from app.llm.client import LLMClient
 from app.llm.registry import LLMClientRegistry
 from app.llm.types import LLMConfig
@@ -69,6 +69,33 @@ class IngestResult(BaseModel):
     status: Literal["done", "partial", "failed"]
     product_ids: list[uuid.UUID] = Field(default_factory=list)
     stats: IngestStats = Field(default_factory=IngestStats)
+    error: str | None = None
+
+
+class AnalyzeStats(BaseModel):
+    """Aggregated counters for standalone LLM sentiment/aspect analysis."""
+
+    products_total: int = 0
+    products_processed: int = 0
+    products_failed: int = 0
+    reviews_to_analyze: int = 0
+    reviews_analyzed: int = 0
+    reviews_llm: int = 0
+    reviews_rating_fallback: int = 0
+    reviews_skipped: int = 0
+    batches_total: int = 0
+    batches_failed: int = 0
+    summaries_invalidated: int = 0
+    total_seconds: float = 0.0
+    errors: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AnalyzeResult(BaseModel):
+    """Outcome of :func:`analyze_source`."""
+
+    source_id: uuid.UUID
+    status: Literal["done", "partial", "failed"]
+    stats: AnalyzeStats = Field(default_factory=AnalyzeStats)
     error: str | None = None
 
 
@@ -159,12 +186,15 @@ async def resolve_source_scope(
 async def _resolve_llm_client(
     profile: LLMProfile | None,
     settings: Settings,
+    *,
+    secret_box: SecretBox | None = None,
 ) -> LLMClient | None:
     if profile is None:
         return None
     raw_key: str | None = None
     if profile.api_key_enc:
-        raw_key = SecretBox().decrypt(profile.api_key_enc)
+        box = secret_box if secret_box is not None else SecretBox()
+        raw_key = box.decrypt(profile.api_key_enc)
     config = LLMConfig(
         base_url=profile.base_url,
         api_key=SecretStr(raw_key) if raw_key else None,
@@ -399,6 +429,163 @@ async def ingest_source(
         source_id=source_id,
         status=final_status,
         product_ids=ingested_ids,
+        stats=stats,
+        error=error_summary,
+    )
+
+
+async def analyze_source(
+    source_id: uuid.UUID,
+    *,
+    llm_profile_id: uuid.UUID,
+    on_progress: ProgressCallback | None = None,
+    session_factory: SessionFactory | None = None,
+    llm_client: LLMClient | None = None,
+    secret_box: SecretBox | None = None,
+    settings: Settings | None = None,
+) -> AnalyzeResult:
+    """Run LLM sentiment + aspect analysis only for reviews in ``source_id`` scope.
+
+    Does NOT crawl the marketplace and does NOT re-chunk or re-embed. Updates
+    ``products.*_review_count`` and invalidates cached ``review_summaries`` only
+    for products whose reviews actually changed.
+    """
+    started = time.monotonic()
+    active_settings = settings if settings is not None else get_settings()
+
+    if session_factory is None:
+        from app.db.database import Database
+
+        session_factory = Database().session_factory
+
+    async with session_factory() as session:
+        source = await session.get(Source, source_id)
+        if source is None:
+            raise ValueError(f"Source {source_id} not found.")
+
+        profile = await session.get(LLMProfile, llm_profile_id)
+        if profile is None and llm_client is None:
+            raise ValueError(f"LLM profile {llm_profile_id} not found.")
+
+        _shop, products = await resolve_source_scope(session, source)
+        product_ids = [p.id for p in products]
+        total_to_analyze = await count_reviews_needing_analysis(
+            session,
+            product_ids,
+            llm_available=True,
+        )
+
+    active_llm_client = llm_client
+    if active_llm_client is None:
+        active_llm_client = await _resolve_llm_client(
+            profile,
+            active_settings,
+            secret_box=secret_box,
+        )
+        if active_llm_client is None:
+            raise ValueError(f"Could not initialize LLM client for profile {llm_profile_id}.")
+
+    stats = AnalyzeStats(
+        products_total=len(product_ids),
+        reviews_to_analyze=total_to_analyze,
+    )
+
+    if total_to_analyze == 0:
+        stats.total_seconds = round(time.monotonic() - started, 3)
+        return AnalyzeResult(source_id=source_id, status="done", stats=stats)
+
+    reviews_processed = 0
+    await _emit(
+        on_progress,
+        "sentiment",
+        0,
+        total_to_analyze,
+        f"Starting LLM sentiment analysis for {total_to_analyze} review(s)",
+    )
+
+    for prod_id in product_ids:
+        try:
+            async with session_factory() as session:
+                product = await session.get(Product, prod_id)
+                if product is None:
+                    raise ValueError(f"Product {prod_id} disappeared before analysis.")
+
+                async def _on_batch_done(
+                    batch_count: int,
+                    *,
+                    product_title: str = product.title,
+                ) -> None:
+                    nonlocal reviews_processed
+                    reviews_processed += batch_count
+                    await _emit(
+                        on_progress,
+                        "sentiment",
+                        min(reviews_processed, total_to_analyze),
+                        total_to_analyze,
+                        f"Analyzed {min(reviews_processed, total_to_analyze)}/{total_to_analyze} "
+                        f"review(s) ('{product_title}')",
+                    )
+
+                sent_summary = await analyze_product_reviews(
+                    session,
+                    product.id,
+                    llm_client=active_llm_client,
+                    profile=profile,
+                    batch_size=active_settings.SENTIMENT_BATCH_SIZE,
+                    on_batch_done=_on_batch_done,
+                )
+
+                if sent_summary.changed > 0:
+                    await session.execute(
+                        delete(ReviewSummary).where(ReviewSummary.product_id == product.id)
+                    )
+                    stats.summaries_invalidated += 1
+
+                await session.commit()
+
+                stats.products_processed += 1
+                stats.reviews_analyzed += sent_summary.analyzed
+                stats.reviews_llm += sent_summary.llm_count
+                stats.reviews_rating_fallback += sent_summary.rating_fallback_count
+                stats.reviews_skipped += sent_summary.skipped
+                stats.batches_total += sent_summary.batches_total
+                stats.batches_failed += sent_summary.batches_failed
+        except JobCancelledError:
+            raise
+        except Exception as exc:
+            logger.exception(
+                "Failed analyzing reviews for product %s (source %s): %s",
+                prod_id,
+                source_id,
+                exc,
+            )
+            stats.products_failed += 1
+            stats.errors.append({"product_id": str(prod_id), "error": str(exc)})
+
+    stats.total_seconds = round(time.monotonic() - started, 3)
+
+    final_status: Literal["done", "partial", "failed"]
+    error_summary: str | None = None
+    if stats.products_total > 0 and stats.products_processed == 0 and stats.products_failed > 0:
+        final_status = "failed"
+        error_summary = f"All {stats.products_failed} product(s) failed during LLM analysis."
+    elif stats.products_failed > 0 or stats.batches_failed > 0:
+        final_status = "partial"
+        parts: list[str] = []
+        if stats.batches_failed > 0:
+            parts.append(
+                f"{stats.batches_failed}/{stats.batches_total} LLM batch(es) failed; "
+                "kept star-rating fallback"
+            )
+        if stats.products_failed > 0:
+            parts.append(f"{stats.products_failed}/{stats.products_total} product(s) failed")
+        error_summary = "; ".join(parts) + "."
+    else:
+        final_status = "done"
+
+    return AnalyzeResult(
+        source_id=source_id,
+        status=final_status,
         stats=stats,
         error=error_summary,
     )

@@ -21,10 +21,20 @@ export type JobStatusResponse = components["schemas"]["JobStatusResponse"];
 export type IngestRequestPayload = components["schemas"]["IngestRequest"];
 export type IngestCachedResponse = components["schemas"]["IngestCachedResponse"];
 export type IngestQueuedResponse = components["schemas"]["IngestQueuedResponse"];
+export type AnalyzeSourceRequestPayload =
+  components["schemas"]["AnalyzeSourceRequest"];
+export type AnalyzeUpToDateResponse =
+  components["schemas"]["AnalyzeUpToDateResponse"];
+export type AnalyzeQueuedResponse =
+  components["schemas"]["AnalyzeQueuedResponse"];
 
 export type IngestSubmitResponse =
   | { kind: "cached"; data: IngestCachedResponse }
   | { kind: "queued"; data: IngestQueuedResponse };
+
+export type AnalyzeSourceResponse =
+  | { kind: "up_to_date"; data: AnalyzeUpToDateResponse }
+  | { kind: "queued"; data: AnalyzeQueuedResponse };
 
 export function getApiBaseUrl(): string {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -135,6 +145,38 @@ export async function submitIngest(
     return { kind: "cached", data: body as IngestCachedResponse };
   }
   return { kind: "queued", data: body as IngestQueuedResponse };
+}
+
+export async function analyzeSource(
+  sourceId: string,
+  profileId: string
+): Promise<AnalyzeSourceResponse> {
+  const url = `${getApiBaseUrl()}/api/sources/${encodeURIComponent(sourceId)}/analyze`;
+  const payload: AnalyzeSourceRequestPayload = { llm_profile_id: profileId };
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    throw new ApiError({
+      status: 0,
+      code: "network_error",
+      detail: err instanceof Error ? err.message : "Network error",
+    });
+  }
+
+  const body = await parseJsonSafe(response);
+  if (!response.ok) {
+    throw normalizeApiError(response.status, body, response.statusText);
+  }
+
+  if (response.status === 200) {
+    return { kind: "up_to_date", data: body as AnalyzeUpToDateResponse };
+  }
+  return { kind: "queued", data: body as AnalyzeQueuedResponse };
 }
 
 export async function getJobStatus(jobId: string): Promise<JobStatusResponse> {

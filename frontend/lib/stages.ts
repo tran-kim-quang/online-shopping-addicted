@@ -8,9 +8,23 @@ export const INGEST_STEPS = [
 
 export type IngestStepKey = (typeof INGEST_STEPS)[number];
 
-export interface StageResolution {
+export const ANALYZE_STEPS = ["queued", "sentiment"] as const;
+
+export type AnalyzeStepKey = (typeof ANALYZE_STEPS)[number];
+
+export const DEFAULT_SENTIMENT_BATCH_SIZE = 20;
+
+export function estimateLlmRequests(
+  reviewsCount: number,
+  batchSize = DEFAULT_SENTIMENT_BATCH_SIZE
+): number {
+  if (reviewsCount <= 0) return 0;
+  return Math.ceil(reviewsCount / Math.max(1, batchSize));
+}
+
+export interface StageResolution<TStep extends string = IngestStepKey> {
   stepIndex: number;
-  stepKey: IngestStepKey;
+  stepKey: TStep;
   terminal: "done" | "partial" | "failed" | null;
   known: boolean;
 }
@@ -39,6 +53,12 @@ export const STAGE_TO_STEP_INDEX: Readonly<Record<string, number>> = {
   index: 4,
 };
 
+export const ANALYZE_STAGE_TO_STEP_INDEX: Readonly<Record<string, number>> = {
+  queued: 0,
+  started: 0,
+  sentiment: 1,
+};
+
 const TERMINAL_STAGES: Readonly<Record<string, "done" | "partial" | "failed">> =
   {
     done: "done",
@@ -46,6 +66,54 @@ const TERMINAL_STAGES: Readonly<Record<string, "done" | "partial" | "failed">> =
     failed: "failed",
     crawl_failed: "failed",
   };
+
+export function resolveAnalyzeStage(
+  stage: string,
+  currentStepIndex = 0
+): StageResolution<AnalyzeStepKey> {
+  const normalized = stage.trim().toLowerCase();
+  const safeCurrent = Math.max(
+    0,
+    Math.min(currentStepIndex, ANALYZE_STEPS.length - 1)
+  );
+
+  const terminal = TERMINAL_STAGES[normalized] ?? null;
+  if (terminal === "done" || terminal === "partial") {
+    const lastIdx = ANALYZE_STEPS.length - 1;
+    return {
+      stepIndex: lastIdx,
+      stepKey: ANALYZE_STEPS[lastIdx]!,
+      terminal,
+      known: true,
+    };
+  }
+  if (terminal === "failed") {
+    return {
+      stepIndex: safeCurrent,
+      stepKey: ANALYZE_STEPS[safeCurrent]!,
+      terminal: "failed",
+      known: true,
+    };
+  }
+
+  const mapped = ANALYZE_STAGE_TO_STEP_INDEX[normalized];
+  if (mapped !== undefined) {
+    const stepIndex = Math.max(safeCurrent, mapped);
+    return {
+      stepIndex,
+      stepKey: ANALYZE_STEPS[stepIndex]!,
+      terminal: null,
+      known: true,
+    };
+  }
+
+  return {
+    stepIndex: safeCurrent,
+    stepKey: ANALYZE_STEPS[safeCurrent]!,
+    terminal: null,
+    known: false,
+  };
+}
 
 export function resolveStage(
   stage: string,
@@ -128,6 +196,23 @@ export function extractJobErrorCode(error: string | null | undefined): string {
   }
   if (prefix === "unsupported_platform") return "unsupported_platform";
   if (prefix === "unsupported_url") return "unsupported_url";
+  if (
+    prefix === "secret_key_mismatch" ||
+    trimmed.toLowerCase().includes("decrypt secret")
+  ) {
+    return "secret_key_mismatch";
+  }
+  if (
+    prefix === "llm_auth" ||
+    prefix === "llm_not_found" ||
+    prefix === "llm_rate_limit" ||
+    prefix === "llm_unavailable" ||
+    prefix === "llm_bad_request" ||
+    prefix === "llm_invalid_response" ||
+    prefix === "llm_error"
+  ) {
+    return prefix;
+  }
   if (prefix === "not_found" || trimmed.toLowerCase().includes("404")) {
     return "not_found";
   }

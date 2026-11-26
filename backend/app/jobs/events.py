@@ -21,6 +21,7 @@ from app.core.errors import JobCancelledError
 logger = logging.getLogger(__name__)
 
 JOB_TTL_SECONDS = 86_400  # 24 hours
+ANALYZE_LOCK_TTL_SECONDS = 1_800  # 30 minutes (matches worker job_timeout)
 TERMINAL_JOB_STATUSES = frozenset({"done", "partial", "failed"})
 
 SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
@@ -65,6 +66,15 @@ redis.call(
 )
 redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3]))
 return 1
+"""
+
+
+# Atomic compare-and-set: only delete a per-source lock if it still holds our job_id.
+_RELEASE_LOCK_LUA = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+end
+return 0
 """
 
 
@@ -154,12 +164,61 @@ class JobEvents:
     def channel_name(job_id: str) -> str:
         return f"job:{job_id}"
 
+    @staticmethod
+    def analyze_lock_key(source_id: str) -> str:
+        return f"analyze:lock:{source_id}"
+
+    async def get_source_lock(self, source_id: str) -> str | None:
+        """Return the ``job_id`` currently holding the analyze lock for ``source_id``, or None."""
+        raw = await self.redis.get(self.analyze_lock_key(source_id))
+        if raw is None:
+            return None
+        decoded = _decode(raw).strip()
+        return decoded or None
+
+    async def acquire_source_lock(
+        self,
+        source_id: str,
+        job_id: str,
+        *,
+        ttl_seconds: int = ANALYZE_LOCK_TTL_SECONDS,
+    ) -> tuple[bool, str | None]:
+        """Atomically acquire the per-source analyze lock (``SET NX EX``).
+
+        Returns ``(True, job_id)`` when acquired, or ``(False, holder_job_id)`` when
+        another job already holds the lock.
+        """
+        key = self.analyze_lock_key(source_id)
+        acquired = await self.redis.set(key, job_id, nx=True, ex=ttl_seconds)
+        if acquired:
+            return True, job_id
+        holder = await self.get_source_lock(source_id)
+        return False, holder
+
+    async def release_source_lock(self, source_id: str, job_id: str) -> bool:
+        """Atomically release the per-source analyze lock only if held by ``job_id``."""
+        key = self.analyze_lock_key(source_id)
+        eval_fn = getattr(self.redis, "eval", None)
+        if callable(eval_fn):
+            deleted_raw = await eval_fn(_RELEASE_LOCK_LUA, 1, key, job_id)
+            return bool(int(deleted_raw or 0))
+
+        # Fallback for in-memory test doubles without Lua eval.
+        holder = await self.get_source_lock(source_id)
+        if holder != job_id:
+            return False
+        delete_fn = getattr(self.redis, "delete", None)
+        if callable(delete_fn):
+            return bool(await delete_fn(key))
+        return False
+
     async def create_job(
         self,
         job_id: str,
         *,
         url: str = "",
         source_id: str | None = None,
+        job_type: str | None = None,
     ) -> dict[str, str]:
         """Initialize the job status hash in ``queued`` state."""
         now_iso = self._now().isoformat()
@@ -172,6 +231,8 @@ class JobEvents:
             "updated_at": now_iso,
             "heartbeat_at": now_iso,
         }
+        if job_type is not None:
+            mapping["job_type"] = job_type
         key = self.status_key(job_id)
         await self.redis.hset(key, mapping=mapping)
         await self.redis.expire(key, self._ttl_seconds)
@@ -403,7 +464,9 @@ class JobEvents:
         latest = await self.get_status(job_id)
         if transitioned:
             await self.emit(job_id, stage="failed", done=0, total=None, message=error)
-            if latest and latest.get("source_id"):
+            raw_hash = await self.redis.hgetall(key)
+            job_type = _decode_mapping(raw_hash).get("job_type") if raw_hash else None
+            if latest and latest.get("source_id") and job_type != "analyze":
                 await self._mark_source_failed_on_timeout(str(latest["source_id"]), error)
         return transitioned, latest
 

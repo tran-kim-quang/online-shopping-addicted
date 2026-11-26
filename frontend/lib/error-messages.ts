@@ -12,6 +12,7 @@ const KNOWN_ERROR_KEYS = new Set([
   "unsupported_url",
   "unsafe_url",
   "source_not_ready",
+  "analysis_running",
   "secret_key_mismatch",
   "api_key_required_on_host_change",
   "llm_probe_failed",

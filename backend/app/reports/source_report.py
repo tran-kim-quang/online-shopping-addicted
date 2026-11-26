@@ -81,6 +81,7 @@ class ReportTotals(BaseModel):
     rating_avg_weighted: float | None = None
     review_count_reported: int = 0
     reviews_collected: int = 0
+    reviews_rating_only: int = 0
     coverage_pct: float | None = None
     sentiment: SentimentCounts = Field(default_factory=SentimentCounts)
     sentiment_source: SentimentSourceCounts = Field(default_factory=SentimentSourceCounts)
@@ -394,14 +395,12 @@ def _build_warnings(
         and totals.sentiment_source.llm == 0
         and totals.sentiment_source.rating == analyzed_count
     ):
+        rating_only_count = totals.reviews_rating_only or totals.sentiment_source.rating
         warnings.append(
             ReportWarning(
                 code="sentiment_rating_only",
-                message=(
-                    "Cảm xúc suy ra từ số sao; chưa có phân tích khía cạnh. "
-                    "Ingest lại với LLM profile để có."
-                ),
-                params={},
+                message="Cảm xúc đang suy ra từ số sao; chưa phân tích bằng LLM.",
+                params={"count": rating_only_count},
             )
         )
 
@@ -823,6 +822,7 @@ async def build_source_report(
         rating_avg_weighted=rating_avg_weighted,
         review_count_reported=review_count_reported,
         reviews_collected=reviews_collected,
+        reviews_rating_only=int(rev_totals.src_rating or 0),
         coverage_pct=_compute_pct(reviews_collected, review_count_reported),
         sentiment=SentimentCounts(
             positive=int(rev_totals.pos or 0),

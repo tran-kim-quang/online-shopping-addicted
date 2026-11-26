@@ -280,6 +280,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sources/{source_id}/analyze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analyze Source Reviews Endpoint
+         * @description Enqueue standalone LLM sentiment & aspect analysis for an existing source.
+         */
+        post: operations["analyze_source_reviews_endpoint_api_sources__source_id__analyze_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sources/{source_id}/export/products.csv": {
         parameters: {
             query?: never;
@@ -364,6 +384,41 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AnalyzeQueuedResponse
+         * @description 202 response when an async Arq LLM sentiment analysis job has been enqueued.
+         */
+        AnalyzeQueuedResponse: {
+            /** Estimated Llm Requests */
+            estimated_llm_requests: number;
+            /** Job Id */
+            job_id: string;
+            /** Reviews To Analyze */
+            reviews_to_analyze: number;
+        };
+        /**
+         * AnalyzeSourceRequest
+         * @description Request payload for ``POST /api/sources/{source_id}/analyze``.
+         */
+        AnalyzeSourceRequest: {
+            /**
+             * Llm Profile Id
+             * Format: uuid
+             */
+            llm_profile_id: string;
+        };
+        /**
+         * AnalyzeUpToDateResponse
+         * @description 200 response when all reviews in scope are already analyzed by LLM.
+         */
+        AnalyzeUpToDateResponse: {
+            /**
+             * Status
+             * @default up_to_date
+             * @constant
+             */
+            status: "up_to_date";
+        };
         /**
          * AspectCount
          * @description Aggregated mention count for an extracted review aspect.
@@ -900,6 +955,11 @@ export interface components {
              * @default 0
              */
             reviews_collected: number;
+            /**
+             * Reviews Rating Only
+             * @default 0
+             */
+            reviews_rating_only: number;
             sentiment?: components["schemas"]["SentimentCounts"];
             sentiment_source?: components["schemas"]["SentimentSourceCounts"];
             /**
@@ -1807,6 +1867,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourceSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analyze_source_reviews_endpoint_api_sources__source_id__analyze_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalyzeSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyzeUpToDateResponse"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyzeQueuedResponse"];
                 };
             };
             /** @description Validation Error */

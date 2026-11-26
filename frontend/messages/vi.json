@@ -96,7 +96,17 @@
     "retry": "Thử lại",
     "openSource": "Mở trang tổng quan",
     "backHome": "Quay lại",
-    "jobStatus": "Trạng thái: {status}"
+    "jobStatus": "Trạng thái: {status}",
+    "analyze": {
+      "title": "Đang phân tích bằng LLM: {target}",
+      "completedTitle": "Phân tích LLM hoàn tất",
+      "partialTitle": "Phân tích LLM hoàn tất một phần",
+      "failedTitle": "Phân tích LLM gặp lỗi",
+      "steps": {
+        "queued": "Chuẩn bị phân tích",
+        "sentiment": "Phân tích cảm xúc & khía cạnh"
+      }
+    }
   },
   "source": {
     "tabOverview": "Tổng quan",
@@ -158,8 +168,22 @@
       "praised": "Được khen",
       "complained": "Bị chê",
       "emptyTitle": "Chưa có phân tích khía cạnh",
-      "emptyDescription": "Cần ingest dữ liệu với cấu hình LLM để trích xuất khía cạnh khen/chê từ nội dung đánh giá.",
+      "emptyDescription": "Chưa có phân tích khía cạnh bằng LLM cho các đánh giá này.",
       "emptySide": "Chưa có mục nào"
+    },
+    "analyze": {
+      "button": "Phân tích bằng LLM",
+      "dialogTitle": "Phân tích đánh giá bằng LLM?",
+      "dialogDescription": "Sẽ phân tích {reviews} đánh giá bằng LLM (ước tính ~{requests} request LLM).",
+      "dialogProfile": "Cấu hình: {profile} ({model})",
+      "dialogNote": "Không thu thập lại dữ liệu từ sàn và không tạo lại chỉ mục tìm kiếm.",
+      "dialogConfirm": "Bắt đầu phân tích",
+      "starting": "Đang khởi chạy…",
+      "doneToast": "Đã phân tích {count} đánh giá",
+      "partialToast": "Đã phân tích {count} đánh giá (một số lô gặp lỗi LLM, giữ kết quả theo sao).",
+      "upToDate": "Tất cả đánh giá đã được phân tích bằng LLM.",
+      "attachedRunning": "Đang theo dõi tác vụ phân tích đang chạy.",
+      "openLlmSettings": "Mở Cài đặt LLM"
     },
     "productsTable": {
       "title": "Danh sách sản phẩm ({count})",
@@ -188,7 +212,7 @@
   "warnings": {
     "partial_reviews": "Mới thu thập {collected}/{reported} đánh giá ở {products} sản phẩm.",
     "reported_count_lower": "Số đánh giá thu thập nhiều hơn số sàn báo ở {products} sản phẩm (một số sàn không đếm đánh giá chỉ chấm sao).",
-    "sentiment_rating_only": "Cảm xúc suy ra từ số sao; chưa có phân tích khía cạnh. Thu thập lại với cấu hình LLM để có.",
+    "sentiment_rating_only": "Cảm xúc đang suy ra từ số sao ({count} đánh giá); chưa phân tích bằng LLM.",
     "no_aspects": "Chưa có dữ liệu khía cạnh từ đánh giá.",
     "unanalyzed_reviews": "Còn {count} đánh giá chưa được phân tích cảm xúc.",
     "not_ingested": "Nguồn dữ liệu chưa được tạo chỉ mục (chunk/embedding); chỉ hiển thị dữ liệu đã crawl.",
@@ -351,6 +375,7 @@
     "unsupported_url": "Đường dẫn chưa được hỗ trợ. Chỉ chấp nhận link sản phẩm Tiki (*-p<id>.html), link shop (/cua-hang/<slug>) hoặc link rút gọn ti.ki.",
     "unsafe_url": "Đường dẫn không an toàn hoặc không được phép truy cập.",
     "source_not_ready": "Dữ liệu đang được xử lý hoặc chưa tạo chỉ mục xong.",
+    "analysis_running": "Nguồn này đang có tác vụ phân tích bằng LLM chạy nền.",
     "secret_key_mismatch": "API key không giải mã được với SECRET_KEY hiện tại. Vui lòng nhập lại key trong Cài đặt LLM.",
     "api_key_required_on_host_change": "Base URL đã đổi sang máy chủ khác. Vui lòng nhập API key mới (hoặc đánh dấu không dùng key) để tránh gửi key cũ sang nhà cung cấp khác.",
     "llm_probe_failed": "Kiểm tra kết nối chat model thất bại. Vui lòng kiểm tra lại Base URL, API key và tên model.",

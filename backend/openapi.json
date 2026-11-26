@@ -1,6 +1,59 @@
 {
   "components": {
     "schemas": {
+      "AnalyzeQueuedResponse": {
+        "description": "202 response when an async Arq LLM sentiment analysis job has been enqueued.",
+        "properties": {
+          "estimated_llm_requests": {
+            "title": "Estimated Llm Requests",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "reviews_to_analyze": {
+            "title": "Reviews To Analyze",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "reviews_to_analyze",
+          "estimated_llm_requests"
+        ],
+        "title": "AnalyzeQueuedResponse",
+        "type": "object"
+      },
+      "AnalyzeSourceRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for ``POST /api/sources/{source_id}/analyze``.",
+        "properties": {
+          "llm_profile_id": {
+            "format": "uuid",
+            "title": "Llm Profile Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "llm_profile_id"
+        ],
+        "title": "AnalyzeSourceRequest",
+        "type": "object"
+      },
+      "AnalyzeUpToDateResponse": {
+        "description": "200 response when all reviews in scope are already analyzed by LLM.",
+        "properties": {
+          "status": {
+            "const": "up_to_date",
+            "default": "up_to_date",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "AnalyzeUpToDateResponse",
+        "type": "object"
+      },
       "AspectCount": {
         "description": "Aggregated mention count for an extracted review aspect.",
         "properties": {
@@ -1329,6 +1382,11 @@
           "reviews_collected": {
             "default": 0,
             "title": "Reviews Collected",
+            "type": "integer"
+          },
+          "reviews_rating_only": {
+            "default": 0,
+            "title": "Reviews Rating Only",
             "type": "integer"
           },
           "sentiment": {
@@ -3050,6 +3108,70 @@
           }
         },
         "summary": "Get Source Summary",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/sources/{source_id}/analyze": {
+      "post": {
+        "description": "Enqueue standalone LLM sentiment & aspect analysis for an existing source.",
+        "operationId": "analyze_source_reviews_endpoint_api_sources__source_id__analyze_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyzeSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyzeUpToDateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyzeQueuedResponse"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analyze Source Reviews Endpoint",
         "tags": [
           "sources"
         ]

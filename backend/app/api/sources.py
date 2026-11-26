@@ -1,25 +1,38 @@
-"""Source listing and summary endpoints (``GET /api/sources``, ``GET /api/sources/{id}``)."""
+"""Source listing, summary, and standalone LLM analysis endpoints."""
 
 from __future__ import annotations
 
+import math
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_session, get_settings
+from app.api.deps import (
+    get_job_events,
+    get_job_queue,
+    get_secret_box,
+    get_session,
+    get_settings,
+)
 from app.core.config import Settings
-from app.db.models import Chunk, Review, Source
+from app.db.models import Chunk, LLMProfile, Review, Source
 from app.ingest.pipeline import resolve_source_scope
+from app.ingest.sentiment import count_reviews_needing_analysis
+from app.jobs.events import ANALYZE_LOCK_TTL_SECONDS, TERMINAL_JOB_STATUSES, JobEvents
+from app.jobs.queue import JobQueue
 from app.jobs.submit import compile_fresh_cache_sql, compute_refresh_after
+from app.security.secrets import SecretBox
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
 _UUID_RE_SQL = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+_READY_ANALYZE_STATUSES = frozenset({"done", "partial"})
 
 
 def compute_display_name(
@@ -126,6 +139,28 @@ class SourceSummaryResponse(BaseModel):
     ingested_at: datetime | None = None
     last_job_id: str | None = None
     stats: dict[str, Any] = Field(default_factory=dict)
+
+
+class AnalyzeSourceRequest(BaseModel):
+    """Request payload for ``POST /api/sources/{source_id}/analyze``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    llm_profile_id: uuid.UUID
+
+
+class AnalyzeUpToDateResponse(BaseModel):
+    """200 response when all reviews in scope are already analyzed by LLM."""
+
+    status: Literal["up_to_date"] = "up_to_date"
+
+
+class AnalyzeQueuedResponse(BaseModel):
+    """202 response when an async Arq LLM sentiment analysis job has been enqueued."""
+
+    job_id: str
+    reviews_to_analyze: int
+    estimated_llm_requests: int
 
 
 @router.get("", response_model=SourceListResponse)
@@ -468,4 +503,161 @@ async def get_source_summary(
         ingested_at=ingested_at,
         last_job_id=_extract_last_job_id(stats),
         stats=stats,
+    )
+
+
+async def _is_lock_holder_terminal(
+    job_events: JobEvents,
+    holder_job_id: str,
+    settings: Settings,
+) -> bool:
+    """Return True if ``holder_job_id`` has already reached a terminal job state."""
+    check_stale = getattr(job_events, "check_stale", None)
+    if callable(check_stale):
+        status_info = await check_stale(
+            holder_job_id,
+            stale_timeout_seconds=settings.JOB_STALE_TIMEOUT_SECONDS,
+            queued_timeout_seconds=settings.JOB_QUEUED_TIMEOUT_SECONDS,
+        )
+    else:
+        status_info = await job_events.get_status(holder_job_id)
+    return status_info is not None and status_info.get("status") in TERMINAL_JOB_STATUSES
+
+
+def _analysis_running_response(source_id: uuid.UUID, running_job_id: str | None) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={
+            "error": "analysis_running",
+            "job_id": running_job_id,
+            "detail": (
+                f"LLM analysis job {running_job_id} is already running for source {source_id}."
+            ),
+        },
+    )
+
+
+@router.post(
+    "/{source_id}/analyze",
+    responses={
+        200: {"model": AnalyzeUpToDateResponse},
+        202: {"model": AnalyzeQueuedResponse},
+    },
+)
+async def analyze_source_reviews_endpoint(
+    source_id: uuid.UUID,
+    body: AnalyzeSourceRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+    settings: Settings = Depends(get_settings),  # noqa: B008
+    secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
+    job_events: JobEvents = Depends(get_job_events),  # noqa: B008
+    job_queue: JobQueue = Depends(get_job_queue),  # noqa: B008
+) -> JSONResponse:
+    """Enqueue standalone LLM sentiment & aspect analysis for an existing source."""
+    source = await session.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found.")
+
+    if source.status not in _READY_ANALYZE_STATUSES:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "error": "source_not_ready",
+                "detail": (
+                    f"Source {source.id} is not ready for analysis (status='{source.status}')."
+                ),
+            },
+        )
+
+    profile = await session.get(LLMProfile, body.llm_profile_id)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="LLM profile not found.")
+
+    # Decrypt API key up front so SecretBoxError returns 409 secret_key_mismatch JSON.
+    if profile.api_key_enc:
+        secret_box.decrypt(profile.api_key_enc)
+
+    source_id_str = str(source.id)
+
+    # Check if an active analysis job already holds the per-source lock.
+    existing_holder = await job_events.get_source_lock(source_id_str)
+    if existing_holder is not None:
+        if await _is_lock_holder_terminal(job_events, existing_holder, settings):
+            await job_events.release_source_lock(source_id_str, existing_holder)
+        else:
+            return _analysis_running_response(source.id, existing_holder)
+
+    _shop, products = await resolve_source_scope(session, source)
+    product_ids = [p.id for p in products]
+    reviews_to_analyze = await count_reviews_needing_analysis(
+        session,
+        product_ids,
+        llm_available=True,
+    )
+    if reviews_to_analyze == 0:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=AnalyzeUpToDateResponse(status="up_to_date").model_dump(mode="json"),
+        )
+
+    job_id = str(uuid.uuid4())
+    lock_ttl = max(
+        ANALYZE_LOCK_TTL_SECONDS,
+        int(settings.JOB_STALE_TIMEOUT_SECONDS + settings.JOB_QUEUED_TIMEOUT_SECONDS),
+    )
+
+    acquired, holder = await job_events.acquire_source_lock(
+        source_id_str,
+        job_id,
+        ttl_seconds=lock_ttl,
+    )
+    if not acquired:
+        if holder is not None and await _is_lock_holder_terminal(job_events, holder, settings):
+            await job_events.release_source_lock(source_id_str, holder)
+            acquired, holder = await job_events.acquire_source_lock(
+                source_id_str,
+                job_id,
+                ttl_seconds=lock_ttl,
+            )
+        if not acquired:
+            return _analysis_running_response(source.id, holder)
+
+    try:
+        await job_events.create_job(
+            job_id,
+            url=source.url,
+            source_id=source_id_str,
+            job_type="analyze",
+        )
+        await job_events.emit(
+            job_id,
+            stage="queued",
+            done=0,
+            total=reviews_to_analyze,
+            message=f"Queued LLM sentiment analysis for {reviews_to_analyze} review(s)",
+        )
+        merged_stats = dict(source.stats or {})
+        merged_stats["last_analyze_job_id"] = job_id
+        source.stats = merged_stats
+        await session.commit()
+
+        await job_queue.enqueue_analyze(
+            job_id=job_id,
+            source_id=source_id_str,
+            llm_profile_id=str(profile.id),
+        )
+    except Exception:
+        await job_events.release_source_lock(source_id_str, job_id)
+        raise
+
+    batch_size = max(1, int(settings.SENTIMENT_BATCH_SIZE))
+    estimated_llm_requests = math.ceil(reviews_to_analyze / batch_size)
+    queued_payload = AnalyzeQueuedResponse(
+        job_id=job_id,
+        reviews_to_analyze=reviews_to_analyze,
+        estimated_llm_requests=estimated_llm_requests,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content=queued_payload.model_dump(mode="json"),
     )

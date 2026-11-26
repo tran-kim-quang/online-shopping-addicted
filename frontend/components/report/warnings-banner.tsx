@@ -23,11 +23,13 @@ const KNOWN_WARNING_CODES = new Set([
 export interface WarningsBannerProps {
   warnings: ReportWarning[];
   onFilterProducts?: (productIds: string[]) => void;
+  analyzeAction?: React.ReactNode;
 }
 
 export function WarningsBanner({
   warnings,
   onFilterProducts,
+  analyzeAction,
 }: WarningsBannerProps) {
   const tSource = useTranslations("source");
   const tWarnings = useTranslations("warnings");
@@ -82,6 +84,7 @@ export function WarningsBanner({
               <span className="min-w-0 flex-1 leading-snug">
                 {renderMessage(warning)}
               </span>
+              {warning.code === "sentiment_rating_only" && analyzeAction}
               {ids.length > 0 && onFilterProducts && (
                 <Button
                   type="button"
