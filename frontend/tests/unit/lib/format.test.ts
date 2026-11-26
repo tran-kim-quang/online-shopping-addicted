@@ -61,20 +61,33 @@ describe("formatNumber / formatPercent / formatRating", () => {
 });
 
 describe("date and time formatting", () => {
-  it("formats an absolute date-time per locale", () => {
-    const vi = formatDateTime(NOON, "vi");
-    const en = formatDateTime(NOON, "en");
+  // Local-time constructor: the formatter renders in the viewer's timezone, so this pins
+  // the wall clock independently of the machine TZ (UI-SPEC: "28/11/2026 09:59" / "Nov 28, 2026, 9:59 AM").
+  const LOCAL_959 = new Date(2026, 10, 28, 9, 59);
 
-    expect(vi).toContain("2026");
-    expect(vi).toContain("11");
-    expect(en).toContain("Nov");
-    expect(en).toContain("2026");
+  it("formats an absolute date-time per locale", () => {
+    const vi = formatDateTime(LOCAL_959, "vi");
+    const en = formatDateTime(LOCAL_959, "en");
+
+    expect(vi).toBe("28/11/2026 09:59");
+    expect(en).toBe("Nov 28, 2026, 9:59 AM");
     expect(vi).not.toBe(en);
   });
 
+  it("uses the same fixed pattern for noon and midnight (24h clock, zero padding)", () => {
+    expect(formatDateTime(new Date(2026, 10, 28, 0, 5), "vi")).toBe("28/11/2026 00:05");
+    expect(formatDateTime(new Date(2026, 10, 28, 23, 7), "vi")).toBe("28/11/2026 23:07");
+    expect(formatDateTime(new Date(2026, 10, 28, 0, 5), "en")).toBe("Nov 28, 2026, 12:05 AM");
+    expect(formatDateTime(new Date(2026, 10, 28, 13, 7), "en")).toBe("Nov 28, 2026, 1:07 PM");
+    // No Vietnamese CLDR suffixes ("thg 11") and no narrow no-break space before AM/PM.
+    expect(formatDateTime(LOCAL_959, "vi")).not.toMatch(/thg/i);
+    expect(formatDateTime(LOCAL_959, "en")).not.toContain("\u202f");
+  });
+
   it("formats a short date-time without the year", () => {
-    expect(formatShortDateTime(NOON, "en")).not.toContain("2026");
-    expect(formatShortDateTime(NOON, "en")).toMatch(/\d{1,2}:\d{2}/);
+    expect(formatShortDateTime(LOCAL_959, "vi")).toBe("28/11 09:59");
+    expect(formatShortDateTime(LOCAL_959, "en")).toBe("Nov 28, 9:59 AM");
+    expect(formatShortDateTime(LOCAL_959, "en")).not.toContain("2026");
   });
 
   it("accepts Date instances and ISO strings, rejects invalid input", () => {

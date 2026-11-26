@@ -97,7 +97,7 @@ def test_to_utc_normalizes_naive_and_offset_aware_datetimes() -> None:
     assert _to_utc(offset) == datetime(2026, 11, 26, 12, 0, tzinfo=UTC)
 
 
-def test_cache_ttl_uses_settings_when_provided_then_falls_back_to_24h(
+def test_cache_ttl_uses_settings_when_provided_then_falls_back_to_48h(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _Settings:
@@ -109,7 +109,7 @@ def test_cache_ttl_uses_settings_when_provided_then_falls_back_to_24h(
         raise RuntimeError("settings unavailable")
 
     monkeypatch.setattr(sr, "get_settings", _boom)
-    assert _resolve_cache_ttl_hours(None) == 24
+    assert _resolve_cache_ttl_hours(None) == 48
 
 
 # ---------------------------------------------------------------------------
@@ -336,9 +336,23 @@ def test_stale_data_warning_uses_configured_ttl_hours() -> None:
 
     entry = next(w for w in warnings if w.code == "stale_data")
     assert "hơn 24 giờ" in entry.message
+    assert entry.params == {"ttl_hours": 24}
     assert "stale_data" not in _codes(
         _warnings(source=make_source(crawled_at=NOW - timedelta(hours=1)), ttl_hours=24)
     )
+
+
+def test_stale_data_warning_follows_the_48h_cache_window() -> None:
+    just_inside = make_source(crawled_at=NOW - timedelta(hours=47, minutes=59))
+    just_outside = make_source(crawled_at=NOW - timedelta(hours=48, minutes=1))
+
+    assert "stale_data" not in _codes(_warnings(source=just_inside, ttl_hours=48))
+
+    warnings = _warnings(source=just_outside, ttl_hours=48)
+    entry = next(w for w in warnings if w.code == "stale_data")
+    assert entry.params == {"ttl_hours": 48}
+    assert "hơn 48 giờ" in entry.message
+    assert "lần mở tiếp theo sẽ tự thu thập mới" in entry.message
 
 
 def test_missing_price_and_sold_count_warnings_list_offending_products() -> None:

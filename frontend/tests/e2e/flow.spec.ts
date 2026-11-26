@@ -1,5 +1,14 @@
 import { expect, test } from "@playwright/test";
-import { JOB_ID, PROFILE_ID, SOURCE_ID, jobReviewsOnlyBody, sourceSummary } from "./fixtures";
+import {
+  JOB_ID,
+  PROFILE_ID,
+  SOURCE_ID,
+  expiredSourceListItem,
+  jobReviewsOnlyBody,
+  report,
+  sourceListItem,
+  sourceSummary,
+} from "./fixtures";
 import { mockApi } from "./mock-api";
 
 const RUNNING_SOURCE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -35,8 +44,9 @@ test.describe("ingest → source → chat (mocked API)", () => {
     const ingestCall = calls.find((call) => call.path === "/api/ingest");
     expect(ingestCall?.body).toMatchObject({
       url: "https://tiki.vn/cua-hang/nha-sach-fahasa",
-      force: false,
     });
+    // The cache is mandatory: no request may carry a bypass flag any more.
+    expect(ingestCall?.body).not.toHaveProperty("force");
 
     // The ingest job stream is opened for the queued job id.
     await expect
@@ -177,9 +187,16 @@ test.describe("ingest → source → chat (mocked API)", () => {
     await expect(page.locator("#ingest-url-error")).toContainText("Shopee");
   });
 
-  test("opens a cached source directly and offers a recrawl", async ({ page }) => {
+  test("opens a cached source directly with no toast and no refresh affordance", async ({
+    page,
+  }) => {
+    const crawledAt = new Date(Date.now() - 2 * 3_600_000).toISOString();
+    const refreshAfter = new Date(Date.now() + 46 * 3_600_000).toISOString();
     const calls = await mockApi(page, {
-      ingest: { status: 200, body: { source_id: SOURCE_ID, cached: true } },
+      ingest: {
+        status: 200,
+        body: { source_id: SOURCE_ID, cached: true, crawled_at: crawledAt, refresh_after: refreshAfter },
+      },
     });
     await page.goto("/vi");
 
@@ -187,7 +204,68 @@ test.describe("ingest → source → chat (mocked API)", () => {
     await page.getByRole("button", { name: "Phân tích" }).click();
 
     await page.waitForURL(`**/vi/sources/${SOURCE_ID}`);
-    await expect(page.getByRole("button", { name: "Thu thập lại" }).first()).toBeVisible();
-    expect(calls.filter((call) => call.path === "/api/ingest")).toHaveLength(1);
+    await expect(page.getByRole("heading", { name: "Nhà sách Fahasa" })).toBeVisible();
+
+    // Vòng 2: a cache hit is silent — no toast at all, and nothing about refreshing anywhere.
+    await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
+    await expect(page.getByText(/Dùng dữ liệu thu thập lúc/)).toHaveCount(0);
+    await expect(page.getByText(/Tự cập nhật sau/)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Cập nhật dữ liệu" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Thu thập lại" })).toHaveCount(0);
+
+    const ingestCalls = calls.filter((call) => call.path === "/api/ingest");
+    expect(ingestCalls).toHaveLength(1);
+    expect(ingestCalls[0]!.body).not.toHaveProperty("force");
+  });
+
+  test("asks for fresh sources only in the recent list and hides the expired one", async ({
+    page,
+  }) => {
+    const calls = await mockApi(page, {
+      sources: { items: [sourceListItem, expiredSourceListItem], total: 2 },
+      freshSources: { items: [sourceListItem], total: 1 },
+    });
+    await page.goto("/vi");
+
+    await expect(page.getByText("Nhà sách Fahasa").first()).toBeVisible();
+    // The 60h-old source is only present in the unfiltered response: rendering it would
+    // mean the app forgot `fresh=true`.
+    await expect(page.getByText("Nhà sách cũ")).toHaveCount(0);
+
+    const sourceCalls = calls.filter((call) => call.path === "/api/sources");
+    expect(sourceCalls.length).toBeGreaterThan(0);
+    expect(sourceCalls.every((call) => call.query.fresh === "true")).toBe(true);
+    expect(sourceCalls.every((call) => call.query.limit === "30")).toBe(true);
+  });
+
+  test("shows the 48h empty state when nothing is fresh", async ({ page }) => {
+    await mockApi(page, {
+      sources: { items: [expiredSourceListItem], total: 1 },
+      freshSources: { items: [], total: 0 },
+    });
+    await page.goto("/vi");
+
+    await expect(
+      page.getByText("Chưa có phân tích nào trong 48 giờ qua — dán link để bắt đầu")
+    ).toBeVisible();
+    await expect(page.getByText("Nhà sách cũ")).toHaveCount(0);
+  });
+
+  test("keeps an expired source page read-only (CSV download only)", async ({ page }) => {
+    const expiredReport = {
+      ...report,
+      source: { ...report.source, refresh_after: new Date(Date.now() - 3_600_000).toISOString() },
+    };
+    const calls = await mockApi(page, { report: expiredReport });
+    await page.goto(`/vi/sources/${SOURCE_ID}`);
+
+    await expect(page.getByRole("heading", { name: "Nhà sách Fahasa" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Tải CSV" }).first()).toBeVisible();
+
+    // Vòng 2 removed both the auto-refresh line and the "Cập nhật dữ liệu" button.
+    await expect(page.getByText(/Tự cập nhật sau/)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Cập nhật dữ liệu" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Thu thập lại" })).toHaveCount(0);
+    expect(calls.filter((call) => call.path === "/api/ingest")).toHaveLength(0);
   });
 });

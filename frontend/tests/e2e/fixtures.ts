@@ -10,6 +10,18 @@ export const JOB_ID = "job-e2e-1";
 export const CHAT_SESSION_ID = "44444444-4444-4444-8444-444444444444";
 export const CRAWLED_AT = "2026-11-26T02:30:00Z";
 
+/**
+ * Cache-window helpers relative to "now": a fixed ISO string would silently drift out of
+ * the 48h TTL as the clock moves and flip the source header between the two states.
+ */
+export const CACHE_TTL_HOURS = 48;
+const HOUR_MS = 3_600_000;
+
+export function refreshAfterIn(hours: number): string {
+  return new Date(Date.now() + hours * HOUR_MS).toISOString();
+}
+
+
 export const profile = {
   id: PROFILE_ID,
   user_id: "local",
@@ -46,9 +58,25 @@ export const sourceListItem = {
   reviews_collected: 120,
   chat_sessions_count: 1,
   crawled_at: CRAWLED_AT,
+  refresh_after: refreshAfterIn(12),
   ingested: true,
   last_job_id: JOB_ID,
   updated_at: CRAWLED_AT,
+};
+
+/**
+ * Same shape as `sourceListItem` but past the 48h cache window: `GET /api/sources?fresh=true`
+ * must never return it, so the home page can only render it by ignoring `fresh`.
+ */
+export const expiredSourceListItem = {
+  ...sourceListItem,
+  id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  url: "https://tiki.vn/cua-hang/nha-sach-cu",
+  display_name: "Nhà sách cũ",
+  shop_name: "Nhà sách cũ",
+  crawled_at: new Date(Date.now() - 60 * 3_600_000).toISOString(),
+  refresh_after: refreshAfterIn(-12),
+  updated_at: new Date(Date.now() - 60 * 3_600_000).toISOString(),
 };
 
 export const runningSourceListItem = {
@@ -125,6 +153,7 @@ export const report = {
     display_name: "Nhà sách Fahasa",
     crawled_at: CRAWLED_AT,
     ingested_at: CRAWLED_AT,
+    refresh_after: refreshAfterIn(12),
   },
   shop: {
     name: "Nhà sách Fahasa",

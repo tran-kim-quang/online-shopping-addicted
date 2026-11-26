@@ -178,19 +178,54 @@ describe("source endpoints", () => {
 });
 
 describe("submitIngest", () => {
-  it("returns a cached result on HTTP 200", async () => {
-    stubFetch(() => jsonResponse({ source_id: "s1", cached: true }));
+  it("returns a cached result on HTTP 200 with the cache window fields", async () => {
+    stubFetch(() =>
+      jsonResponse({
+        source_id: "s1",
+        cached: true,
+        crawled_at: "2026-11-26T04:30:00Z",
+        refresh_after: "2026-11-28T04:30:00Z",
+      })
+    );
 
-    const result = await submitIngest({ url: "https://tiki.vn/a-p1.html", force: false });
+    const result = await submitIngest({ url: "https://tiki.vn/a-p1.html" });
 
-    expect(result.kind).toBe("cached");
+    expect(result).toEqual({
+      kind: "cached",
+      data: {
+        source_id: "s1",
+        cached: true,
+        crawled_at: "2026-11-26T04:30:00Z",
+        refresh_after: "2026-11-28T04:30:00Z",
+      },
+    });
     expect(calls[0]!.method).toBe("POST");
+  });
+
+  it("never sends a cache-bypass flag in the request body", async () => {
+    stubFetch(() => jsonResponse({ job_id: "job-1", status: "queued" }, 202, "Accepted"));
+
+    await submitIngest({
+      url: "https://tiki.vn/a-p1.html",
+      llm_profile_id: "p1",
+      max_products: 5,
+      max_reviews: 10,
+    });
+
+    const payload = JSON.parse(calls[0]!.body ?? "{}") as Record<string, unknown>;
+    expect(payload).toEqual({
+      url: "https://tiki.vn/a-p1.html",
+      llm_profile_id: "p1",
+      max_products: 5,
+      max_reviews: 10,
+    });
+    expect(payload).not.toHaveProperty("force");
   });
 
   it("returns a queued job on HTTP 202", async () => {
     stubFetch(() => jsonResponse({ job_id: "job-1", status: "queued" }, 202, "Accepted"));
 
-    const result = await submitIngest({ url: "https://tiki.vn/a-p1.html", force: true });
+    const result = await submitIngest({ url: "https://tiki.vn/a-p1.html" });
 
     expect(result).toMatchObject({ kind: "queued", data: { job_id: "job-1" } });
   });
@@ -200,7 +235,7 @@ describe("submitIngest", () => {
       jsonResponse({ error: "unsupported_platform", detail: "Shopee", platform: "shopee" }, 400)
     );
 
-    await expect(submitIngest({ url: "https://shopee.vn/x", force: false })).rejects.toMatchObject({
+    await expect(submitIngest({ url: "https://shopee.vn/x" })).rejects.toMatchObject({
       status: 400,
       code: "unsupported_platform",
       platform: "shopee",
@@ -212,7 +247,7 @@ describe("submitIngest", () => {
       throw new TypeError("Failed to fetch");
     });
 
-    const error = await submitIngest({ url: "https://tiki.vn/a-p1.html", force: false }).catch(
+    const error = await submitIngest({ url: "https://tiki.vn/a-p1.html" }).catch(
       (err) => err
     );
 
@@ -223,7 +258,7 @@ describe("submitIngest", () => {
   it("treats a non-JSON error body as text", async () => {
     stubFetch(() => new Response("upstream down", { status: 502, statusText: "Bad Gateway" }));
 
-    await expect(submitIngest({ url: "https://tiki.vn/a-p1.html", force: false })).rejects.toMatchObject({
+    await expect(submitIngest({ url: "https://tiki.vn/a-p1.html" })).rejects.toMatchObject({
       status: 502,
       detail: "upstream down",
     });
@@ -372,14 +407,14 @@ describe("error paths of every typed wrapper", () => {
     stubFetch(() => new Response("", { status: 500, statusText: "Server Error" }));
 
     await expect(
-      submitIngest({ url: "https://tiki.vn/a-p1.html", force: false })
+      submitIngest({ url: "https://tiki.vn/a-p1.html" })
     ).rejects.toMatchObject({ status: 500, detail: "Server Error" });
   });
 
   it("parses a JSON body that is valid but not an object", async () => {
     stubFetch(() => new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } }));
 
-    await expect(submitIngest({ url: "https://tiki.vn/a-p1.html", force: false })).resolves.toEqual({
+    await expect(submitIngest({ url: "https://tiki.vn/a-p1.html" })).resolves.toEqual({
       kind: "cached",
       data: [],
     });

@@ -600,3 +600,222 @@ async def test_list_surfaces_preserved_last_job_id_after_recrawl(
     item = _by_id(body)[str(source.id)]
     assert item["status"] == "running"
     assert item["last_job_id"] == "job-shop-done"
+
+
+# ---------------------------------------------------------------------------
+# Freshness filter (`fresh=true`) — cache-policy Vòng 2
+#
+# "Gần đây" only lists sources that are still inside the mandatory 48h crawl cache
+# (status done + ingested + crawled_at inside the TTL). The predicate is shared with
+# `app/jobs/submit.py`; the equivalence test at the end of this section pins that.
+# ---------------------------------------------------------------------------
+
+TTL_HOURS = 48
+
+
+def _fresh_source(
+    *,
+    url: str,
+    status: str = "done",
+    crawled_at: datetime | None,
+    stats: dict[str, Any] | None = None,
+    platform: str | None = "tiki",
+    url_type: str | None = "shop",
+    updated_at: datetime | None = None,
+) -> Source:
+    """Source with an explicit ``crawled_at`` so the TTL window can be exercised."""
+    timestamp = updated_at if updated_at is not None else NOW
+    return Source(
+        id=uuid.uuid4(),
+        url=url,
+        url_type=url_type,
+        platform=platform,
+        status=status,
+        stats={} if stats is None else stats,
+        external_ref={},
+        crawled_at=crawled_at,
+        created_at=timestamp - timedelta(days=3),
+        updated_at=timestamp,
+    )
+
+
+async def seed_cache_window_sources(session: AsyncSession) -> dict[str, Any]:
+    """Six sources spanning both sides of the 48h boundary and every non-cacheable state."""
+    now = datetime.now(UTC)
+    ingested = {"ingest": {"chunks": 4}, "last_job_id": "job-cache"}
+    inside = _fresh_source(
+        url="https://tiki.vn/cua-hang/trong-han",
+        crawled_at=now - timedelta(hours=47, minutes=59),
+        stats=ingested,
+    )
+    expired = _fresh_source(
+        url="https://tiki.vn/cua-hang/qua-han",
+        crawled_at=now - timedelta(hours=48, minutes=1),
+        stats=ingested,
+        updated_at=now - timedelta(minutes=4),
+    )
+    failed = _fresh_source(
+        url="https://tiki.vn/cua-hang/loi",
+        status="failed",
+        crawled_at=now - timedelta(hours=1),
+        stats=ingested,
+        updated_at=now - timedelta(minutes=3),
+    )
+    partial = _fresh_source(
+        url="https://tiki.vn/cua-hang/mot-phan",
+        status="partial",
+        crawled_at=now - timedelta(hours=1),
+        stats=ingested,
+        updated_at=now - timedelta(minutes=2),
+    )
+    not_ingested = _fresh_source(
+        url="https://tiki.vn/cua-hang/chua-ingest",
+        crawled_at=now - timedelta(hours=1),
+        stats={"last_job_id": "job-crawl-only"},
+        updated_at=now - timedelta(minutes=1),
+    )
+    never_crawled = _fresh_source(
+        url="https://tiki.vn/cua-hang/chua-crawl-bao-gio",
+        crawled_at=None,
+        stats=ingested,
+        updated_at=now - timedelta(seconds=30),
+    )
+    shopee_inside = _fresh_source(
+        url="https://shopee.vn/shop-trong-han",
+        platform="shopee",
+        crawled_at=now - timedelta(hours=2),
+        stats=ingested,
+        updated_at=now - timedelta(seconds=10),
+    )
+    sources = {
+        "inside": inside,
+        "expired": expired,
+        "failed": failed,
+        "partial": partial,
+        "not_ingested": not_ingested,
+        "never_crawled": never_crawled,
+        "shopee_inside": shopee_inside,
+    }
+    session.add_all(list(sources.values()))
+    await session.commit()
+    return sources
+
+
+async def test_fresh_filter_keeps_only_sources_inside_the_ttl_window(
+    api_client: httpx.AsyncClient, session: AsyncSession
+) -> None:
+    seeded = await seed_cache_window_sources(session)
+
+    response = await api_client.get("/api/sources", params={"fresh": "true"})
+
+    assert response.status_code == 200
+    body = response.json()
+    expected = {str(seeded["inside"].id), str(seeded["shopee_inside"].id)}
+    assert {item["id"] for item in body["items"]} == expected
+    # `total` counts the filtered subset, not the whole table.
+    assert body["total"] == 2
+
+    inside_item = _by_id(body)[str(seeded["inside"].id)]
+    assert inside_item["refresh_after"] is not None
+    assert datetime.fromisoformat(inside_item["refresh_after"]) == (
+        seeded["inside"].crawled_at + timedelta(hours=TTL_HOURS)
+    )
+    assert datetime.fromisoformat(inside_item["crawled_at"]) == seeded["inside"].crawled_at
+
+
+async def test_fresh_filter_excludes_failed_partial_and_crawl_only_sources(
+    api_client: httpx.AsyncClient, session: AsyncSession
+) -> None:
+    await seed_cache_window_sources(session)
+
+    body = (await api_client.get("/api/sources", params={"fresh": "true"})).json()
+    urls = {item["url"] for item in body["items"]}
+
+    # Recent crawl/failure timestamps are irrelevant while status/stats are wrong.
+    assert "https://tiki.vn/cua-hang/loi" not in urls
+    assert "https://tiki.vn/cua-hang/mot-phan" not in urls
+    assert "https://tiki.vn/cua-hang/chua-ingest" not in urls
+    assert "https://tiki.vn/cua-hang/chua-crawl-bao-gio" not in urls
+    # ... and a source past the 48h boundary drops out even though it is done + ingested.
+    assert "https://tiki.vn/cua-hang/qua-han" not in urls
+
+
+async def test_fresh_false_keeps_every_source_and_still_reports_the_window(
+    api_client: httpx.AsyncClient, session: AsyncSession
+) -> None:
+    seeded = await seed_cache_window_sources(session)
+
+    explicit_off = await api_client.get("/api/sources", params={"fresh": "false"})
+    default = await api_client.get("/api/sources")
+
+    assert explicit_off.json()["total"] == default.json()["total"] == 7
+    items = _by_id(default.json())
+    never_crawled = items[str(seeded["never_crawled"].id)]
+    assert never_crawled["crawled_at"] is None
+    assert never_crawled["refresh_after"] is None
+    assert datetime.fromisoformat(items[str(seeded["expired"].id)]["refresh_after"]) == seeded[
+        "expired"
+    ].crawled_at + timedelta(hours=TTL_HOURS)
+
+
+async def test_fresh_filter_combines_with_other_filters_and_pagination(
+    api_client: httpx.AsyncClient, session: AsyncSession
+) -> None:
+    await seed_cache_window_sources(session)
+
+    tiki_page = await api_client.get(
+        "/api/sources", params={"fresh": "true", "platform": "tiki", "limit": 1, "offset": 0}
+    )
+    tiki_second = await api_client.get(
+        "/api/sources", params={"fresh": "true", "platform": "tiki", "limit": 1, "offset": 1}
+    )
+    # A stale status filter simply has no fresh rows to return.
+    failed_only = await api_client.get("/api/sources", params={"fresh": "true", "status": "failed"})
+
+    assert tiki_page.status_code == 200
+    assert tiki_page.json()["total"] == 1
+    assert len(tiki_page.json()["items"]) == 1
+    assert tiki_second.json()["total"] == 1
+    assert tiki_second.json()["items"] == []
+    assert failed_only.json() == {"items": [], "total": 0}
+
+
+async def test_fresh_list_matches_the_ingest_cache_hit_decision(
+    api_client: httpx.AsyncClient, session: AsyncSession
+) -> None:
+    """The list filter and the ingest cache lookup must never disagree."""
+    from app.crawl.types import ParsedURL
+    from app.jobs.submit import submit_parsed_ingest
+    from tests.ingest_fakes import RecordingJobEvents, RecordingJobQueue
+
+    seeded = await seed_cache_window_sources(session)
+    list_body = (await api_client.get("/api/sources", params={"fresh": "true"})).json()
+    listed_ids = {item["id"] for item in list_body["items"]}
+
+    settings = Settings(SECRET_KEY=SECRET)
+    decisions: dict[str, bool] = {}
+    queue = RecordingJobQueue()
+    for key, source in seeded.items():
+        parsed = ParsedURL(platform="tiki", kind="shop", canonical_url=source.url)
+        result = await submit_parsed_ingest(
+            parsed,
+            session=session,
+            settings=settings,
+            job_events=RecordingJobEvents(),
+            job_queue=queue,
+        )
+        decisions[key] = result.cached
+        if result.cached:
+            assert result.source_id == source.id
+            assert result.refresh_after == source.crawled_at + timedelta(hours=TTL_HOURS)
+            assert result.crawled_at == source.crawled_at
+        else:
+            assert result.job_id is not None
+            assert result.source_id is None
+
+    for key, source in seeded.items():
+        assert decisions[key] is (str(source.id) in listed_ids), key
+
+    # Misses enqueue without the retired `force` kwarg; hits enqueue nothing.
+    assert len(queue.calls) == len([cached for cached in decisions.values() if not cached])
+    assert all("force" not in payload for payload in queue.calls)

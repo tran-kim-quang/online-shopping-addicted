@@ -29,18 +29,18 @@ beforeEach(() => {
 function renderPanel(props: Partial<React.ComponentProps<typeof IngestProgressPanel>> = {}) {
   const onComplete = vi.fn();
   const onStopWatching = vi.fn();
-  const onRetryForce = vi.fn();
+  const onRetry = vi.fn();
   const view = renderWithIntl(
     <IngestProgressPanel
       jobId="job-1"
       targetLabel="https://tiki.vn/cua-hang/fahasa"
       onComplete={onComplete}
       onStopWatching={onStopWatching}
-      onRetryForce={onRetryForce}
+      onRetry={onRetry}
       {...props}
     />
   );
-  return { ...view, onComplete, onStopWatching, onRetryForce };
+  return { ...view, onComplete, onStopWatching, onRetry };
 }
 
 function progress(stage: string, done = 0, total: number | null = null, message = "msg") {
@@ -155,9 +155,9 @@ describe("IngestProgressPanel", () => {
     expect(screen.getByText("Thu thập hoàn tất")).toBeInTheDocument();
   });
 
-  it("translates a failed job error and offers a forced retry", async () => {
+  it("translates a failed job error and offers a plain retry (no cache bypass)", async () => {
     const user = userEvent.setup();
-    const { onRetryForce, onStopWatching } = renderPanel();
+    const { onRetry, onStopWatching } = renderPanel();
 
     act(() => {
       handlers.onError({
@@ -173,7 +173,7 @@ describe("IngestProgressPanel", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/captcha|chặn/i);
 
     await user.click(screen.getByRole("button", { name: /Thử lại/ }));
-    expect(onRetryForce).toHaveBeenCalled();
+    expect(onRetry).toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Quay lại" }));
     expect(onStopWatching).toHaveBeenCalled();

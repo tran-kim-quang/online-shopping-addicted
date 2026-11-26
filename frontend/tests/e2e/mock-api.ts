@@ -31,6 +31,11 @@ export interface ApiMockOptions {
   patchProfile?: { status: number; body: unknown };
   /** Override GET /api/sources (recent/history lists). */
   sources?: { items: unknown[]; total: number };
+  /**
+   * Override GET /api/sources?fresh=true (the "Gần đây" list). Defaults to `sources`.
+   * Pass a different list (or an empty one) to emulate the server-side 48h window.
+   */
+  freshSources?: { items: unknown[]; total: number };
   /** Override GET /api/sources/{id}. */
   source?: unknown;
   /** Override GET /api/sources/{id}/report. */
@@ -109,6 +114,11 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}): Promise
       return json(route, 200, { models: ["nvidia/nemotron-3-70b", "openai/gpt-4o-mini"] });
     }
     if (path === "/api/sources" && method === "GET") {
+      // `fresh=true` is answered by its own list so a test can prove the UI only renders
+      // the 48h window (and never falls back to the unfiltered history list).
+      if (query.fresh === "true") {
+        return json(route, 200, options.freshSources ?? sources);
+      }
       return json(route, 200, sources);
     }
     if (/^\/api\/sources\/[^/]+\/report$/.test(path)) {

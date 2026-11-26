@@ -71,7 +71,7 @@ def test_sources_list_contract_exposes_pagination_and_filters() -> None:
     operation = schema["paths"]["/api/sources"]["get"]
     params = {item["name"]: item for item in operation["parameters"]}
 
-    assert set(params) == {"limit", "offset", "status", "url_type", "platform"}
+    assert set(params) == {"limit", "offset", "status", "url_type", "platform", "fresh"}
     limit_schema = params["limit"]["schema"]
     assert (limit_schema["default"], limit_schema["minimum"], limit_schema["maximum"]) == (
         20,
@@ -79,9 +79,23 @@ def test_sources_list_contract_exposes_pagination_and_filters() -> None:
         100,
     )
     assert params["offset"]["schema"]["default"] == 0
+    # Vòng 2 (cache-policy): "Gần đây" asks for the cache-fresh subset only.
+    assert params["fresh"]["schema"]["type"] == "boolean"
+    assert params["fresh"]["schema"]["default"] is False
+    assert params["fresh"]["required"] is False
 
     response_ref = operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
     assert response_ref.endswith("/SourceListResponse")
+
+
+def test_source_list_items_expose_the_cache_window() -> None:
+    """Vòng 2: every list item carries ``refresh_after`` (null when it was never crawled)."""
+    properties = _load(COMMITTED_SCHEMA)["components"]["schemas"]["SourceListItem"]["properties"]
+
+    assert properties["refresh_after"]["anyOf"] == [
+        {"format": "date-time", "type": "string"},
+        {"type": "null"},
+    ]
 
 
 def test_source_payloads_expose_display_name_and_last_job_id() -> None:
