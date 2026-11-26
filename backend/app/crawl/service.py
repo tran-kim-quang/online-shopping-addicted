@@ -166,15 +166,19 @@ async def crawl_url(
     )
 
     if not dry_run and session_factory is not None and source_id is not None:
-        async with session_factory() as session:
-            await update_source(
-                session,
-                source_id,
-                url_type=parsed.kind,
-                platform=parsed.platform,
-                external_ref=parsed.model_dump(exclude_none=True),
-            )
-            await session.commit()
+        try:
+            async with session_factory() as session:
+                await update_source(
+                    session,
+                    source_id,
+                    url_type=parsed.kind,
+                    platform=parsed.platform,
+                    external_ref=parsed.model_dump(exclude_none=True),
+                )
+                await session.commit()
+        except Exception as exc:
+            logger.exception("Failed updating classified source %s: %s", source_id, exc)
+            return await _fail(str(exc), platform=parsed.platform)
 
     try:
         adapter = active_registry.get(parsed.platform)
@@ -186,7 +190,7 @@ async def crawl_url(
         stats.products_total = 1
         try:
             product_data = await adapter.fetch_product(parsed)
-        except (CrawlError, UnsafeURLError) as exc:
+        except Exception as exc:
             stats.products_failed = 1
             return await _fail(str(exc))
 
@@ -221,20 +225,30 @@ async def crawl_url(
             preview_product = product_data
             preview_reviews = reviews_data
         elif session_factory is not None:
-            now = datetime.now(UTC)
-            async with session_factory() as session:
-                if product_data.shop is not None:
-                    shop_row = await upsert_shop(session, product_data.shop, crawled_at=now)
-                    shop_id = shop_row.id
-                prod_row = await upsert_product(
-                    session,
-                    product_data,
-                    shop_id=shop_id,
-                    crawled_at=now,
+            try:
+                now = datetime.now(UTC)
+                async with session_factory() as session:
+                    if product_data.shop is not None:
+                        shop_row = await upsert_shop(session, product_data.shop, crawled_at=now)
+                        shop_id = shop_row.id
+                    prod_row = await upsert_product(
+                        session,
+                        product_data,
+                        shop_id=shop_id,
+                        crawled_at=now,
+                    )
+                    product_ids.append(prod_row.id)
+                    await upsert_reviews(session, prod_row.id, reviews_data, crawled_at=now)
+                    await session.commit()
+            except Exception as exc:
+                logger.exception(
+                    "Failed persisting crawled product %s for source %s: %s",
+                    product_data.external_id,
+                    source_id,
+                    exc,
                 )
-                product_ids.append(prod_row.id)
-                await upsert_reviews(session, prod_row.id, reviews_data, crawled_at=now)
-                await session.commit()
+                stats.products_failed = 1
+                return await _fail(str(exc))
 
         stats.products_succeeded = 1
         stats.reviews_count = len(reviews_data)
@@ -242,15 +256,24 @@ async def crawl_url(
         final_status: Literal["done", "partial"] = "partial" if stats.errors else "done"
 
         if not dry_run and session_factory is not None and source_id is not None:
-            async with session_factory() as session:
-                await update_source(
-                    session,
-                    source_id,
-                    status=final_status,
-                    stats=stats.model_dump(),
-                    crawled_at=datetime.now(UTC),
-                )
-                await session.commit()
+            final_ref = parsed.model_dump(exclude_none=True)
+            final_ref["product_ids"] = [str(pid) for pid in product_ids]
+            if shop_id is not None:
+                final_ref["shop_id"] = str(shop_id)
+            try:
+                async with session_factory() as session:
+                    await update_source(
+                        session,
+                        source_id,
+                        external_ref=final_ref,
+                        status=final_status,
+                        stats=stats.model_dump(),
+                        crawled_at=datetime.now(UTC),
+                    )
+                    await session.commit()
+            except Exception as exc:
+                logger.exception("Failed finalizing product source %s: %s", source_id, exc)
+                return await _fail(str(exc))
 
         await _emit(on_progress, "done", 1, 1, f"Completed with status={final_status}")
         return CrawlResult(
@@ -401,10 +424,15 @@ async def crawl_url(
     shop_status: Literal["done", "partial"] = "partial" if stats.errors else "done"
 
     if session_factory is not None and source_id is not None:
+        final_shop_ref = shop_ref.model_dump(exclude_none=True)
+        final_shop_ref["product_ids"] = [str(pid) for pid in product_ids]
+        if shop_id is not None:
+            final_shop_ref["shop_id"] = str(shop_id)
         async with session_factory() as session:
             await update_source(
                 session,
                 source_id,
+                external_ref=final_shop_ref,
                 status=shop_status,
                 stats=stats.model_dump(),
                 crawled_at=datetime.now(UTC),

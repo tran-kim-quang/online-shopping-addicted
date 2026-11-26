@@ -29,6 +29,15 @@ FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "tiki"
 TIKI_PRODUCT_ID = "277880353"
 TIKI_SPID = "277880354"
 
+# R4 (Phase 3): ``CrawlHttp`` no longer installs a fake resolver for test clients,
+# so every test must inject one explicitly to stay off the real network.
+PUBLIC_TEST_IP = "93.184.216.34"
+
+
+async def public_resolver(_host: str) -> list[str]:
+    """Deterministic resolver returning a public IP without any DNS lookup."""
+    return [PUBLIC_TEST_IP]
+
 
 # ---------------------------------------------------------------------------
 # Fixtures on disk
@@ -64,9 +73,14 @@ def make_crawl_http(
     rate_limiter: Any = None,
     sleeps: list[float] | None = None,
     base_url: str = "https://tiki.vn",
+    resolver: Any = public_resolver,
     **kwargs: Any,
 ) -> tuple[CrawlHttp, list[float]]:
-    """Build a ``CrawlHttp`` bound to a ``MockTransport`` with recorded sleeps."""
+    """Build a ``CrawlHttp`` bound to a ``MockTransport`` with recorded sleeps.
+
+    ``resolver`` defaults to :func:`public_resolver`; production code no longer
+    special-cases ``MockTransport`` (Phase 3 / R4), so it must be passed explicitly.
+    """
     recorded = sleeps if sleeps is not None else []
 
     async def _sleep(seconds: float) -> None:
@@ -79,6 +93,7 @@ def make_crawl_http(
     http = CrawlHttp(
         client=client,
         rate_limiter=rate_limiter if rate_limiter is not None else fast_rate_limiter(),
+        resolver=resolver,
         max_retries=max_retries,
         sleep=_sleep,
         jitter=lambda _cap: 0.0,

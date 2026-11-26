@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.config import get_settings as _get_settings
 from app.db.database import Database
+from app.ingest.embedding import Embedder
+from app.jobs.events import JobEvents
+from app.jobs.queue import JobQueue
 from app.llm.registry import LLMClientRegistry
 from app.security.secrets import SecretBox
 from app.security.url_validator import DNSResolver
@@ -37,4 +40,19 @@ def get_settings() -> Settings:
 
 def get_url_resolver() -> DNSResolver | None:
     """Return an optional DNS resolver override for outbound URL validation."""
+    return None
+
+
+def get_job_events() -> JobEvents:
+    """Return a ``JobEvents`` helper backed by the singleton ``RedisClient``."""
+    return JobEvents()
+
+
+def get_job_queue() -> JobQueue:
+    """Return the singleton ``JobQueue`` for enqueueing Arq tasks."""
+    return JobQueue()
+
+
+def get_embedder_override() -> Embedder | None:
+    """Optional embedder override for ``POST /api/search`` (used in tests)."""
     return None
