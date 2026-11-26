@@ -469,7 +469,9 @@ async def _run_query_products(ctx: AgentContext, args: QueryProductsArgs) -> Too
 
     order_clauses: list[Any] = [primary_order]
     if args.sort_by == "rating_avg":
-        order_clauses.append(Product.rating_count.desc().nullslast())
+        order_clauses.append(
+            func.coalesce(Product.rating_count, Product.review_count).desc().nullslast()
+        )
     order_clauses.append(Product.id.asc())
 
     async with ctx.session_factory() as session:
