@@ -44,3 +44,7 @@ frontend/*.tsbuildinfo
 # Internal planning/spec docs (kept locally, not published; docs/ only ships OVERVIEW.md)
 docs/*
 !docs/OVERVIEW.md
+
+# Test suites are kept locally and never pushed
+backend/tests/
+frontend/tests/
