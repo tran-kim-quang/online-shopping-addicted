@@ -1,8 +1,4 @@
-"""Tiki.vn public web JSON API adapter.
-
-Endpoint details, quirks, and verification notes are documented in
-``docs/research/tiki-api-notes.md``.
-"""
+"""Tiki.vn public web JSON API adapter."""
 
 from __future__ import annotations
 
@@ -396,6 +392,7 @@ class TikiAdapter(PlatformAdapter):
                         author=author,
                         created_at_source=_parse_review_timestamp(item.get("created_at")),
                         helpful_count=_to_int(item.get("thank_count")),
+                        media_count=len(review_images),
                         images=review_images,
                         raw=item,
                     )

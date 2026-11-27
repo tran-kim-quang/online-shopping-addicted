@@ -14,6 +14,7 @@ from app.ingest.embedding import Embedder
 from app.jobs.events import JobEvents
 from app.jobs.queue import JobQueue
 from app.llm.registry import LLMClientRegistry
+from app.providers.apify import ApifyClient
 from app.security.secrets import SecretBox
 from app.security.url_validator import DNSResolver
 
@@ -64,3 +65,11 @@ def get_job_queue() -> JobQueue:
 def get_embedder_override() -> Embedder | None:
     """Optional embedder override for ``POST /api/search`` (used in tests)."""
     return None
+
+
+ApifyClientFactory = Callable[[str], ApifyClient]
+
+
+def get_apify_client_factory() -> ApifyClientFactory:
+    """Return factory creating :class:`ApifyClient` instances for token verification."""
+    return lambda token: ApifyClient(token)

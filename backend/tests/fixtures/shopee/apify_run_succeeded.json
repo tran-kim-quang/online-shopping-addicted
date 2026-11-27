@@ -1,0 +1,65 @@
+{
+ "data": {
+  "id": "DwkNSMtxyC974MS67",
+  "actId": "PZCmzmA2e4RSRopzt",
+  "status": "SUCCEEDED",
+  "startedAt": "2026-11-27T01:53:41.497Z",
+  "finishedAt": "2026-11-27T01:53:50.287Z",
+  "defaultDatasetId": "pVylfWgLrCoJOBKOT",
+  "usageTotalUsd": 0.0379,
+  "pricingInfo": {
+   "pricingModel": "PAY_PER_EVENT",
+   "reasonForChange": "Launch price approved by the owner.",
+   "startedAt": "2026-10-30T18:48:53.000Z",
+   "createdAt": "2026-10-30T18:47:54.356Z",
+   "apifyMarginPercentage": 0.2,
+   "pricingPerEvent": {
+    "actorChargeEvents": {
+     "review": {
+      "eventTitle": "Review",
+      "eventDescription": "Charged per Shopee product review delivered to your dataset.",
+      "isOneTimeEvent": false,
+      "isPrimaryEvent": true,
+      "eventPriceUsd": 0.00359
+     },
+     "run-start": {
+      "eventTitle": "Run start",
+      "eventDescription": "A flat $0.002 once per run, whatever memory you choose.",
+      "isOneTimeEvent": true,
+      "isPrimaryEvent": false,
+      "eventPriceUsd": 0.002
+     }
+    }
+   }
+  },
+  "chargedEventCounts": {
+   "review": 10,
+   "run-start": 1
+  },
+  "options": {
+   "build": "latest",
+   "timeoutSecs": 280,
+   "memoryMbytes": 256,
+   "maxTotalChargeUsd": 0.3
+  },
+  "stats": {
+   "inputBodyLen": 270,
+   "migrationCount": 0,
+   "rebootCount": 0,
+   "restartCount": 0,
+   "durationMillis": 8646,
+   "resurrectCount": 0,
+   "runTimeSecs": 8.646,
+   "metamorph": 0,
+   "computeUnits": 0.0006004166666666666,
+   "memAvgBytes": 44077967,
+   "memMaxBytes": 45371392,
+   "memCurrentBytes": 0,
+   "cpuAvgUsage": 8.587351355941221,
+   "cpuMaxUsage": 63.99758034026465,
+   "cpuCurrentUsage": 0,
+   "netRxBytes": 180032,
+   "netTxBytes": 23111
+  }
+ }
+}

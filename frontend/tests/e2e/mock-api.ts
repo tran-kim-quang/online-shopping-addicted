@@ -1,6 +1,7 @@
 import type { Page, Route } from "@playwright/test";
 import {
   ANALYZE_JOB_ID,
+  SHOPEE_SOURCE_ID,
   CHAT_SESSION_ID,
   JOB_ID,
   PROFILE_ID,
@@ -8,9 +9,14 @@ import {
   chatSessions,
   chatSseBody,
   citations,
+  dataProviderProfile,
   jobSseBody,
+  platforms,
   profile,
   report,
+  shopeeSourceListItem,
+  shopeeSourceSummary,
+  stratifiedReport,
   runningSourceListItem,
   sourceListItem,
   sourceSummary,
@@ -47,6 +53,14 @@ export interface ApiMockOptions {
   profiles?: unknown[];
   /** Override POST /api/sources/{id}/analyze (status + JSON body). */
   analyze?: { status: number; body: unknown };
+  /** GET /api/platforms (defaults to the Phase 6 catalog: Tiki, Shopee, Lazada, Amazon). */
+  platforms?: unknown[];
+  /** GET /api/data-providers/profiles (pass `[]` for "no provider configured"). */
+  dataProviderProfiles?: unknown[];
+  /** Override POST/PATCH /api/data-providers/profiles*. */
+  saveDataProvider?: { status: number; body: unknown };
+  /** Override POST /api/data-providers/profiles/{id}/verify. */
+  verifyDataProvider?: { status: number; body: unknown };
 }
 
 const CORS_HEADERS = {
@@ -76,8 +90,8 @@ function json(route: Route, status: number, body: unknown, extraHeaders: Record<
 export async function mockApi(page: Page, options: ApiMockOptions = {}): Promise<RecordedCall[]> {
   const calls: RecordedCall[] = [];
   const sources = options.sources ?? {
-    items: [sourceListItem, runningSourceListItem],
-    total: 2,
+    items: [sourceListItem, shopeeSourceListItem, runningSourceListItem],
+    total: 3,
   };
 
   await page.route("**/api/**", async (route) => {
@@ -104,6 +118,33 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}): Promise
       return route.fulfill({ status: 204, headers: CORS_HEADERS, body: "" });
     }
 
+    if (path === "/api/platforms" && method === "GET") {
+      return json(route, 200, options.platforms ?? platforms);
+    }
+    if (path === "/api/data-providers/profiles" && method === "GET") {
+      return json(route, 200, options.dataProviderProfiles ?? [dataProviderProfile]);
+    }
+    if (path === "/api/data-providers/profiles" && method === "POST") {
+      const override = options.saveDataProvider ?? {
+        status: 201,
+        body: { ...dataProviderProfile, id: "dddddddd-dddd-4ddd-8ddd-ddddddddddd1" },
+      };
+      return json(route, override.status, override.body);
+    }
+    if (/^\/api\/data-providers\/profiles\/[^/]+\/verify$/.test(path) && method === "POST") {
+      const override = options.verifyDataProvider ?? {
+        status: 200,
+        body: { ok: true, plan: "STARTER", monthly_usage_usd: 1.5, monthly_limit_usd: 49 },
+      };
+      return json(route, override.status, override.body);
+    }
+    if (/^\/api\/data-providers\/profiles\/[^/]+$/.test(path) && method === "PATCH") {
+      const override = options.saveDataProvider ?? { status: 200, body: dataProviderProfile };
+      return json(route, override.status, override.body);
+    }
+    if (/^\/api\/data-providers\/profiles\/[^/]+$/.test(path) && method === "DELETE") {
+      return route.fulfill({ status: 204, headers: CORS_HEADERS, body: "" });
+    }
     if (path === "/api/llm/profiles" && method === "GET") {
       return json(route, 200, options.profiles ?? [profile]);
     }
@@ -138,7 +179,8 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}): Promise
       return json(route, override.status, override.body);
     }
     if (/^\/api\/sources\/[^/]+\/report$/.test(path)) {
-      return json(route, 200, options.report ?? report);
+      const isShopee = path.includes(SHOPEE_SOURCE_ID);
+      return json(route, 200, options.report ?? (isShopee ? stratifiedReport : report));
     }
     if (/^\/api\/sources\/[^/]+\/export\/products\.csv$/.test(path)) {
       return route.fulfill({
@@ -152,7 +194,12 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}): Promise
       });
     }
     if (/^\/api\/sources\/[^/]+$/.test(path) && method === "GET") {
-      return json(route, 200, options.source ?? sourceSummary);
+      if (options.source) return json(route, 200, options.source);
+      return json(
+        route,
+        200,
+        path.includes(SHOPEE_SOURCE_ID) ? shopeeSourceSummary : sourceSummary
+      );
     }
     if (path === "/api/ingest" && method === "POST") {
       const override = options.ingest ?? { status: 202, body: { job_id: JOB_ID, status: "queued" } };

@@ -221,7 +221,18 @@ def chunk_reviews(reviews: Sequence[Review], *, min_chars: int = 10) -> list[Chu
         if len(body) < min_chars:
             continue
 
-        text = f"Đánh giá {review.rating}★: {body}"
+        meta_parts: list[str] = []
+        variant = (getattr(review, "variant", None) or "").strip()
+        if variant:
+            meta_parts.append(f"Phân loại: {variant}")
+        raw_tags = getattr(review, "tags", None)
+        if isinstance(raw_tags, list):
+            clean_tags = [str(t).strip() for t in raw_tags if isinstance(t, str) and t.strip()]
+            if clean_tags:
+                meta_parts.append(f"Tag: {', '.join(clean_tags)}")
+
+        meta_suffix = f" ({'; '.join(meta_parts)})" if meta_parts else ""
+        text = f"Đánh giá {review.rating}★{meta_suffix}: {body}"
         drafts.append(_make_draft("review", review.external_id, text))
     return drafts
 

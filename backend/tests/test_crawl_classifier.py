@@ -207,8 +207,6 @@ async def test_non_short_url_is_classified_without_any_request() -> None:
 @pytest.mark.parametrize(
     ("url", "platform"),
     [
-        ("https://shopee.vn/product/123/456", "shopee"),
-        ("https://shp.ee/abc123", "shopee"),
         ("https://www.lazada.vn/products/x-i123.html", "lazada"),
         ("https://www.amazon.com/dp/B08N5WRWNW", "amazon"),
         ("https://amzn.to/3abc", "amazon"),
@@ -219,13 +217,24 @@ async def test_non_short_url_is_classified_without_any_request() -> None:
     ],
 )
 def test_unsupported_platforms_raise_with_vietnamese_hint(url: str, platform: str) -> None:
+    # Phase 6 moved the messages from classifier.py into app/platforms/known.py and removed
+    # the "see docs/research/..." hint (docs/ now only publishes OVERVIEW.md).
     with pytest.raises(UnsupportedPlatformError) as excinfo:
         classify_url(url)
 
     exc = excinfo.value
     assert exc.platform == platform
     assert "chưa được hỗ trợ" in str(exc)
-    assert "docs/research/hard-ecommerce-sites.md" in str(exc)
+    assert "docs/" not in str(exc)
+
+
+def test_shopee_url_is_supported_after_phase_6() -> None:
+    # Shopee left known-unsupported and became a plugin (requires an Apify data provider).
+    parsed = classify_url("https://shopee.vn/product/1937969974/48571216193")
+
+    assert parsed.platform == "shopee"
+    assert parsed.kind == "product"
+    assert parsed.product_id == "48571216193"
 
 
 # ---------------------------------------------------------------------------

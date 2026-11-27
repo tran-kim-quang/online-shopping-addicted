@@ -18,10 +18,14 @@ import {
 } from "lucide-react";
 import { cn } from "cn";
 import { Link, useRouter, type AppLocale } from "@/i18n/routing";
-import { useActiveProfile } from "@/components/providers";
+import {
+  useActiveDataProvider,
+  useActiveProfile,
+  usePlatforms,
+} from "@/components/providers";
 import { IngestProgressPanel } from "@/components/ingest/ingest-progress-panel";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Collapsible,
@@ -44,6 +48,7 @@ import {
 } from "@/lib/format";
 import { validateEcommerceUrl } from "@/lib/url-validation";
 import {
+  formatPlatformName,
   translateErrorCode,
   translateUnknownError,
 } from "@/lib/error-messages";
@@ -133,9 +138,17 @@ export function HomeClient() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { activeProfileId } = useActiveProfile();
+  const {
+    activeProfile: activeDataProvider,
+    activeProfileId: activeDataProviderId,
+  } = useActiveDataProvider();
+  const platformsQuery = usePlatforms();
 
   const [url, setUrl] = React.useState("");
   const [urlError, setUrlError] = React.useState<string | null>(null);
+  const [missingProvider, setMissingProvider] = React.useState<string | null>(
+    null
+  );
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [maxProducts, setMaxProducts] = React.useState("");
   const [maxReviews, setMaxReviews] = React.useState("");
@@ -151,15 +164,18 @@ export function HomeClient() {
   const startIngest = React.useCallback(
     async (params: {
       targetUrl: string;
+      dataProviderProfileId?: string | null;
       maxProductsVal?: number;
       maxReviewsVal?: number;
     }) => {
       setIsSubmitting(true);
       setUrlError(null);
+      setMissingProvider(null);
       try {
         const res = await submitIngest({
           url: params.targetUrl,
           llm_profile_id: activeProfileId,
+          data_provider_profile_id: params.dataProviderProfileId ?? null,
           max_products: params.maxProductsVal ?? null,
           max_reviews: params.maxReviewsVal ?? null,
         });
@@ -178,6 +194,9 @@ export function HomeClient() {
         void queryClient.invalidateQueries({ queryKey: ["sources"] });
       } catch (err) {
         if (isApiError(err)) {
+          if (err.code === "data_provider_required") {
+            setMissingProvider("apify");
+          }
           setUrlError(
             translateErrorCode(tErrors, err.code, {
               platform: err.platform,
@@ -196,14 +215,39 @@ export function HomeClient() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const validation = validateEcommerceUrl(url);
+    setMissingProvider(null);
+    const platforms = platformsQuery.data ?? [];
+    const validation = validateEcommerceUrl(url, platforms);
     if (!validation.valid) {
-      setUrlError(
-        translateErrorCode(tErrors, validation.code, {
-          platform: validation.platform,
-        })
-      );
+      if (validation.code === "unsupported_platform" && validation.reason) {
+        setUrlError(validation.reason);
+      } else {
+        setUrlError(
+          translateErrorCode(tErrors, validation.code, {
+            platform: validation.platform,
+          })
+        );
+      }
       return;
+    }
+
+    const requiredProvider = validation.platform?.requires_provider ?? null;
+    if (requiredProvider) {
+      const hasMatchingProvider =
+        activeDataProvider &&
+        activeDataProvider.provider === requiredProvider;
+      if (!hasMatchingProvider || !activeDataProviderId) {
+        setMissingProvider(requiredProvider);
+        setUrlError(
+          t("dataProviderRequired", {
+            platform:
+              validation.platform?.display_name ??
+              formatPlatformName(validation.platform?.name),
+            provider: requiredProvider,
+          })
+        );
+        return;
+      }
     }
 
     const parsedMaxProducts = maxProducts.trim()
@@ -215,6 +259,7 @@ export function HomeClient() {
 
     await startIngest({
       targetUrl: validation.normalizedUrl,
+      dataProviderProfileId: requiredProvider ? activeDataProviderId : null,
       maxProductsVal:
         parsedMaxProducts !== undefined && Number.isFinite(parsedMaxProducts)
           ? parsedMaxProducts
@@ -284,6 +329,7 @@ export function HomeClient() {
                       onChange={(e) => {
                         setUrl(e.target.value);
                         if (urlError) setUrlError(null);
+                        if (missingProvider) setMissingProvider(null);
                       }}
                       placeholder={t("urlPlaceholder")}
                       aria-invalid={Boolean(urlError)}
@@ -309,17 +355,30 @@ export function HomeClient() {
                 </div>
 
                 {urlError && (
-                  <p
+                  <div
                     id="ingest-url-error"
                     role="alert"
-                    className="flex items-start gap-1.5 text-sm text-destructive"
+                    className="flex flex-col gap-2 rounded-md border border-destructive/30 bg-card p-3 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <AlertCircle
-                      className="mt-0.5 size-4 shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span>{urlError}</span>
-                  </p>
+                    <div className="flex items-start gap-1.5">
+                      <AlertCircle
+                        className="mt-0.5 size-4 shrink-0"
+                        aria-hidden="true"
+                      />
+                      <span>{urlError}</span>
+                    </div>
+                    {missingProvider && (
+                      <Link
+                        href="/settings/data-sources"
+                        className={cn(
+                          buttonVariants({ variant: "outline", size: "xs" }),
+                          "shrink-0 self-start sm:self-center"
+                        )}
+                      >
+                        {t("goToDataSources")}
+                      </Link>
+                    )}
+                  </div>
                 )}
 
                 <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
@@ -376,22 +435,45 @@ export function HomeClient() {
 
               <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
                 <span>{t("supportedLabel")}</span>
-                <Badge
-                  variant="outline"
-                  className="border-success/30 bg-card text-success"
-                >
-                  <Check className="size-3" aria-hidden="true" />
-                  <span>{tPlatforms("tiki")}</span>
-                </Badge>
-                {(["shopee", "lazada", "amazon"] as const).map((plat) => (
-                  <Badge
-                    key={plat}
-                    variant="outline"
-                    className="border-border bg-muted/60 text-muted-foreground"
-                  >
-                    {tPlatforms(plat)} · {t("comingSoon")}
-                  </Badge>
-                ))}
+                {(platformsQuery.data ?? []).length > 0 ? (
+                  (platformsQuery.data ?? []).map((item) =>
+                    item.supported ? (
+                      <Badge
+                        key={item.name}
+                        variant="outline"
+                        className="border-success/30 bg-card text-success"
+                      >
+                        <Check className="size-3" aria-hidden="true" />
+                        <span>{item.display_name}</span>
+                      </Badge>
+                    ) : (
+                      <Badge
+                        key={item.name}
+                        variant="outline"
+                        className="border-border bg-muted/60 text-muted-foreground"
+                      >
+                        {item.display_name} · {t("comingSoon")}
+                      </Badge>
+                    )
+                  )
+                ) : (
+                  <>
+                    <Badge
+                      variant="outline"
+                      className="border-success/30 bg-card text-success"
+                    >
+                      <Check className="size-3" aria-hidden="true" />
+                      <span>{tPlatforms("tiki")}</span>
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className="border-success/30 bg-card text-success"
+                    >
+                      <Check className="size-3" aria-hidden="true" />
+                      <span>{tPlatforms("shopee")}</span>
+                    </Badge>
+                  </>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -503,7 +585,7 @@ export function HomeClient() {
                             {tType(typeKey)}
                           </Badge>
                           {item.platform && (
-                            <span className="capitalize">{item.platform}</span>
+                            <span>{formatPlatformName(item.platform)}</span>
                           )}
                           <span>·</span>
                           <span

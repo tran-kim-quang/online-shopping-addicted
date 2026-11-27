@@ -12,14 +12,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 export interface AspectsPanelProps {
   aspects: SourceReport["aspects"];
   analyzeAction?: React.ReactNode;
+  platformName?: string | null;
 }
 
-export function AspectsPanel({ aspects, analyzeAction }: AspectsPanelProps) {
+export function AspectsPanel({
+  aspects,
+  analyzeAction,
+  platformName,
+}: AspectsPanelProps) {
   const t = useTranslations("source.aspects");
   const locale = useLocale() as AppLocale;
 
   const positive = aspects.top_positive ?? [];
   const negative = aspects.top_negative ?? [];
+  const platformTags = aspects.platform_tags ?? [];
   const isEmpty = positive.length === 0 && negative.length === 0;
 
   return (
@@ -29,7 +35,7 @@ export function AspectsPanel({ aspects, analyzeAction }: AspectsPanelProps) {
           {t("title")}
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         {isEmpty ? (
           <div className="rounded-md border border-dashed border-border p-5 text-center">
             <p className="text-sm font-medium text-foreground">
@@ -96,6 +102,30 @@ export function AspectsPanel({ aspects, analyzeAction }: AspectsPanelProps) {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {platformTags.length > 0 && (
+          <div className="space-y-2 border-t border-border pt-3">
+            <div className="text-xs font-semibold text-foreground">
+              {t("platformTagsTitle", {
+                platform: platformName || "Marketplace",
+              })}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {platformTags.map((item) => (
+                <Badge
+                  key={item.tag}
+                  variant="outline"
+                  className="h-auto gap-1.5 rounded-[6px] border-border bg-muted/40 px-2 py-1 text-xs text-foreground"
+                >
+                  <span>{item.tag}</span>
+                  <span className="font-mono font-semibold tabular-nums text-muted-foreground">
+                    {formatNumber(item.count, locale)}
+                  </span>
+                </Badge>
+              ))}
             </div>
           </div>
         )}

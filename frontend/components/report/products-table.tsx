@@ -46,6 +46,8 @@ export interface ProductsTableProps {
   filteredProductIds: string[] | null;
   onClearFilter?: () => void;
   highlightedProductId?: string | null;
+  isStratified?: boolean;
+  platform?: string | null;
 }
 
 const PAGE_SIZE = 20;
@@ -55,6 +57,8 @@ export function ProductsTable({
   filteredProductIds,
   onClearFilter,
   highlightedProductId,
+  isStratified = false,
+  platform = null,
 }: ProductsTableProps) {
   const t = useTranslations("source.productsTable");
   const tSource = useTranslations("source");
@@ -232,16 +236,18 @@ export function ProductsTable({
                 <TableHead className="px-2 text-right">
                   {renderSortButton("reviews_collected", t("colReviews"))}
                 </TableHead>
-                <TableHead className="px-2 text-right">
-                  {renderSortButton("positive_pct", t("colPositive"))}
-                </TableHead>
+                {!isStratified && (
+                  <TableHead className="px-2 text-right">
+                    {renderSortButton("positive_pct", t("colPositive"))}
+                  </TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {pageRows.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={isStratified ? 7 : 8}
                     className="py-8 text-center text-sm text-muted-foreground"
                   >
                     {t("emptySearch")}
@@ -331,26 +337,36 @@ export function ProductsTable({
                             />
                             {formatRating(row.rating_avg, locale)}
                           </span>
+                        ) : platform === "shopee" ? (
+                          <span className="font-sans text-[11px] text-muted-foreground">
+                            {tSource("kpi.notPublishedByShopee")}
+                          </span>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
                       <TableCell className="px-2 text-right font-mono text-xs tabular-nums">
                         {formatNumber(row.reviews_collected ?? 0, locale)}
-                        <span className="text-muted-foreground">
-                          /{formatNumber(row.review_count_reported, locale)}
-                        </span>
+                        {!isStratified &&
+                          row.review_count_reported !== null &&
+                          row.review_count_reported !== undefined && (
+                            <span className="text-muted-foreground">
+                              /{formatNumber(row.review_count_reported, locale)}
+                            </span>
+                          )}
                       </TableCell>
-                      <TableCell className="px-2 text-right font-mono text-xs tabular-nums">
-                        {row.positive_pct !== null &&
-                        row.positive_pct !== undefined ? (
-                          <span className="text-success">
-                            {formatPercent(row.positive_pct, locale)}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
+                      {!isStratified && (
+                        <TableCell className="px-2 text-right font-mono text-xs tabular-nums">
+                          {row.positive_pct !== null &&
+                          row.positive_pct !== undefined ? (
+                            <span className="text-success">
+                              {formatPercent(row.positive_pct, locale)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                   );
                 })

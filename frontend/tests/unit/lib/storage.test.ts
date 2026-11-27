@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ACTIVE_PROFILE_STORAGE_KEY, getStoredProfileId, setStoredProfileId } from "@/lib/storage";
+import {
+  ACTIVE_DATA_PROVIDER_STORAGE_KEY,
+  ACTIVE_PROFILE_STORAGE_KEY,
+  getStoredDataProviderId,
+  getStoredProfileId,
+  setStoredDataProviderId,
+  setStoredProfileId,
+} from "@/lib/storage";
 
 /**
  * Deterministic in-memory `Storage`.
@@ -111,5 +118,35 @@ describe("profile id storage", () => {
 
     expect(dump).not.toMatch(/sk-/);
     expect(dump).not.toContain("api_key");
+  });
+});
+
+describe("data provider id storage (Phase 6)", () => {
+  it("stores the provider id under its own key, never the LLM key", () => {
+    setStoredDataProviderId("dp-1");
+
+    expect(storage.getItem(ACTIVE_DATA_PROVIDER_STORAGE_KEY)).toBe("dp-1");
+    expect(storage.getItem(ACTIVE_PROFILE_STORAGE_KEY)).toBeNull();
+    expect(getStoredDataProviderId()).toBe("dp-1");
+  });
+
+  it("trims and clears the provider id", () => {
+    setStoredDataProviderId("  dp-2  ");
+    expect(getStoredDataProviderId()).toBe("dp-2");
+
+    setStoredDataProviderId(null);
+    expect(getStoredDataProviderId()).toBeNull();
+  });
+
+  it("never stores an Apify token", () => {
+    setStoredDataProviderId("dp-1");
+
+    const dump = Array.from({ length: storage.length }, (_, index) => {
+      const key = storage.key(index) ?? "";
+      return `${key}=${storage.getItem(key) ?? ""}`;
+    }).join("&");
+
+    expect(dump).not.toMatch(/apify_api_/);
+    expect(dump).not.toContain("api_token");
   });
 });

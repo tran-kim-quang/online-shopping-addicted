@@ -314,11 +314,11 @@ async def seed_catalog(session: AsyncSession) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def test_migration_head_is_0004(session: AsyncSession) -> None:
+async def test_migration_head_is_0005(session: AsyncSession) -> None:
     revision = (await session.execute(text("SELECT version_num FROM alembic_version"))).scalar()
 
-    # Phase 4 (A1) adds ``0004_chat``; the ingest tables from 0003 are asserted below.
-    assert revision == "0004_chat"
+    # Phase 6 adds ``0005_data_providers``; the ingest tables from 0003 are asserted below.
+    assert revision == "0005_data_providers"
 
 
 async def test_migration_0003_creates_unaccent_and_immutable_wrapper(session: AsyncSession) -> None:

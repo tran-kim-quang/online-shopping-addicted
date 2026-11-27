@@ -12,10 +12,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.chat import router as chat_router
+from app.api.data_providers import router as data_providers_router
 from app.api.health import router as health_router
 from app.api.ingest import router as ingest_router
 from app.api.jobs import router as jobs_router
 from app.api.llm_profiles import router as llm_profiles_router
+from app.api.platforms import router as platforms_router
 from app.api.reports import router as reports_router
 from app.api.search import router as search_router
 from app.api.sources import router as sources_router
@@ -189,6 +191,8 @@ def create_app() -> FastAPI:
         )
 
     application.include_router(health_router)
+    application.include_router(platforms_router)
+    application.include_router(data_providers_router)
     application.include_router(llm_profiles_router)
     application.include_router(ingest_router)
     application.include_router(jobs_router)

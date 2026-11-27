@@ -33,6 +33,8 @@ const profileState = vi.hoisted(() => ({
 
 vi.mock("@/components/providers", () => ({
   useActiveProfile: () => profileState,
+  useActiveDataProvider: () => ({ activeProfile: null, activeProfileId: null }),
+  usePlatforms: () => ({ data: [] }),
 }));
 
 vi.mock("sonner", () => ({ toast: toastSpies }));
@@ -453,4 +455,161 @@ describe("SourcePageClient LLM analysis", () => {
       "Đã phân tích 20 đánh giá (một số lô gặp lỗi LLM, giữ kết quả theo sao)."
     );
   });
+});
+
+describe("SourcePageClient with a stratified Shopee report (A8.5, C2/C3, E2)", () => {
+  function stubStratified(overrides: Record<string, unknown> = {}) {
+    const base = makeReport();
+    const baseProduct = base.products[0]!;
+    const report = makeReport({
+      source: {
+        ...base.source,
+        id: SOURCE_ID,
+        platform: "shopee",
+        url: "https://shopee.vn/shop/1937969974",
+        display_name: "Mavis _ Tech _ Shop",
+        platform_display_name: "Shopee",
+        refresh_after: new Date(Date.now() + 12 * HOUR).toISOString(),
+        sampling: {
+          provider: "apify",
+          strategy: "stratified",
+          window_months: 12,
+          cost_usd: 0.29,
+          groups: [
+            {
+              name: "low",
+              stars: [1, 2, 3],
+              with_media_only: false,
+              max: 150,
+              delivered: 65,
+              coverage: "stopped_at_max",
+            },
+            {
+              name: "high",
+              stars: [4, 5],
+              with_media_only: true,
+              max: 30,
+              delivered: 15,
+              coverage: "budget",
+            },
+            {
+              name: "unknown",
+              stars: [4, 5],
+              with_media_only: true,
+              max: 30,
+              delivered: 3,
+              coverage: "something_new",
+            },
+          ],
+        },
+      },
+      totals: {
+        ...base.totals,
+        sold_total: null,
+        coverage_pct: null,
+        rating_avg_weighted: 4.87,
+        review_count_reported: 0,
+        reviews_collected: 83,
+        sentiment: { positive: 10, neutral: 3, negative: 70, unanalyzed: 0 },
+      },
+      rating_distribution: [],
+      aspects: {
+        ...base.aspects,
+        platform_tags: [
+          { tag: "chất lượng", count: 12 },
+          { tag: "giao hàng", count: 5 },
+        ],
+      },
+      products: [
+        {
+          ...baseProduct,
+          product_id: "11111111-1111-4111-8111-111111111111",
+          coverage_pct: null,
+          positive_pct: null,
+          rating_avg: 4.87,
+          rating_count: 54,
+          sold_count: null,
+        },
+      ],
+      ...overrides,
+    });
+    api.getSource.mockResolvedValue(
+      makeSourceSummary({
+        id: SOURCE_ID,
+        platform: "shopee",
+        url: "https://shopee.vn/shop/1937969974",
+        display_name: "Mavis _ Tech _ Shop",
+      })
+    );
+    api.getSourceReport.mockResolvedValue(report);
+    return report;
+  }
+
+  it("shows the sampling note with cost and per-group coverage", async () => {
+    stubStratified();
+    renderPage();
+
+    // The overview renders twice (desktop grid + mobile tabs): always take the first node.
+    expect(
+      (await screen.findAllByText("Ghi chú mẫu đánh giá & chi phí thu thập")).length
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Chi phí thu thập/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/0,29/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Nhóm 1–3★ (có nội dung)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/65\/150/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/\(đạt giới hạn\)/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/\(chạm trần chi phí\)/).length).toBeGreaterThan(0);
+  });
+
+  it("falls back to 'không rõ' for an unknown coverage value (E2)", async () => {
+    stubStratified();
+    renderPage();
+
+    await screen.findAllByText("Ghi chú mẫu đánh giá & chi phí thu thập");
+    // A raw enum value must never reach the DOM, and next-intl must not throw.
+    expect(screen.getAllByText(/\(không rõ\)/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/something_new/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sampling\.coverage/)).not.toBeInTheDocument();
+  });
+
+  it("hides the star distribution and shows the platform tags instead", async () => {
+    stubStratified();
+    renderPage();
+
+    await screen.findAllByText("Ghi chú mẫu đánh giá & chi phí thu thập");
+    expect(screen.queryByText("Phân bố sao")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Tag từ Shopee").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Tag từ Shopee").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("chất lượng").length).toBeGreaterThan(0);
+  });
+
+  it("keeps the em dash for sold and the published rating", async () => {
+    stubStratified();
+    renderPage();
+
+    await screen.findAllByText("Ghi chú mẫu đánh giá & chi phí thu thập");
+    const soldCard = screen.getAllByText("Đã bán")[0]!.closest("div")?.parentElement;
+    expect(soldCard?.textContent).toContain("—");
+    expect(screen.queryByText("Shopee không công khai")).not.toBeInTheDocument();
+  });
+
+  it("renders the English labels for coverage and cost", async () => {
+    stubStratified();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    renderWithIntl(
+      <QueryClientProvider client={queryClient}>
+        <SourcePageClient sourceId={SOURCE_ID} />
+      </QueryClientProvider>,
+      { locale: "en" }
+    );
+
+    expect(
+      (await screen.findAllByText("Review sampling note & collection cost")).length
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/\(budget cap reached\)/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/\(unknown\)/).length).toBeGreaterThan(0);
+  });
+
 });

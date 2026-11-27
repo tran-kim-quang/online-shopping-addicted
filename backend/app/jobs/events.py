@@ -112,6 +112,19 @@ def _default_timeouts() -> tuple[float, float, float]:
         return 120.0, 600.0, 3600.0
 
 
+def extract_error_code(error: str | None) -> str | None:
+    """Extract stable error code prefix from ``'<code>: <message>'`` when present."""
+    if not error:
+        return None
+    trimmed = error.strip()
+    if ":" not in trimmed:
+        return None
+    prefix = trimmed.split(":", 1)[0].strip().lower()
+    if prefix and prefix.replace("_", "").isalnum():
+        return prefix
+    return None
+
+
 class JobEvents:
     """Publishes and replays job progress events using the ``RedisClient`` singleton.
 
@@ -548,13 +561,17 @@ class JobEvents:
     ) -> tuple[str, dict[str, Any]]:
         job_status = status_info.get("status", "done")
         event_name = "error" if job_status == "failed" else "done"
-        payload = {
+        err = status_info.get("error")
+        payload: dict[str, Any] = {
             "seq": last_seq,
             "job_id": job_id,
             "status": job_status,
             "source_id": status_info.get("source_id"),
-            "error": status_info.get("error"),
+            "error": err,
         }
+        err_code = extract_error_code(err) if job_status == "failed" else None
+        if err_code is not None:
+            payload["error_code"] = err_code
         return event_name, payload
 
     async def stream(

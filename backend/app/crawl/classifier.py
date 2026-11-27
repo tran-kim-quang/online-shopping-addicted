@@ -1,119 +1,27 @@
-"""URL classification for supported and recognized e-commerce platforms."""
+"""Platform-agnostic URL classification for supported and recognized platforms."""
 
 from __future__ import annotations
 
-import re
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 import httpx
 
-from app.crawl.errors import UnsupportedPlatformError, UnsupportedURLError
+from app.crawl.errors import (
+    ShortLinkUnresolvableError,
+    UnsupportedPlatformError,
+    UnsupportedURLError,
+)
 from app.crawl.types import ParsedURL
 from app.net.pinned import make_safe_client
-from app.security.url_validator import DNSResolver, safe_request
+from app.platforms.known import match_known_unsupported
+from app.platforms.registry import PlatformRegistry
+from app.security.url_validator import DNSResolver, UnsafeURLError, safe_request
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
-_TIKI_HOSTS = frozenset({"tiki.vn", "www.tiki.vn", "m.tiki.vn"})
-_TIKI_SHORT_HOSTS = frozenset({"ti.ki", "www.ti.ki"})
 
-_TIKI_PRODUCT_PATH_RE = re.compile(r"^/(?P<slug>[^/]+-p(?P<pid>\d+))\.html/?$", re.IGNORECASE)
-_TIKI_SHOP_PATH_RE = re.compile(r"^/cua-hang/(?P<slug>[A-Za-z0-9._-]+)(?:/.*)?$", re.IGNORECASE)
-
-_UNSUPPORTED_PLATFORMS: tuple[tuple[str, tuple[str, ...], str], ...] = (
-    (
-        "shopee",
-        (
-            "shopee.vn",
-            "shopee.com",
-            "shopee.sg",
-            "shopee.co.th",
-            "shopee.co.id",
-            "shopee.com.my",
-            "shopee.ph",
-            "shp.ee",
-        ),
-        (
-            "Shopee chưa được hỗ trợ: API yêu cầu chữ ký JS obfuscate, phiên đăng nhập và "
-            "chống bot/captcha mạnh. Xem docs/research/hard-ecommerce-sites.md."
-        ),
-    ),
-    (
-        "lazada",
-        (
-            "lazada.vn",
-            "lazada.com",
-            "lazada.sg",
-            "lazada.co.th",
-            "lazada.co.id",
-            "lazada.com.my",
-            "lazada.com.ph",
-        ),
-        (
-            "Lazada chưa được hỗ trợ: dùng hệ chống bot Alibaba (slider captcha) và "
-            "API mtop có token ký. Xem docs/research/hard-ecommerce-sites.md."
-        ),
-    ),
-    (
-        "amazon",
-        (
-            "amazon.com",
-            "amazon.co.uk",
-            "amazon.co.jp",
-            "amazon.de",
-            "amazon.fr",
-            "amazon.ca",
-            "amazon.sg",
-            "amazon.com.au",
-            "amzn.to",
-            "a.co",
-        ),
-        (
-            "Amazon chưa được hỗ trợ: chống bot/captcha 503, review đầy đủ yêu cầu đăng nhập "
-            "và layout không đồng nhất. Xem docs/research/hard-ecommerce-sites.md."
-        ),
-    ),
-    (
-        "ebay",
-        (
-            "ebay.com",
-            "ebay.vn",
-            "ebay.co.uk",
-            "ebay.de",
-            "ebay.fr",
-            "ebay.com.au",
-            "ebay.ca",
-        ),
-        (
-            "eBay chưa được hỗ trợ: cần tích hợp Browse API chính thức (OAuth) hoặc HTML "
-            "adapter riêng. Xem docs/research/hard-ecommerce-sites.md."
-        ),
-    ),
-    (
-        "tiktok_shop",
-        (
-            "tiktok.com",
-            "shop.tiktok.com",
-            "vt.tiktok.com",
-            "vm.tiktok.com",
-        ),
-        (
-            "TikTok Shop chưa được hỗ trợ: request web ký bằng X-Bogus/msToken và ưu tiên app. "
-            "Xem docs/research/hard-ecommerce-sites.md."
-        ),
-    ),
-)
-
-
-def _matches_domain(host: str, domains: tuple[str, ...]) -> bool:
-    for domain in domains:
-        if host == domain or host.endswith(f".{domain}"):
-            return True
-    return False
-
-
-def is_tiki_short_url(url: str) -> bool:
-    """Return True if ``url`` is an HTTP(S) Tiki short link (``ti.ki``)."""
+def is_short_url(url: str) -> bool:
+    """Return True if ``url`` is an HTTP(S) short link belonging to any registered plugin."""
     try:
         parsed = urlsplit(url.strip())
     except ValueError:
@@ -121,17 +29,17 @@ def is_tiki_short_url(url: str) -> bool:
     if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
         return False
     host = (parsed.hostname or "").lower()
-    return host in _TIKI_SHORT_HOSTS
+    if not host:
+        return False
+    return PlatformRegistry().for_short_host(host) is not None
+
+
+# Backwards-compatible alias for callers/tests importing ``is_tiki_short_url``.
+is_tiki_short_url = is_short_url
 
 
 def classify_url(url: str) -> ParsedURL:
-    """Classify an e-commerce URL into a canonical :class:`ParsedURL`.
-
-    Supports Tiki product and shop URLs (``tiki.vn``, ``www.tiki.vn``, ``m.tiki.vn``).
-    Recognizes Shopee, Lazada, Amazon, eBay, and TikTok Shop and raises
-    :class:`UnsupportedPlatformError` with a Vietnamese explanation pointing to
-    ``docs/research/hard-ecommerce-sites.md``.
-    """
+    """Classify an e-commerce URL into a canonical :class:`ParsedURL` via ``PlatformRegistry``."""
     cleaned = url.strip()
     if not cleaned:
         raise UnsupportedURLError("URL không được để trống.")
@@ -151,49 +59,19 @@ def classify_url(url: str) -> ParsedURL:
     if not host:
         raise UnsupportedURLError("URL thiếu tên miền (hostname).")
 
-    if host in _TIKI_HOSTS:
-        path = parsed.path or "/"
-        product_match = _TIKI_PRODUCT_PATH_RE.match(path)
-        if product_match is not None:
-            slug = product_match.group("slug")
-            pid = product_match.group("pid")
-            query = parse_qs(parsed.query)
-            raw_spid = (query.get("spid") or [None])[0]
-            spid = raw_spid if (raw_spid and raw_spid.isdigit()) else None
-            canonical = f"https://tiki.vn/{slug}.html"
-            if spid is not None:
-                canonical = f"{canonical}?spid={spid}"
-            return ParsedURL(
-                platform="tiki",
-                kind="product",
-                product_id=pid,
-                spid=spid,
-                canonical_url=canonical,
-            )
+    registry = PlatformRegistry()
+    plugin = registry.for_host(host)
+    if plugin is not None:
+        return plugin.parse_url(parsed)
 
-        shop_match = _TIKI_SHOP_PATH_RE.match(path)
-        if shop_match is not None:
-            shop_slug = shop_match.group("slug")
-            return ParsedURL(
-                platform="tiki",
-                kind="shop",
-                shop_slug=shop_slug,
-                canonical_url=f"https://tiki.vn/cua-hang/{shop_slug}",
-            )
+    unsupported_variant = registry.unsupported_host_reason(host)
+    if unsupported_variant is not None:
+        _platform_name, reason = unsupported_variant
+        raise UnsupportedURLError(reason)
 
-        raise UnsupportedURLError(
-            f"Đường dẫn Tiki chưa được hỗ trợ: '{path}'. "
-            "Chỉ hỗ trợ link sản phẩm (*-p<id>.html) hoặc link shop (/cua-hang/<slug>)."
-        )
-
-    if host in _TIKI_SHORT_HOSTS:
-        raise UnsupportedURLError(
-            "Link rút gọn ti.ki cần được mở rộng (resolve redirect) trước khi phân loại."
-        )
-
-    for platform, domains, message in _UNSUPPORTED_PLATFORMS:
-        if _matches_domain(host, domains):
-            raise UnsupportedPlatformError(platform=platform, message=message)
+    known = match_known_unsupported(host)
+    if known is not None:
+        raise UnsupportedPlatformError(platform=known.name, message=known.reason_vi)
 
     raise UnsupportedURLError(f"Tên miền '{host}' chưa được hỗ trợ.")
 
@@ -206,8 +84,8 @@ async def resolve_and_classify_url(
     resolver: DNSResolver | None = None,
     timeout: float = 15.0,
 ) -> ParsedURL:
-    """Resolve short links (e.g. ``ti.ki``) safely via :func:`safe_request`, then classify."""
-    if not is_tiki_short_url(url):
+    """Resolve short links from any plugin safely via :func:`safe_request`, then classify."""
+    if not is_short_url(url):
         return classify_url(url)
 
     owns_client = client is None
@@ -217,17 +95,35 @@ async def resolve_and_classify_url(
         else client
     )
     try:
-        response = await safe_request(
-            active_client,
-            "GET",
-            url.strip(),
-            allow_private=allow_private,
-            resolver=resolver,
-        )
+        try:
+            response = await safe_request(
+                active_client,
+                "GET",
+                url.strip(),
+                allow_private=allow_private,
+                resolver=resolver,
+            )
+        except UnsafeURLError:
+            raise
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            raise ShortLinkUnresolvableError(
+                "Không mở rộng được link rút gọn. Hãy mở link trên trình duyệt rồi dán link đầy đủ."
+            ) from exc
+
+        status_code = response.status_code
         final_url = str(response.url)
         await response.aclose()
+        if status_code >= 400:
+            raise ShortLinkUnresolvableError(
+                "Không mở rộng được link rút gọn. Hãy mở link trên trình duyệt rồi dán link đầy đủ."
+            )
     finally:
         if owns_client:
             await active_client.aclose()
+
+    if is_short_url(final_url):
+        raise ShortLinkUnresolvableError(
+            "Không mở rộng được link rút gọn. Hãy mở link trên trình duyệt rồi dán link đầy đủ."
+        )
 
     return classify_url(final_url)

@@ -4,7 +4,7 @@ Hệ thống agentic RAG hỏi đáp về shop/sản phẩm e-commerce: dán lin
 
 LLM do người dùng tự cấu hình: bất kỳ provider nào tương thích OpenAI `/v1` (nhập `base_url` + `api_key`).
 
-Kế hoạch chi tiết: [docs/PLAN.md](docs/PLAN.md)
+Tổng quan dự án: [docs/OVERVIEW.md](docs/OVERVIEW.md)
 
 ## Chạy local
 

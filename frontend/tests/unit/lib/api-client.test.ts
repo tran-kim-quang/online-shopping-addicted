@@ -51,6 +51,12 @@ import {
   updateLlmProfile,
   createLlmProfile,
   analyzeSource,
+  createDataProviderProfile,
+  deleteDataProviderProfile,
+  listDataProviderProfiles,
+  listPlatforms,
+  updateDataProviderProfile,
+  verifyDataProviderProfile,
 } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 
@@ -508,5 +514,134 @@ describe("analyzeSource", () => {
     await analyzeSource("weird/id", "p");
 
     expect(calls[0]!.url).toBe("http://api.test/api/sources/weird%2Fid/analyze");
+  });
+});
+
+describe("platforms & data providers (Phase 6)", () => {
+  const DP_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+  const platformCatalog = [
+    {
+      supported: true,
+      name: "shopee",
+      display_name: "Shopee",
+      hosts: ["shopee.vn"],
+      short_hosts: ["shp.ee"],
+      kinds: ["product", "shop"],
+      currency: "VND",
+      requires_provider: "apify",
+      client_patterns: ["^/product/\\d+/\\d+$"],
+    },
+    {
+      supported: false,
+      name: "lazada",
+      display_name: "Lazada",
+      hosts: ["lazada.vn"],
+      reason: "Lazada chưa được hỗ trợ.",
+    },
+  ];
+
+  const profileBody = {
+    id: DP_ID,
+    user_id: "local",
+    provider: "apify",
+    name: "Apify",
+    api_token_masked: "api…cdef",
+    api_token_status: "set",
+    max_cost_usd_per_link: 0.3,
+    account_info: {},
+    created_at: "2026-11-27T01:00:00Z",
+    updated_at: "2026-11-27T01:00:00Z",
+  };
+
+  it("GETs /api/platforms and returns the typed catalog", async () => {
+    stubFetch(() => jsonResponse(platformCatalog));
+
+    await expect(listPlatforms()).resolves.toEqual(platformCatalog);
+    expect(calls[0]!.method).toBe("GET");
+    expect(calls[0]!.url).toBe("http://api.test/api/platforms");
+  });
+
+  it("throws an ApiError when the catalog request fails", async () => {
+    stubFetch(() =>
+      jsonResponse({ detail: "boom" }, 500, "Internal Server Error")
+    );
+
+    await expect(listPlatforms()).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("lists data provider profiles", async () => {
+    stubFetch(() => jsonResponse([profileBody]));
+
+    await expect(listDataProviderProfiles()).resolves.toEqual([profileBody]);
+    expect(calls[0]!.url).toBe("http://api.test/api/data-providers/profiles");
+  });
+
+  it("creates a profile with the exact payload", async () => {
+    stubFetch(() => jsonResponse(profileBody, 201, "Created"));
+
+    const payload = {
+      name: "Apify",
+      provider: "apify" as const,
+      api_token: "apify_api_TOKEN",
+      max_cost_usd_per_link: 0.3,
+    };
+    await expect(createDataProviderProfile(payload)).resolves.toEqual(profileBody);
+
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toBe("http://api.test/api/data-providers/profiles");
+    expect(JSON.parse(calls[0]!.body ?? "{}")).toEqual(payload);
+  });
+
+  it("patches a profile by id", async () => {
+    stubFetch(() => jsonResponse(profileBody));
+
+    await updateDataProviderProfile(DP_ID, { max_cost_usd_per_link: 0.5 });
+
+    expect(calls[0]!.method).toBe("PATCH");
+    expect(calls[0]!.url).toBe(`http://api.test/api/data-providers/profiles/${DP_ID}`);
+    expect(JSON.parse(calls[0]!.body ?? "{}")).toEqual({ max_cost_usd_per_link: 0.5 });
+  });
+
+  it("deletes a profile and tolerates 204", async () => {
+    stubFetch(() => new Response(null, { status: 204 }));
+
+    await expect(deleteDataProviderProfile(DP_ID)).resolves.toBeUndefined();
+    expect(calls[0]!.method).toBe("DELETE");
+    expect(calls[0]!.url).toBe(`http://api.test/api/data-providers/profiles/${DP_ID}`);
+  });
+
+  it("surfaces a delete failure", async () => {
+    stubFetch(() => jsonResponse({ detail: "nope" }, 404, "Not Found"));
+
+    await expect(deleteDataProviderProfile(DP_ID)).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("verifies a profile and returns the account contract", async () => {
+    stubFetch(() =>
+      jsonResponse({ ok: true, plan: "STARTER", monthly_usage_usd: 1.5, monthly_limit_usd: 49 })
+    );
+
+    await expect(verifyDataProviderProfile(DP_ID)).resolves.toEqual({
+      ok: true,
+      plan: "STARTER",
+      monthly_usage_usd: 1.5,
+      monthly_limit_usd: 49,
+    });
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toBe(
+      `http://api.test/api/data-providers/profiles/${DP_ID}/verify`
+    );
+  });
+
+  it("maps provider_auth_failed to an ApiError with its code", async () => {
+    stubFetch(() =>
+      jsonResponse({ error: "provider_auth_failed", detail: "token sai" }, 422, "Unprocessable")
+    );
+
+    await expect(verifyDataProviderProfile(DP_ID)).rejects.toMatchObject({
+      status: 422,
+      code: "provider_auth_failed",
+    });
   });
 });

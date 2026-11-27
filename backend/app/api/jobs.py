@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from app.api.deps import get_job_events, get_settings
 from app.core.config import Settings
-from app.jobs.events import JobEvents
+from app.jobs.events import JobEvents, extract_error_code
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -26,6 +26,7 @@ class JobStatusResponse(BaseModel):
     status: str
     source_id: str | None = None
     error: str | None = None
+    error_code: str | None = None
     url: str | None = None
     updated_at: str | None = None
     heartbeat_at: str | None = None
@@ -73,7 +74,8 @@ async def get_job_status(
     if status_info is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
     last_ev = await job_events.last_event(job_id)
-    return JobStatusResponse(**status_info, last_event=last_ev)
+    error_code = extract_error_code(status_info.get("error"))
+    return JobStatusResponse(**status_info, error_code=error_code, last_event=last_ev)
 
 
 @router.get("/{job_id}/events")

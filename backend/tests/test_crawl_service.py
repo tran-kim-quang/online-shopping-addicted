@@ -213,17 +213,19 @@ async def test_zero_review_limit_is_passed_through(repository: RepositorySpy) ->
 
 
 async def test_unsupported_platform_url_fails_the_source(repository: RepositorySpy) -> None:
+    # Shopee is a supported plugin now (needs an Apify profile); Lazada is still recognized
+    # and unsupported, so it is the case that must fail before touching the repository.
     result = await crawl_url(
-        "https://shopee.vn/product/1/2",
+        "https://www.lazada.vn/products/x-i123.html",
         session_factory=DummySessionFactory(),
         registry=registry_with(product_adapter()),
     )
 
     assert result.status == "failed"
-    assert "Shopee" in (result.error or "")
+    assert "Lazada" in (result.error or "")
     final_update = repository.source_updates[-1]
     assert final_update["status"] == "failed"
-    assert final_update["platform"] == "shopee"
+    assert final_update["platform"] == "lazada"
     assert repository.products == []
 
 

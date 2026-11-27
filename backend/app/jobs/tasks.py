@@ -266,12 +266,14 @@ async def run_ingest(
     llm_profile_id: str | uuid.UUID | None = None,
     max_products: int | None = None,
     max_reviews: int | None = None,
+    data_provider_profile_id: str | uuid.UUID | None = None,
     **legacy_kwargs: Any,
 ) -> dict[str, Any]:
     """Arq task: crawl ``url`` then run ``ingest_source``, streaming progress via ``JobEvents``.
 
     Dependencies may be injected via ``ctx`` for unit/integration testing:
-    ``session_factory``, ``registry``, ``embedder``, ``llm_client``, ``job_events``, ``settings``.
+    ``session_factory``, ``registry``, ``embedder``, ``llm_client``, ``job_events``, ``settings``,
+    ``secret_box``, ``apify_client``.
 
     ``legacy_kwargs`` keeps jobs enqueued before the cache-bypass removal (they still carry
     ``force=...`` in their serialized Arq payload) from dying with ``TypeError``: unknown
@@ -288,6 +290,8 @@ async def run_ingest(
     registry = ctx.get("registry")
     embedder = ctx.get("embedder")
     llm_client = ctx.get("llm_client")
+    secret_box = ctx.get("secret_box")
+    apify_client = ctx.get("apify_client")
     settings = ctx.get("settings")
 
     async def _on_crawl_progress(ev: ProgressEvent) -> None:
@@ -332,15 +336,29 @@ async def run_ingest(
                 session_factory=session_factory,
             )
 
-        crawl_result = await crawl_url(
-            url,
-            session_factory=session_factory,
-            registry=registry,
-            max_products=max_products,
-            max_reviews=max_reviews,
-            on_progress=_on_crawl_progress,
-            on_source_created=_on_source_created,
-        )
+        async def _crawl_heartbeat() -> None:
+            touch = getattr(events, "touch_heartbeat", None)
+            if callable(touch):
+                await touch(job_id)
+
+        parsed_provider_id = _parse_profile_id(data_provider_profile_id)
+        crawl_kwargs: dict[str, Any] = {
+            "session_factory": session_factory,
+            "registry": registry,
+            "max_products": max_products,
+            "max_reviews": max_reviews,
+            "on_progress": _on_crawl_progress,
+            "on_source_created": _on_source_created,
+        }
+        if parsed_provider_id is not None:
+            crawl_kwargs["data_provider_profile_id"] = parsed_provider_id
+        if secret_box is not None:
+            crawl_kwargs["secret_box"] = secret_box
+        if apify_client is not None:
+            crawl_kwargs["apify_client"] = apify_client
+        crawl_kwargs["heartbeat"] = _crawl_heartbeat
+
+        crawl_result = await crawl_url(url, **crawl_kwargs)
 
         if crawl_result.source_id is not None:
             resolved_source_id = str(crawl_result.source_id)

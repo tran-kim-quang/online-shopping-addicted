@@ -23,9 +23,15 @@ import { Progress } from "@/components/ui/progress";
 
 export interface KpiGridProps {
   totals: SourceReport["totals"];
+  isStratified?: boolean;
+  platform?: string | null;
 }
 
-export function KpiGrid({ totals }: KpiGridProps) {
+export function KpiGrid({
+  totals,
+  isStratified = false,
+  platform = null,
+}: KpiGridProps) {
   const t = useTranslations("source.kpi");
   const locale = useLocale() as AppLocale;
 
@@ -84,8 +90,15 @@ export function KpiGrid({ totals }: KpiGridProps) {
             />
           </div>
           <div className="font-mono text-xl font-bold text-foreground tabular-nums">
-            {formatNumber(totals.sold_total ?? 0, locale)}
+            {totals.sold_total !== null && totals.sold_total !== undefined
+              ? formatNumber(totals.sold_total, locale)
+              : "—"}
           </div>
+          {(totals.sold_total === null || totals.sold_total === undefined) && (
+            <div className="text-xs text-muted-foreground">
+              {t("notPublishedByPlatform")}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -100,13 +113,21 @@ export function KpiGrid({ totals }: KpiGridProps) {
             />
           </div>
           <div className="flex items-baseline gap-1 font-mono text-xl font-bold text-foreground tabular-nums">
-            <span>{formatRating(totals.rating_avg_weighted, locale)}</span>
             {totals.rating_avg_weighted !== null &&
-              totals.rating_avg_weighted !== undefined && (
+            totals.rating_avg_weighted !== undefined ? (
+              <>
+                <span>{formatRating(totals.rating_avg_weighted, locale)}</span>
                 <span className="text-xs font-normal text-muted-foreground">
                   / 5
                 </span>
-              )}
+              </>
+            ) : platform === "shopee" ? (
+              <span className="font-sans text-xs font-medium text-muted-foreground">
+                {t("notPublishedByShopee")}
+              </span>
+            ) : (
+              <span>—</span>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -160,20 +181,34 @@ export function KpiGrid({ totals }: KpiGridProps) {
           </div>
           <div className="flex flex-wrap items-baseline gap-x-1 font-mono text-base font-bold text-foreground tabular-nums">
             <span>{formatNumber(totals.reviews_collected ?? 0, locale)}</span>
-            <span className="text-xs font-normal text-muted-foreground">
-              / {formatNumber(totals.review_count_reported ?? 0, locale)}
-            </span>
+            {!isStratified &&
+              totals.review_count_reported !== null &&
+              totals.review_count_reported !== undefined && (
+                <span className="text-xs font-normal text-muted-foreground">
+                  / {formatNumber(totals.review_count_reported, locale)}
+                </span>
+              )}
           </div>
-          <Progress
-            value={coverageVal}
-            className="h-1.5"
-            aria-label={t("coverage", { pct: formatPercent(totals.coverage_pct, locale) })}
-          />
-          <div className="font-mono text-xs text-muted-foreground tabular-nums">
-            {t("coverage", {
-              pct: formatPercent(totals.coverage_pct, locale),
-            })}
-          </div>
+          {!isStratified ? (
+            <>
+              <Progress
+                value={coverageVal}
+                className="h-1.5"
+                aria-label={t("coverage", {
+                  pct: formatPercent(totals.coverage_pct, locale),
+                })}
+              />
+              <div className="font-mono text-xs text-muted-foreground tabular-nums">
+                {t("coverage", {
+                  pct: formatPercent(totals.coverage_pct, locale),
+                })}
+              </div>
+            </>
+          ) : (
+            <div className="text-xs text-muted-foreground">
+              {t("stratifiedReviewsNote")}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -187,30 +222,32 @@ export function KpiGrid({ totals }: KpiGridProps) {
               aria-hidden="true"
             />
           </div>
-          <div
-            className="flex h-2 w-full overflow-hidden rounded-full bg-muted"
-            role="img"
-            aria-label={`${t("positive")} ${positive}, ${t("neutral")} ${neutral}, ${t("negative")} ${negative}`}
-          >
-            {posPct > 0 && (
-              <div
-                style={{ width: `${posPct}%` }}
-                className="h-full bg-success"
-              />
-            )}
-            {neuPct > 0 && (
-              <div
-                style={{ width: `${neuPct}%` }}
-                className="h-full bg-muted-foreground/50"
-              />
-            )}
-            {negPct > 0 && (
-              <div
-                style={{ width: `${negPct}%` }}
-                className="h-full bg-destructive"
-              />
-            )}
-          </div>
+          {!isStratified && (
+            <div
+              className="flex h-2 w-full overflow-hidden rounded-full bg-muted"
+              role="img"
+              aria-label={`${t("positive")} ${positive}, ${t("neutral")} ${neutral}, ${t("negative")} ${negative}`}
+            >
+              {posPct > 0 && (
+                <div
+                  style={{ width: `${posPct}%` }}
+                  className="h-full bg-success"
+                />
+              )}
+              {neuPct > 0 && (
+                <div
+                  style={{ width: `${neuPct}%` }}
+                  className="h-full bg-muted-foreground/50"
+                />
+              )}
+              {negPct > 0 && (
+                <div
+                  style={{ width: `${negPct}%` }}
+                  className="h-full bg-destructive"
+                />
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-snug">
             <span className="inline-flex items-center gap-1 text-success">
               <span
@@ -249,6 +286,11 @@ export function KpiGrid({ totals }: KpiGridProps) {
               </span>
             </span>
           </div>
+          {isStratified && (
+            <div className="text-xs text-muted-foreground">
+              {t("inSample")}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

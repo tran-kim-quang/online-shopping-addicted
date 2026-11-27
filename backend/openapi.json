@@ -349,6 +349,50 @@
         "title": "ChunkCounts",
         "type": "object"
       },
+      "CreateDataProviderProfileRequest": {
+        "additionalProperties": false,
+        "description": "Payload for ``POST /api/data-providers/profiles``.",
+        "properties": {
+          "api_token": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Api Token",
+            "type": "string"
+          },
+          "max_cost_usd_per_link": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 0.05,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "default": "0.50",
+            "title": "Max Cost Usd Per Link"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "const": "apify",
+            "default": "apify",
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "api_token"
+        ],
+        "title": "CreateDataProviderProfileRequest",
+        "type": "object"
+      },
       "CreateProfileRequest": {
         "description": "Payload for ``POST /api/llm/profiles``.",
         "properties": {
@@ -414,6 +458,79 @@
           "chat_model"
         ],
         "title": "CreateProfileRequest",
+        "type": "object"
+      },
+      "DataProviderProfileResponse": {
+        "description": "Public representation of a ``DataProviderProfile`` (token is always masked).",
+        "properties": {
+          "account_info": {
+            "additionalProperties": true,
+            "title": "Account Info",
+            "type": "object"
+          },
+          "api_token_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Token Masked"
+          },
+          "api_token_status": {
+            "enum": [
+              "set",
+              "undecryptable"
+            ],
+            "title": "Api Token Status",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "max_cost_usd_per_link": {
+            "title": "Max Cost Usd Per Link",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "provider",
+          "name",
+          "api_token_masked",
+          "api_token_status",
+          "max_cost_usd_per_link",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DataProviderProfileResponse",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -520,6 +637,18 @@
         "additionalProperties": false,
         "description": "Request payload for ``POST /api/ingest``.",
         "properties": {
+          "data_provider_profile_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Provider Profile Id"
+          },
           "llm_profile_id": {
             "anyOf": [
               {
@@ -584,6 +713,17 @@
               }
             ],
             "title": "Error"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
           },
           "heartbeat_at": {
             "anyOf": [
@@ -697,6 +837,25 @@
           "models"
         ],
         "title": "ListModelsResponse",
+        "type": "object"
+      },
+      "PlatformTagCount": {
+        "description": "Aggregated mention count for a marketplace-provided review tag.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "count"
+        ],
+        "title": "PlatformTagCount",
         "type": "object"
       },
       "ProductReportRow": {
@@ -1084,6 +1243,13 @@
       "ReportAspects": {
         "description": "Top positive and negative aspects extracted from reviews.",
         "properties": {
+          "platform_tags": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformTagCount"
+            },
+            "title": "Platform Tags",
+            "type": "array"
+          },
           "top_negative": {
             "items": {
               "$ref": "#/components/schemas/AspectCount"
@@ -1263,6 +1429,17 @@
             ],
             "title": "Platform"
           },
+          "platform_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform Display Name"
+          },
           "refresh_after": {
             "anyOf": [
               {
@@ -1274,6 +1451,18 @@
               }
             ],
             "title": "Refresh After"
+          },
+          "sampling": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sampling"
           },
           "status": {
             "title": "Status",
@@ -1396,9 +1585,15 @@
             "$ref": "#/components/schemas/SentimentSourceCounts"
           },
           "sold_total": {
-            "default": 0,
-            "title": "Sold Total",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sold Total"
           }
         },
         "title": "ReportTotals",
@@ -2182,6 +2377,171 @@
         "title": "SourceSummaryResponse",
         "type": "object"
       },
+      "SupportedPlatformInfo": {
+        "description": "Metadata and JS-compatible URL patterns for a supported platform plugin.",
+        "properties": {
+          "client_patterns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Client Patterns",
+            "type": "array"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "hosts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Hosts",
+            "type": "array"
+          },
+          "kinds": {
+            "items": {
+              "enum": [
+                "product",
+                "shop"
+              ],
+              "type": "string"
+            },
+            "title": "Kinds",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "requires_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requires Provider"
+          },
+          "short_hosts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Short Hosts",
+            "type": "array"
+          },
+          "supported": {
+            "const": true,
+            "default": true,
+            "title": "Supported",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "display_name",
+          "hosts",
+          "short_hosts",
+          "kinds",
+          "currency",
+          "client_patterns"
+        ],
+        "title": "SupportedPlatformInfo",
+        "type": "object"
+      },
+      "UnsupportedPlatformInfo": {
+        "description": "Metadata and explanation for a recognized but unsupported platform.",
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "hosts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Hosts",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "supported": {
+            "const": false,
+            "default": false,
+            "title": "Supported",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "display_name",
+          "hosts",
+          "reason"
+        ],
+        "title": "UnsupportedPlatformInfo",
+        "type": "object"
+      },
+      "UpdateDataProviderProfileRequest": {
+        "additionalProperties": false,
+        "description": "Payload for ``PATCH /api/data-providers/profiles/{profile_id}``.",
+        "properties": {
+          "api_token": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Token"
+          },
+          "max_cost_usd_per_link": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 0.05,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cost Usd Per Link"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "UpdateDataProviderProfileRequest",
+        "type": "object"
+      },
       "UpdateProfileRequest": {
         "description": "Payload for ``PATCH /api/llm/profiles/{profile_id}``.",
         "properties": {
@@ -2309,6 +2669,53 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VerifyDataProviderResponse": {
+        "description": "Response for ``POST /api/data-providers/profiles/{profile_id}/verify``.",
+        "properties": {
+          "monthly_limit_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Limit Usd"
+          },
+          "monthly_usage_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Usage Usd"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "VerifyDataProviderResponse",
         "type": "object"
       }
     }
@@ -2490,6 +2897,201 @@
         "summary": "Get Chat Session",
         "tags": [
           "chat"
+        ]
+      }
+    },
+    "/api/data-providers/profiles": {
+      "get": {
+        "description": "List saved data provider profiles with masked API tokens.",
+        "operationId": "list_data_provider_profiles_api_data_providers_profiles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DataProviderProfileResponse"
+                  },
+                  "title": "Response List Data Provider Profiles Api Data Providers Profiles Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Data Provider Profiles",
+        "tags": [
+          "data-providers"
+        ]
+      },
+      "post": {
+        "description": "Encrypt token and create a new data provider profile.",
+        "operationId": "create_data_provider_profile_api_data_providers_profiles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDataProviderProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataProviderProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Data Provider Profile",
+        "tags": [
+          "data-providers"
+        ]
+      }
+    },
+    "/api/data-providers/profiles/{profile_id}": {
+      "delete": {
+        "description": "Delete a data provider profile.",
+        "operationId": "delete_data_provider_profile_api_data_providers_profiles__profile_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Data Provider Profile",
+        "tags": [
+          "data-providers"
+        ]
+      },
+      "patch": {
+        "description": "Update profile name, token, or per-link cost ceiling.",
+        "operationId": "update_data_provider_profile_api_data_providers_profiles__profile_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDataProviderProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataProviderProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Data Provider Profile",
+        "tags": [
+          "data-providers"
+        ]
+      }
+    },
+    "/api/data-providers/profiles/{profile_id}/verify": {
+      "post": {
+        "description": "Verify the saved provider token against Apify and persist ``account_info``.",
+        "operationId": "verify_data_provider_profile_api_data_providers_profiles__profile_id__verify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyDataProviderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Stored token cannot be decrypted with current SECRET_KEY."
+          },
+          "422": {
+            "description": "Provider authentication failed."
+          }
+        },
+        "summary": "Verify Data Provider Profile",
+        "tags": [
+          "data-providers"
         ]
       }
     },
@@ -2909,6 +3511,39 @@
         "summary": "Test Profile",
         "tags": [
           "llm"
+        ]
+      }
+    },
+    "/api/platforms": {
+      "get": {
+        "description": "Return all supported platform plugins followed by recognized unsupported platforms.",
+        "operationId": "list_platforms_api_platforms_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/SupportedPlatformInfo"
+                      },
+                      {
+                        "$ref": "#/components/schemas/UnsupportedPlatformInfo"
+                      }
+                    ]
+                  },
+                  "title": "Response List Platforms Api Platforms Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Platforms",
+        "tags": [
+          "platforms"
         ]
       }
     },

@@ -20,6 +20,7 @@ from app.crawl.types import ProgressEvent
 from app.db.models import LLMProfile, Product, Review, ReviewSummary, Shop, Source
 from app.ingest.chunking import build_product_chunks, sync_product_chunks
 from app.ingest.embedding import Embedder, NullEmbedder, get_embedder
+from app.ingest.quality import score_review_object
 from app.ingest.sentiment import analyze_product_reviews, count_reviews_needing_analysis
 from app.llm.client import LLMClient
 from app.llm.registry import LLMClientRegistry
@@ -331,6 +332,8 @@ async def ingest_source(
                     .order_by(Review.created_at_source.desc().nullslast(), Review.id.asc())
                 )
                 reviews = list(rev_res.scalars().all())
+                for rev in reviews:
+                    rev.quality_score = score_review_object(rev)
                 drafts = build_product_chunks(
                     product,
                     reviews,

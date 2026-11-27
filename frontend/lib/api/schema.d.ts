@@ -68,6 +68,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/data-providers/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Data Provider Profiles
+         * @description List saved data provider profiles with masked API tokens.
+         */
+        get: operations["list_data_provider_profiles_api_data_providers_profiles_get"];
+        put?: never;
+        /**
+         * Create Data Provider Profile
+         * @description Encrypt token and create a new data provider profile.
+         */
+        post: operations["create_data_provider_profile_api_data_providers_profiles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/data-providers/profiles/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Data Provider Profile
+         * @description Delete a data provider profile.
+         */
+        delete: operations["delete_data_provider_profile_api_data_providers_profiles__profile_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Data Provider Profile
+         * @description Update profile name, token, or per-link cost ceiling.
+         */
+        patch: operations["update_data_provider_profile_api_data_providers_profiles__profile_id__patch"];
+        trace?: never;
+    };
+    "/api/data-providers/profiles/{profile_id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify Data Provider Profile
+         * @description Verify the saved provider token against Apify and persist ``account_info``.
+         */
+        post: operations["verify_data_provider_profile_api_data_providers_profiles__profile_id__verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ingest": {
         parameters: {
             query?: never;
@@ -214,6 +282,26 @@ export interface paths {
          * @description Re-probe an existing LLM profile and persist updated capabilities.
          */
         post: operations["test_profile_api_llm_profiles__profile_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platforms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Platforms
+         * @description Return all supported platform plugins followed by recognized unsupported platforms.
+         */
+        get: operations["list_platforms_api_platforms_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -564,6 +652,27 @@ export interface components {
             total: number;
         };
         /**
+         * CreateDataProviderProfileRequest
+         * @description Payload for ``POST /api/data-providers/profiles``.
+         */
+        CreateDataProviderProfileRequest: {
+            /** Api Token */
+            api_token: string;
+            /**
+             * Max Cost Usd Per Link
+             * @default 0.50
+             */
+            max_cost_usd_per_link: number | string;
+            /** Name */
+            name: string;
+            /**
+             * Provider
+             * @default apify
+             * @constant
+             */
+            provider: "apify";
+        };
+        /**
          * CreateProfileRequest
          * @description Payload for ``POST /api/llm/profiles``.
          */
@@ -585,6 +694,46 @@ export interface components {
             name: string;
             /** Small Model */
             small_model?: string | null;
+        };
+        /**
+         * DataProviderProfileResponse
+         * @description Public representation of a ``DataProviderProfile`` (token is always masked).
+         */
+        DataProviderProfileResponse: {
+            /** Account Info */
+            account_info?: {
+                [key: string]: unknown;
+            };
+            /** Api Token Masked */
+            api_token_masked: string | null;
+            /**
+             * Api Token Status
+             * @enum {string}
+             */
+            api_token_status: "set" | "undecryptable";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Max Cost Usd Per Link */
+            max_cost_usd_per_link: number;
+            /** Name */
+            name: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** User Id */
+            user_id: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -649,6 +798,8 @@ export interface components {
          * @description Request payload for ``POST /api/ingest``.
          */
         IngestRequest: {
+            /** Data Provider Profile Id */
+            data_provider_profile_id?: string | null;
             /** Llm Profile Id */
             llm_profile_id?: string | null;
             /** Max Products */
@@ -665,6 +816,8 @@ export interface components {
         JobStatusResponse: {
             /** Error */
             error?: string | null;
+            /** Error Code */
+            error_code?: string | null;
             /** Heartbeat At */
             heartbeat_at?: string | null;
             /** Job Id */
@@ -699,6 +852,16 @@ export interface components {
         ListModelsResponse: {
             /** Models */
             models: string[];
+        };
+        /**
+         * PlatformTagCount
+         * @description Aggregated mention count for a marketplace-provided review tag.
+         */
+        PlatformTagCount: {
+            /** Count */
+            count: number;
+            /** Tag */
+            tag: string;
         };
         /**
          * ProductReportRow
@@ -848,6 +1011,8 @@ export interface components {
          * @description Top positive and negative aspects extracted from reviews.
          */
         ReportAspects: {
+            /** Platform Tags */
+            platform_tags?: components["schemas"]["PlatformTagCount"][];
             /** Top Negative */
             top_negative?: components["schemas"]["AspectCount"][];
             /** Top Positive */
@@ -910,8 +1075,14 @@ export interface components {
             ingested_at?: string | null;
             /** Platform */
             platform?: string | null;
+            /** Platform Display Name */
+            platform_display_name?: string | null;
             /** Refresh After */
             refresh_after?: string | null;
+            /** Sampling */
+            sampling?: {
+                [key: string]: unknown;
+            } | null;
             /** Status */
             status: string;
             /** Url */
@@ -962,11 +1133,8 @@ export interface components {
             reviews_rating_only: number;
             sentiment?: components["schemas"]["SentimentCounts"];
             sentiment_source?: components["schemas"]["SentimentSourceCounts"];
-            /**
-             * Sold Total
-             * @default 0
-             */
-            sold_total: number;
+            /** Sold Total */
+            sold_total?: number | null;
         };
         /**
          * ReportWarning
@@ -1299,6 +1467,66 @@ export interface components {
             url_type?: string | null;
         };
         /**
+         * SupportedPlatformInfo
+         * @description Metadata and JS-compatible URL patterns for a supported platform plugin.
+         */
+        SupportedPlatformInfo: {
+            /** Client Patterns */
+            client_patterns: string[];
+            /** Currency */
+            currency: string;
+            /** Display Name */
+            display_name: string;
+            /** Hosts */
+            hosts: string[];
+            /** Kinds */
+            kinds: ("product" | "shop")[];
+            /** Name */
+            name: string;
+            /** Requires Provider */
+            requires_provider?: string | null;
+            /** Short Hosts */
+            short_hosts: string[];
+            /**
+             * Supported
+             * @default true
+             * @constant
+             */
+            supported: true;
+        };
+        /**
+         * UnsupportedPlatformInfo
+         * @description Metadata and explanation for a recognized but unsupported platform.
+         */
+        UnsupportedPlatformInfo: {
+            /** Display Name */
+            display_name: string;
+            /** Hosts */
+            hosts: string[];
+            /** Name */
+            name: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Supported
+             * @default false
+             * @constant
+             */
+            supported: false;
+        };
+        /**
+         * UpdateDataProviderProfileRequest
+         * @description Payload for ``PATCH /api/data-providers/profiles/{profile_id}``.
+         */
+        UpdateDataProviderProfileRequest: {
+            /** Api Token */
+            api_token?: string | null;
+            /** Max Cost Usd Per Link */
+            max_cost_usd_per_link?: number | string | null;
+            /** Name */
+            name?: string | null;
+        };
+        /**
          * UpdateProfileRequest
          * @description Payload for ``PATCH /api/llm/profiles/{profile_id}``.
          */
@@ -1330,6 +1558,20 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * VerifyDataProviderResponse
+         * @description Response for ``POST /api/data-providers/profiles/{profile_id}/verify``.
+         */
+        VerifyDataProviderResponse: {
+            /** Monthly Limit Usd */
+            monthly_limit_usd?: number | null;
+            /** Monthly Usage Usd */
+            monthly_usage_usd?: number | null;
+            /** Ok */
+            ok: boolean;
+            /** Plan */
+            plan?: string | null;
         };
     };
     responses: never;
@@ -1461,6 +1703,159 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    list_data_provider_profiles_api_data_providers_profiles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataProviderProfileResponse"][];
+                };
+            };
+        };
+    };
+    create_data_provider_profile_api_data_providers_profiles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDataProviderProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataProviderProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_data_provider_profile_api_data_providers_profiles__profile_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_data_provider_profile_api_data_providers_profiles__profile_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDataProviderProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataProviderProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_data_provider_profile_api_data_providers_profiles__profile_id__verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerifyDataProviderResponse"];
+                };
+            };
+            /** @description Stored token cannot be decrypted with current SECRET_KEY. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Provider authentication failed. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -1776,6 +2171,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_platforms_api_platforms_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": (components["schemas"]["SupportedPlatformInfo"] | components["schemas"]["UnsupportedPlatformInfo"])[];
                 };
             };
         };

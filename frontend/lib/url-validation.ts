@@ -1,70 +1,7 @@
-const TIKI_HOSTS = new Set(["tiki.vn", "www.tiki.vn", "m.tiki.vn"]);
-const TIKI_SHORT_HOSTS = new Set(["ti.ki", "www.ti.ki"]);
-
-const TIKI_PRODUCT_PATH_RE = /^\/[^/]+-p\d+\.html\/?$/i;
-const TIKI_SHOP_PATH_RE = /^\/cua-hang\/[A-Za-z0-9._-]+(?:\/.*)?$/i;
-
-const UNSUPPORTED_PLATFORMS: ReadonlyArray<{
-  platform: string;
-  domains: readonly string[];
-}> = [
-  {
-    platform: "shopee",
-    domains: [
-      "shopee.vn",
-      "shopee.com",
-      "shopee.sg",
-      "shopee.co.th",
-      "shopee.co.id",
-      "shopee.com.my",
-      "shopee.ph",
-      "shp.ee",
-    ],
-  },
-  {
-    platform: "lazada",
-    domains: [
-      "lazada.vn",
-      "lazada.com",
-      "lazada.sg",
-      "lazada.co.th",
-      "lazada.co.id",
-      "lazada.com.my",
-      "lazada.com.ph",
-    ],
-  },
-  {
-    platform: "amazon",
-    domains: [
-      "amazon.com",
-      "amazon.co.uk",
-      "amazon.co.jp",
-      "amazon.de",
-      "amazon.fr",
-      "amazon.ca",
-      "amazon.sg",
-      "amazon.com.au",
-      "amzn.to",
-      "a.co",
-    ],
-  },
-  {
-    platform: "ebay",
-    domains: [
-      "ebay.com",
-      "ebay.vn",
-      "ebay.co.uk",
-      "ebay.de",
-      "ebay.fr",
-      "ebay.com.au",
-      "ebay.ca",
-    ],
-  },
-  {
-    platform: "tiktok_shop",
-    domains: ["tiktok.com", "shop.tiktok.com", "vt.tiktok.com", "vm.tiktok.com"],
-  },
-];
+import type {
+  PlatformCatalogItem,
+  SupportedPlatformInfo,
+} from "@/lib/api/client";
 
 function matchesDomain(host: string, domains: readonly string[]): boolean {
   return domains.some(
@@ -73,7 +10,11 @@ function matchesDomain(host: string, domains: readonly string[]): boolean {
 }
 
 export type UrlValidationResult =
-  | { valid: true; normalizedUrl: string }
+  | {
+      valid: true;
+      normalizedUrl: string;
+      platform?: SupportedPlatformInfo;
+    }
   | {
       valid: false;
       code:
@@ -82,9 +23,14 @@ export type UrlValidationResult =
         | "unsupported_platform"
         | "unsupported_url";
       platform?: string;
+      platformDisplayName?: string;
+      reason?: string;
     };
 
-export function validateEcommerceUrl(raw: string): UrlValidationResult {
+export function validateEcommerceUrl(
+  raw: string,
+  platforms: readonly PlatformCatalogItem[] = []
+): UrlValidationResult {
   const cleaned = raw.trim();
   if (!cleaned) {
     return { valid: false, code: "empty_url" };
@@ -102,24 +48,49 @@ export function validateEcommerceUrl(raw: string): UrlValidationResult {
   }
 
   const host = parsed.hostname.toLowerCase();
-  if (TIKI_SHORT_HOSTS.has(host)) {
+  if (!host) {
+    return { valid: false, code: "invalid_url" };
+  }
+
+  if (platforms.length === 0) {
     return { valid: true, normalizedUrl: cleaned };
   }
 
-  if (TIKI_HOSTS.has(host)) {
-    const path = parsed.pathname || "/";
-    if (TIKI_PRODUCT_PATH_RE.test(path) || TIKI_SHOP_PATH_RE.test(path)) {
-      return { valid: true, normalizedUrl: cleaned };
+  for (const item of platforms) {
+    if (!item.supported) continue;
+    if (item.short_hosts.some((h) => h.toLowerCase() === host)) {
+      return { valid: true, normalizedUrl: cleaned, platform: item };
     }
-    return { valid: false, code: "unsupported_url" };
+    if (item.hosts.some((h) => h.toLowerCase() === host)) {
+      const path = parsed.pathname || "/";
+      const matched = item.client_patterns.some((pattern) => {
+        try {
+          return new RegExp(pattern, "i").test(path);
+        } catch {
+          return false;
+        }
+      });
+      if (matched) {
+        return { valid: true, normalizedUrl: cleaned, platform: item };
+      }
+      return {
+        valid: false,
+        code: "unsupported_url",
+        platform: item.name,
+        platformDisplayName: item.display_name,
+      };
+    }
   }
 
-  for (const item of UNSUPPORTED_PLATFORMS) {
-    if (matchesDomain(host, item.domains)) {
+  for (const item of platforms) {
+    if (item.supported) continue;
+    if (matchesDomain(host, item.hosts.map((h) => h.toLowerCase()))) {
       return {
         valid: false,
         code: "unsupported_platform",
-        platform: item.platform,
+        platform: item.name,
+        platformDisplayName: item.display_name,
+        reason: item.reason,
       };
     }
   }

@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
+  Database,
   History,
   Laptop,
   Menu,
@@ -94,6 +95,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         label: t("llmSettings"),
         icon: SlidersHorizontal,
         active: pathname.startsWith("/settings/llm"),
+      },
+      {
+        href: "/settings/data-sources",
+        label: t("dataSourcesSettings"),
+        icon: Database,
+        active: pathname.startsWith("/settings/data-sources"),
       },
     ],
     [pathname, t]

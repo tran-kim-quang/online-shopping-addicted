@@ -65,11 +65,14 @@ def test_registry_lookup_is_case_and_space_insensitive(name: str) -> None:
 
 
 def test_registry_unknown_platform_raises_with_hint() -> None:
+    # Phase 6: AdapterRegistry is the legacy Tiki-only compatibility layer; new platforms
+    # (Shopee) live in PlatformRegistry and are not adapters. The hint no longer points at
+    # docs/research (docs/ only publishes OVERVIEW.md).
     with pytest.raises(UnsupportedPlatformError) as excinfo:
         AdapterRegistry().get("shopee")
 
     assert excinfo.value.platform == "shopee"
-    assert "docs/research/hard-ecommerce-sites.md" in str(excinfo.value)
+    assert "chưa có adapter hỗ trợ" in str(excinfo.value)
 
 
 def test_registry_register_adds_and_replaces() -> None:

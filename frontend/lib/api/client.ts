@@ -11,6 +11,21 @@ export type RankingItem = components["schemas"]["RankingItem"];
 export type ReportWarning = components["schemas"]["ReportWarning"];
 export type RatingBucket = components["schemas"]["RatingBucket"];
 export type AspectCount = components["schemas"]["AspectCount"];
+export type PlatformTagCount = components["schemas"]["PlatformTagCount"];
+export type SupportedPlatformInfo =
+  components["schemas"]["SupportedPlatformInfo"];
+export type UnsupportedPlatformInfo =
+  components["schemas"]["UnsupportedPlatformInfo"];
+export type PlatformCatalogItem =
+  SupportedPlatformInfo | UnsupportedPlatformInfo;
+export type DataProviderProfileResponse =
+  components["schemas"]["DataProviderProfileResponse"];
+export type CreateDataProviderProfilePayload =
+  components["schemas"]["CreateDataProviderProfileRequest"];
+export type UpdateDataProviderProfilePayload =
+  components["schemas"]["UpdateDataProviderProfileRequest"];
+export type VerifyDataProviderResponse =
+  components["schemas"]["VerifyDataProviderResponse"];
 export type ProfileResponse = components["schemas"]["ProfileResponse"];
 export type CreateProfilePayload = components["schemas"]["CreateProfileRequest"];
 export type UpdateProfilePayload = components["schemas"]["UpdateProfileRequest"];
@@ -263,6 +278,87 @@ export async function testLlmProfile(
 ): Promise<ProfileResponse> {
   const { data, error, response } = await apiClient.POST(
     "/api/llm/profiles/{profile_id}/test",
+    {
+      params: { path: { profile_id: profileId } },
+    }
+  );
+  if (error !== undefined || !data) {
+    throw normalizeApiError(response.status, error, response.statusText);
+  }
+  return data;
+}
+
+export async function listPlatforms(): Promise<PlatformCatalogItem[]> {
+  const { data, error, response } = await apiClient.GET("/api/platforms");
+  if (error !== undefined || !data) {
+    const resp = response as Response;
+    throw normalizeApiError(resp.status, error, resp.statusText);
+  }
+  return data;
+}
+
+export async function listDataProviderProfiles(): Promise<
+  DataProviderProfileResponse[]
+> {
+  const { data, error, response } = await apiClient.GET(
+    "/api/data-providers/profiles"
+  );
+  if (error !== undefined || !data) {
+    const resp = response as Response;
+    throw normalizeApiError(resp.status, error, resp.statusText);
+  }
+  return data;
+}
+
+export async function createDataProviderProfile(
+  payload: CreateDataProviderProfilePayload
+): Promise<DataProviderProfileResponse> {
+  const { data, error, response } = await apiClient.POST(
+    "/api/data-providers/profiles",
+    { body: payload }
+  );
+  if (error !== undefined || !data) {
+    throw normalizeApiError(response.status, error, response.statusText);
+  }
+  return data;
+}
+
+export async function updateDataProviderProfile(
+  profileId: string,
+  payload: UpdateDataProviderProfilePayload
+): Promise<DataProviderProfileResponse> {
+  const { data, error, response } = await apiClient.PATCH(
+    "/api/data-providers/profiles/{profile_id}",
+    {
+      params: { path: { profile_id: profileId } },
+      body: payload,
+    }
+  );
+  if (error !== undefined || !data) {
+    throw normalizeApiError(response.status, error, response.statusText);
+  }
+  return data;
+}
+
+export async function deleteDataProviderProfile(
+  profileId: string
+): Promise<void> {
+  const { error, response } = await apiClient.DELETE(
+    "/api/data-providers/profiles/{profile_id}",
+    {
+      params: { path: { profile_id: profileId } },
+    }
+  );
+  if (error !== undefined || (!response.ok && response.status !== 204)) {
+    throw normalizeApiError(response.status, error, response.statusText);
+  }
+}
+
+export async function verifyDataProviderProfile(
+  profileId: string
+): Promise<VerifyDataProviderResponse> {
+  const { data, error, response } = await apiClient.POST(
+    "/api/data-providers/profiles/{profile_id}/verify",
     {
       params: { path: { profile_id: profileId } },
     }

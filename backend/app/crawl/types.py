@@ -72,6 +72,12 @@ class ReviewData(BaseModel):
     author: str | None = None
     created_at_source: datetime | None = None
     helpful_count: int | None = None
+    variant: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    sub_ratings: dict[str, int] = Field(default_factory=dict)
+    seller_reply: str | None = None
+    media_count: int = 0
+    quality_score: float | None = None
     images: list[str] = Field(default_factory=list)
     raw: dict[str, Any] = Field(default_factory=dict)
 
