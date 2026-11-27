@@ -71,8 +71,12 @@ describe("KpiGrid with platform star counts (complete)", () => {
       { locale: "vi" }
     );
 
-    const bar = screen.getByRole("img", { name: /Tích cực 53, Trung tính 0, Tiêu cực 1/ });
+    const bar = screen.getByRole("img", {
+      name: "Tích cực 98,1%, Trung tính 0%, Tiêu cực 1,9%",
+    });
     expect(bar).toBeInTheDocument();
+    expect(screen.getByText("98,1%")).toBeInTheDocument();
+    expect(screen.queryByText("53")).not.toBeInTheDocument();
     expect(
       screen.getByText("Theo 54 lượt đánh giá trên Shopee từ 27/11/2025")
     ).toBeInTheDocument();
@@ -134,7 +138,7 @@ describe("KpiGrid with platform star counts (complete)", () => {
 });
 
 describe("KpiGrid with platform star counts (incomplete)", () => {
-  it("drops the ratio bar and marks every count as a lower bound", () => {
+  it("shows the share of the ratings read, without lower-bound markers", () => {
     renderWithIntl(
       <KpiGrid
         totals={stratifiedTotals()}
@@ -154,15 +158,16 @@ describe("KpiGrid with platform star counts (incomplete)", () => {
     );
 
     expect(
-      screen.queryByRole("img", { name: /Tích cực \d+, Trung tính/ })
-    ).not.toBeInTheDocument();
-    expect(screen.getByText("≥ 146")).toBeInTheDocument();
-    expect(
-      screen.getByText("Chưa đếm đủ — Shopee giới hạn lượt đọc")
+      screen.getByRole("img", {
+        name: "Tích cực 97,3%, Trung tính 1,3%, Tiêu cực 1,3%",
+      })
     ).toBeInTheDocument();
-    // No percentage anywhere in the card: the counts are lower bounds.
-    expect(screen.queryByText(/%/)).not.toBeInTheDocument();
-    expect(screen.getAllByText("≥", { exact: false }).length).toBeGreaterThan(0);
+    expect(screen.getByText("97,3%")).toBeInTheDocument();
+    expect(
+      screen.getByText("Tỷ lệ trên 150 lượt đọc được từ 27/11/2025")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/≥/)).not.toBeInTheDocument();
+    expect(screen.queryByText("146")).not.toBeInTheDocument();
   });
 
   it("never invents a total when the counts are partial", () => {
@@ -178,21 +183,20 @@ describe("KpiGrid with platform star counts (incomplete)", () => {
       { locale: "vi" }
     );
 
-    expect(screen.queryByText(/lượt từ/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^\d+ lượt từ/)).not.toBeInTheDocument();
     // Without a complete count the card keeps saying the platform does not publish a rating.
     expect(screen.getByText("Shopee không công khai")).toBeInTheDocument();
   });
 });
 
 describe("RatingDistributionChart with platform star counts", () => {
-  it("shows percentages only when every star is complete", () => {
+  it("shows only the percentage distribution for complete counts", () => {
     renderWithIntl(
       <RatingDistributionChart
         buckets={completeBuckets()}
         totalReviews={68}
         ratingBasis="platform_counts"
         ratingCounts={makeRatingCounts()}
-        platformRatingCount={null}
       />,
       { locale: "vi" }
     );
@@ -203,45 +207,45 @@ describe("RatingDistributionChart with platform star counts", () => {
     const table = screen.getByRole("table");
     expect(table.textContent).toContain("92,6%");
     expect(table.textContent).not.toContain("≥");
+    expect(screen.queryByRole("columnheader", { name: "Count" })).not.toBeInTheDocument();
   });
 
-  it("prints '≥ count' and no percentage when a star is a lower bound", () => {
+  it("shows the share of the ratings read for partial counts, never '≥'", () => {
     renderWithIntl(
       <RatingDistributionChart
-        buckets={partialBuckets()}
+        buckets={partialBuckets().map((b, i) => ({
+          ...b,
+          pct: [82, 15.3, 1.3, 0, 1.3][i] ?? null,
+        }))}
         totalReviews={68}
         ratingBasis="platform_counts"
         ratingCounts={makeRatingCounts({ complete: false, total: 150 })}
-        platformRatingCount={54}
       />,
       { locale: "vi" }
     );
 
     expect(
-      screen.getByText(
-        "Chưa đếm đủ — Shopee giới hạn lượt đọc. Shopee báo tổng 54 lượt (toàn thời gian)"
-      )
+      screen.getByText("Tỷ lệ trên 150 lượt đọc được từ 27/11/2025")
     ).toBeInTheDocument();
     const table = screen.getByRole("table");
-    expect(table.textContent).toContain("≥ 123");
-    expect(table.textContent).not.toMatch(/\d+([.,]\d+)?%/);
-    expect(table.textContent).toContain("—");
+    expect(table.textContent).toContain("82%");
+    expect(table.textContent).not.toContain("≥");
+    expect(table.textContent).not.toContain("123");
   });
 
-  it("falls back to the plain incomplete note without a platform rating count", () => {
+  it("renders the English partial subtitle", () => {
     renderWithIntl(
       <RatingDistributionChart
         buckets={partialBuckets()}
         totalReviews={68}
         ratingBasis="platform_counts"
         ratingCounts={makeRatingCounts({ complete: false, total: 150 })}
-        platformRatingCount={null}
       />,
       { locale: "en" }
     );
 
     expect(
-      screen.getByText("Incomplete count — Shopee read limit reached")
+      screen.getByText("Share of 150 ratings read since Nov 27, 2025")
     ).toBeInTheDocument();
   });
 

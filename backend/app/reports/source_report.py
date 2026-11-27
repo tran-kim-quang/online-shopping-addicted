@@ -451,7 +451,7 @@ def _aggregate_source_rating_counts(
         RatingBucket(
             stars=star,
             count=star_totals[star],
-            pct=_compute_pct(star_totals[star], grand_total) if all_complete else None,
+            pct=_compute_pct(star_totals[star], grand_total),
             lower_bound=not star_completes[star],
         )
         for star in range(5, 0, -1)
@@ -546,10 +546,8 @@ def _build_warnings(
                 ReportWarning(
                     code="rating_counts_partial",
                     message=(
-                        "Số lượt đánh giá theo sao chưa đầy đủ "
-                        f"(thiếu/chưa đọc hết: {stars_label})."
-                        if stars_label
-                        else "Số lượt đánh giá theo sao chưa đầy đủ."
+                        "Shopee giới hạn lượt đọc nên tỷ lệ sao tính trên các lượt "
+                        "đọc được, chưa phải toàn bộ đánh giá."
                     ),
                     params={"stars": stars_label},
                 )

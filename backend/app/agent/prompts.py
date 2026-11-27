@@ -64,8 +64,9 @@ def build_system_prompt(ctx: AgentContext) -> str:
     stratified_block = (
         "\nQUY TẮC MẪU ĐÁNH GIÁ CHỌN LỌC & SỐ LƯỢT THEO SAO (BẮT BUỘC):\n"
         "- Tỷ lệ khen/chê và số lượt đánh giá theo sao CHỈ lấy từ `rating_counts` "
-        "(nếu có `complete=true` thì nêu số liệu và mốc `since`; nếu `complete=false` "
-        'phải nói rõ là "ít nhất" / cận dưới do sàn giới hạn lượt đọc).\n'
+        "(nếu `complete=true` thì nêu số liệu và mốc `since`; nếu `complete=false` "
+        "chỉ nêu tỷ lệ và nói rõ tỷ lệ tính trên các lượt đọc được, chưa phải toàn bộ "
+        "đánh giá, vì sàn giới hạn lượt đọc).\n"
         "- Các review lưu trong DB là mẫu có chủ đích (1–3★ có bình luận, 4–5★ có ảnh/video) "
         "chỉ dùng để phân tích nội dung, chủ đề/khía cạnh và trích dẫn `[R..]`; "
         "TUYỆT ĐỐI KHÔNG dùng số lượng review trong DB để suy ra tỷ lệ khen/chê "

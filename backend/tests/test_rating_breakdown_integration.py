@@ -446,7 +446,7 @@ async def test_source_report_is_partial_when_one_product_has_no_breakdown(
     assert counts.total == 54
 
     assert all(b.lower_bound is True for b in report.rating_distribution)
-    assert all(b.pct is None for b in report.rating_distribution)
+    assert all(b.pct is not None for b in report.rating_distribution)
 
     warning = next(w for w in report.warnings if w.code == "rating_counts_partial")
     assert warning.params["stars"] == "1★, 2★, 3★, 4★, 5★"
@@ -473,7 +473,7 @@ async def test_source_report_marks_only_the_limit_reached_star_as_lower_bound(
     assert buckets[5].count == 123
     assert buckets[5].lower_bound is True
     assert all(buckets[star].lower_bound is False for star in (1, 2, 3, 4))
-    assert all(b.pct is None for b in report.rating_distribution), "no % while 5★ is partial"
+    assert all(b.pct is not None for b in report.rating_distribution), "share of ratings read"
 
     warning = next(w for w in report.warnings if w.code == "rating_counts_partial")
     assert warning.params == {"stars": "5★"}

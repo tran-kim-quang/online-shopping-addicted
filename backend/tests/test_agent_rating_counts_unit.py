@@ -236,7 +236,7 @@ def test_stratified_prompt_routes_ratios_through_rating_counts() -> None:
     assert "`rating_counts`" in prompt
     assert "`complete=true`" in prompt
     assert "`complete=false`" in prompt
-    assert "ít nhất" in prompt
+    assert "tính trên các lượt đọc được" in prompt
     assert "`since`" in prompt
     assert "KHÔNG dùng số lượng review trong DB để suy ra tỷ lệ khen/chê" in prompt
 

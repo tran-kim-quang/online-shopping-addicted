@@ -666,9 +666,6 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
             totalReviews={report.totals.reviews_collected ?? 0}
             ratingBasis={report.rating_basis}
             ratingCounts={report.rating_counts}
-            platformRatingCount={
-              isSingleProduct ? (firstProduct?.rating_count ?? null) : null
-            }
           />
         )}
 

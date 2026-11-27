@@ -45,7 +45,9 @@ test.describe("rating breakdown: complete counts", () => {
   test("draws the sentiment ratio bar from Shopee counts", async ({ page }) => {
     await openReport(page, completeRatingReport);
 
-    const bar = page.getByRole("img", { name: /Tích cực 53, Trung tính 0, Tiêu cực 1/ });
+    const bar = page.getByRole("img", {
+      name: "Tích cực 98,1%, Trung tính 0%, Tiêu cực 1,9%",
+    });
     await expect(bar.first()).toBeVisible();
   });
 
@@ -62,12 +64,13 @@ test.describe("rating breakdown: complete counts", () => {
     await expect(page.getByText("trong mẫu")).toHaveCount(0);
   });
 
-  test("shows the star bars with percentages", async ({ page }) => {
+  test("shows the star bars as percentages only", async ({ page }) => {
     await openReport(page, completeRatingReport);
 
     await expect(page.getByText("Phân bố sao").first()).toBeVisible();
-    await expect(page.getByText(/^50 \(92,6%\)$/).first()).toBeVisible();
-    await expect(page.getByText(/^1 \(1,9%\)$/).first()).toBeVisible();
+    await expect(page.getByText(/^92,6%$/).first()).toBeVisible();
+    await expect(page.getByText(/^1,9%$/).first()).toBeVisible();
+    await expect(page.getByText(/^50 \(/)).toHaveCount(0);
   });
 
   test("fills the rating card and the product card with '{n} lượt từ {since}'", async ({
@@ -91,56 +94,48 @@ test.describe("rating breakdown: complete counts", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Incomplete counts: lower bounds, no ratio bar, no percentages
+// Incomplete counts: share of the ratings read, no lower-bound markers
 // ---------------------------------------------------------------------------
 
 
 test.describe("rating breakdown: incomplete counts", () => {
-  test("drops the ratio bar and prefixes the counts with '≥'", async ({ page }) => {
+  test("shows the sentiment shares of the ratings read", async ({ page }) => {
     await openReport(page, partialRatingReport);
 
     await expect(
-      page.getByRole("img", { name: /Tích cực \d+, Trung tính/ })
-    ).toHaveCount(0);
-    await expect(page.getByText("≥ 146").first()).toBeVisible();
-    await expect(
-      page.getByText("Chưa đếm đủ — Shopee giới hạn lượt đọc").first()
+      page
+        .getByRole("img", { name: "Tích cực 97,3%, Trung tính 1,3%, Tiêu cực 1,3%" })
+        .first()
     ).toBeVisible();
+    await expect(
+      page.getByText("Tỷ lệ trên 150 lượt đọc được từ 27/11/2025").first()
+    ).toBeVisible();
+    await expect(page.getByText(/≥/)).toHaveCount(0);
   });
 
-  test("prints '≥ count' without percentages in the star distribution", async ({ page }) => {
+  test("shows only percentages in the star distribution", async ({ page }) => {
+    await openReport(page, partialRatingReport);
+
+    await expect(page.getByText(/^82%$/).first()).toBeVisible();
+    await expect(page.getByText(/^123$/)).toHaveCount(0);
+    await expect(page.getByText(/≥/)).toHaveCount(0);
+  });
+
+  test("warns that the shares are based on the ratings read", async ({ page }) => {
     await openReport(page, partialRatingReport);
 
     await expect(
-      page.getByText(
-        "Chưa đếm đủ — Shopee giới hạn lượt đọc. Shopee báo tổng 54 lượt (toàn thời gian)"
-      ).first()
+      page.getByText(/tỷ lệ sao tính trên các lượt đọc được/).first()
     ).toBeVisible();
-    await expect(page.getByText(/^≥ 123$/).first()).toBeVisible();
-    // No numeric percentage anywhere: every star is a lower bound (only the sr-only
-    // table header cell literally reads "%").
-    await expect(page.getByText(/\d+([.,]\d+)?%/)).toHaveCount(0);
   });
 
-  test("warns that the star counts are partial", async ({ page }) => {
-    await openReport(page, partialRatingReport);
-
-    await expect(
-      page.getByText(/Số lượt đánh giá theo sao chưa đầy đủ/).first()
-    ).toBeVisible();
-    // The partial star counts never become a published percentage summary.
-    await expect(page.getByText("Chưa đếm đủ — Shopee giới hạn lượt đọc").first()).toBeVisible();
-  });
-
-  test("renders the English lower-bound copy", async ({ page }) => {
+  test("renders the English partial copy", async ({ page }) => {
     await openReport(page, partialRatingReport, "en");
 
     await expect(
-      page.getByText("Incomplete count — Shopee read limit reached", { exact: false }).first()
+      page.getByText("Share of 150 ratings read since Nov 27, 2025").first()
     ).toBeVisible();
-    await expect(
-      page.getByText("≥ 146", { exact: true }).first()
-    ).toBeVisible();
+    await expect(page.getByText(/≥/)).toHaveCount(0);
   });
 });
 

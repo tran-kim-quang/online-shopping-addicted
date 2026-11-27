@@ -144,7 +144,7 @@
       "stratifiedReviewsSaved": "Đã lưu {count} review có nội dung để phân tích",
       "platformRatingCountSince": "{total} lượt từ {since}",
       "platformCountsComplete": "Theo {total} lượt đánh giá trên Shopee từ {since}",
-      "platformCountsIncomplete": "Chưa đếm đủ — Shopee giới hạn lượt đọc",
+      "platformCountsIncomplete": "Tỷ lệ trên {total} lượt đọc được từ {since}",
       "sentiment": "Cảm xúc đánh giá",
       "inSample": "trong mẫu",
       "positive": "Tích cực",
@@ -156,8 +156,7 @@
       "title": "Phân bố sao",
       "subtitle": "Theo {count} đánh giá đã thu thập",
       "subtitlePlatformComplete": "Theo {total} lượt đánh giá trên Shopee từ {since}",
-      "subtitlePlatformIncomplete": "Chưa đếm đủ — Shopee giới hạn lượt đọc",
-      "subtitlePlatformIncompleteWithTotal": "Chưa đếm đủ — Shopee giới hạn lượt đọc. Shopee báo tổng {ratingCount} lượt (toàn thời gian)",
+      "subtitlePlatformIncomplete": "Tỷ lệ trên {total} lượt đọc được từ {since}",
       "starLabel": "{stars} sao",
       "empty": "Chưa có đánh giá nào để hiển thị phân bố sao.",
       "srTableCaption": "Bảng phân bố số lượng và tỷ lệ đánh giá theo từng mức sao"
@@ -250,7 +249,7 @@
     "stratified_sample": "Đánh giá là mẫu chọn lọc (ưu tiên 1–3★ có nội dung trong {window_months} tháng, tối đa {low} thấp / {high} cao); không dùng để tính tỉ lệ khen/chê.",
     "shopee_limit": "Shopee giới hạn số đánh giá trả về ở một số sản phẩm; có thể không lấy hết toàn bộ đánh giá.",
     "review_budget_reached": "Quá trình lấy đánh giá đã dừng sớm do chạm trần chi phí mỗi link.",
-    "rating_counts_partial": "Số lượt đánh giá theo sao chưa đầy đủ (thiếu/chưa đọc hết: {stars}).",
+    "rating_counts_partial": "Shopee giới hạn lượt đọc nên tỷ lệ sao tính trên các lượt đọc được, chưa phải toàn bộ đánh giá.",
     "missing_rating": "Có {products} sản phẩm chưa có điểm đánh giá công khai từ {platform}."
   },
   "chat": {

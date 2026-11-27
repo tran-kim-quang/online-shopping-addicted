@@ -667,7 +667,7 @@ export const completeRatingReport = {
   ],
 };
 
-/** 5★ stopped at the Shopee read limit: lower bounds, no percentages, a warning. */
+/** 5★ stopped at the Shopee read limit: shares of the ratings read, plus a warning. */
 export const partialRatingReport = {
   ...completeRatingReport,
   totals: {
@@ -683,11 +683,11 @@ export const partialRatingReport = {
     complete: false,
   },
   rating_distribution: [
-    { stars: 5, count: 123, pct: null, lower_bound: true },
-    { stars: 4, count: 23, pct: null, lower_bound: false },
-    { stars: 3, count: 2, pct: null, lower_bound: false },
-    { stars: 2, count: 0, pct: null, lower_bound: false },
-    { stars: 1, count: 2, pct: null, lower_bound: false },
+    { stars: 5, count: 123, pct: 82, lower_bound: true },
+    { stars: 4, count: 23, pct: 15.3, lower_bound: false },
+    { stars: 3, count: 2, pct: 1.3, lower_bound: false },
+    { stars: 2, count: 0, pct: 0, lower_bound: false },
+    { stars: 1, count: 2, pct: 1.3, lower_bound: false },
   ],
   products: [
     {

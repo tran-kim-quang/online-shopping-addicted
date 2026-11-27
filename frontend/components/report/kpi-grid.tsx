@@ -65,7 +65,7 @@ export function KpiGrid({
 
   const showSentimentBar =
     (!isStratified && !usePlatformCounts) ||
-    (usePlatformCounts && countsComplete);
+    (usePlatformCounts && analyzedTotal > 0);
 
   const posPct = analyzedTotal > 0 ? (positive / analyzedTotal) * 100 : 0;
   const neuPct = analyzedTotal > 0 ? (neutral / analyzedTotal) * 100 : 0;
@@ -263,7 +263,11 @@ export function KpiGrid({
             <div
               className="flex h-2 w-full overflow-hidden rounded-full bg-muted"
               role="img"
-              aria-label={`${t("positive")} ${positive}, ${t("neutral")} ${neutral}, ${t("negative")} ${negative}`}
+              aria-label={
+                usePlatformCounts
+                  ? `${t("positive")} ${formatPercent(posPct, locale)}, ${t("neutral")} ${formatPercent(neuPct, locale)}, ${t("negative")} ${formatPercent(negPct, locale)}`
+                  : `${t("positive")} ${positive}, ${t("neutral")} ${neutral}, ${t("negative")} ${negative}`
+              }
             >
               {posPct > 0 && (
                 <div
@@ -293,8 +297,9 @@ export function KpiGrid({
               />
               <span>{t("positive")}</span>
               <span className="font-mono font-semibold tabular-nums">
-                {usePlatformCounts && !countsComplete ? "≥ " : ""}
-                {formatNumber(positive, locale)}
+                {usePlatformCounts
+                  ? formatPercent(posPct, locale)
+                  : formatNumber(positive, locale)}
               </span>
             </span>
             <span className="text-muted-foreground" aria-hidden="true">
@@ -307,8 +312,9 @@ export function KpiGrid({
               />
               <span>{t("neutral")}</span>
               <span className="font-mono font-semibold tabular-nums">
-                {usePlatformCounts && !countsComplete ? "≥ " : ""}
-                {formatNumber(neutral, locale)}
+                {usePlatformCounts
+                  ? formatPercent(neuPct, locale)
+                  : formatNumber(neutral, locale)}
               </span>
             </span>
             <span className="text-muted-foreground" aria-hidden="true">
@@ -321,19 +327,25 @@ export function KpiGrid({
               />
               <span>{t("negative")}</span>
               <span className="font-mono font-semibold tabular-nums">
-                {usePlatformCounts && !countsComplete ? "≥ " : ""}
-                {formatNumber(negative, locale)}
+                {usePlatformCounts
+                  ? formatPercent(negPct, locale)
+                  : formatNumber(negative, locale)}
               </span>
             </span>
           </div>
           {usePlatformCounts ? (
             <div className="text-xs text-muted-foreground">
-              {countsComplete && sinceFormatted
-                ? t("platformCountsComplete", {
-                    total: formatNumber(ratingCounts?.total ?? 0, locale),
-                    since: sinceFormatted,
-                  })
-                : t("platformCountsIncomplete")}
+              {sinceFormatted
+                ? t(
+                    countsComplete
+                      ? "platformCountsComplete"
+                      : "platformCountsIncomplete",
+                    {
+                      total: formatNumber(ratingCounts?.total ?? 0, locale),
+                      since: sinceFormatted,
+                    }
+                  )
+                : null}
             </div>
           ) : (
             isStratified && (

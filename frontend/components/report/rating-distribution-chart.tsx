@@ -25,7 +25,6 @@ export interface RatingDistributionChartProps {
   totalReviews: number;
   ratingBasis?: SourceReport["rating_basis"];
   ratingCounts?: RatingCountsSummary | null;
-  platformRatingCount?: number | null;
 }
 
 interface ChartDatum {
@@ -33,7 +32,6 @@ interface ChartDatum {
   starLabel: string;
   count: number;
   pct: number | null;
-  lowerBound: boolean;
   barLabel: string;
 }
 
@@ -74,7 +72,6 @@ export function RatingDistributionChart({
   totalReviews,
   ratingBasis = null,
   ratingCounts = null,
-  platformRatingCount = null,
 }: RatingDistributionChartProps) {
   const t = useTranslations("source.ratingDistribution");
   const locale = useLocale() as AppLocale;
@@ -82,7 +79,7 @@ export function RatingDistributionChart({
   const isPlatformCounts =
     ratingBasis === "platform_counts" && ratingCounts !== null;
   const countsComplete = isPlatformCounts ? Boolean(ratingCounts.complete) : true;
-  const showPercentages = !isPlatformCounts || countsComplete;
+  // Platform counts: show the distribution only (percent of the ratings that were read).
   const effectiveTotal = isPlatformCounts
     ? ratingCounts.total ?? totalReviews
     : totalReviews;
@@ -100,22 +97,18 @@ export function RatingDistributionChart({
       sorted.map((b) => {
         const count = b.count ?? 0;
         const pct = b.pct ?? null;
-        const lowerBound = Boolean(b.lower_bound);
-        const countStr = `${lowerBound ? "≥ " : ""}${formatNumber(count, locale)}`;
-        const barLabel =
-          showPercentages && pct !== null
-            ? `${countStr} (${formatPercent(pct, locale)})`
-            : countStr;
+        const countStr = formatNumber(count, locale);
+        const pctStr = pct !== null ? formatPercent(pct, locale) : "—";
+        const barLabel = isPlatformCounts ? pctStr : `${countStr} (${pctStr})`;
         return {
           stars: b.stars,
           starLabel: `${b.stars}★`,
           count,
           pct,
-          lowerBound,
           barLabel,
         };
       }),
-    [sorted, locale, showPercentages]
+    [sorted, locale, isPlatformCounts]
   );
 
   const maxCount = Math.max(1, ...data.map((d) => d.count));
@@ -124,23 +117,20 @@ export function RatingDistributionChart({
     if (!isPlatformCounts) {
       return t("subtitle", { count: formatNumber(totalReviews, locale) });
     }
-    if (countsComplete && sinceFormatted) {
-      return t("subtitlePlatformComplete", {
+    if (!sinceFormatted) {
+      return null;
+    }
+    return t(
+      countsComplete ? "subtitlePlatformComplete" : "subtitlePlatformIncomplete",
+      {
         total: formatNumber(ratingCounts?.total ?? 0, locale),
         since: sinceFormatted,
-      });
-    }
-    if (platformRatingCount !== null && platformRatingCount !== undefined) {
-      return t("subtitlePlatformIncompleteWithTotal", {
-        ratingCount: formatNumber(platformRatingCount, locale),
-      });
-    }
-    return t("subtitlePlatformIncomplete");
+      }
+    );
   }, [
     isPlatformCounts,
     countsComplete,
     sinceFormatted,
-    platformRatingCount,
     ratingCounts,
     totalReviews,
     locale,
@@ -198,17 +188,14 @@ export function RatingDistributionChart({
                     formatter={(value, _name, item) => {
                       const num = typeof value === "number" ? value : 0;
                       const datum = item?.payload as ChartDatum | undefined;
-                      const prefix = datum?.lowerBound ? "≥ " : "";
-                      if (!showPercentages) {
-                        return [
-                          `${prefix}${formatNumber(num, locale)}`,
-                          t("title"),
-                        ];
-                      }
                       const pct =
-                        effectiveTotal > 0 ? (num / effectiveTotal) * 100 : 0;
+                        datum?.pct ??
+                        (effectiveTotal > 0 ? (num / effectiveTotal) * 100 : 0);
+                      if (isPlatformCounts) {
+                        return [formatPercent(pct, locale), t("title")];
+                      }
                       return [
-                        `${prefix}${formatNumber(num, locale)} (${formatPercent(pct, locale)})`,
+                        `${formatNumber(num, locale)} (${formatPercent(pct, locale)})`,
                         t("title"),
                       ];
                     }}
@@ -243,7 +230,7 @@ export function RatingDistributionChart({
                 <thead>
                   <tr>
                     <th>{t("title")}</th>
-                    <th>Count</th>
+                    {!isPlatformCounts && <th>Count</th>}
                     <th>%</th>
                   </tr>
                 </thead>
@@ -251,14 +238,9 @@ export function RatingDistributionChart({
                   {data.map((row) => (
                     <tr key={row.stars}>
                       <td>{t("starLabel", { stars: row.stars })}</td>
+                      {!isPlatformCounts && <td>{row.count}</td>}
                       <td>
-                        {row.lowerBound ? "≥ " : ""}
-                        {row.count}
-                      </td>
-                      <td>
-                        {showPercentages && row.pct !== null
-                          ? formatPercent(row.pct, locale)
-                          : "—"}
+                        {row.pct !== null ? formatPercent(row.pct, locale) : "—"}
                       </td>
                     </tr>
                   ))}

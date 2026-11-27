@@ -138,7 +138,10 @@ def test_source_with_a_product_missing_a_breakdown_is_partial_for_every_star() -
     assert summary.products_total == 2
     assert summary.complete is False
     assert all(b.lower_bound is True for b in buckets)
-    assert all(b.pct is None for b in buckets), "a partial source never publishes percentages"
+    total = sum(b.count for b in buckets)
+    assert all(b.pct == (round(b.count * 100 / total, 1) if total else None) for b in buckets), (
+        "a partial source shows the share of the ratings that were read"
+    )
     assert [b.count for b in buckets] == [50, 3, 0, 0, 1]
     assert incomplete == [1, 2, 3, 4, 5]
 
@@ -165,7 +168,9 @@ def test_one_incomplete_star_drops_every_percentage_but_only_flags_that_star() -
     assert by_star[5].lower_bound is True
     assert by_star[5].count == 123
     assert all(by_star[star].lower_bound is False for star in (1, 2, 3, 4))
-    assert all(b.pct is None for b in buckets)
+    total = sum(b.count for b in buckets)
+    assert all(b.pct is not None for b in buckets)
+    assert by_star[5].pct == pytest.approx(by_star[5].count * 100 / total, abs=0.05)
     assert incomplete == [5]
 
 
@@ -227,7 +232,8 @@ def test_partial_counts_emit_a_rating_counts_partial_warning_with_the_missing_st
 
     warning = next(w for w in warnings if w.code == "rating_counts_partial")
     assert warning.params == {"stars": "4★, 5★"}
-    assert "4★, 5★" in warning.message
+    assert "lượt đọc được" in warning.message
+    assert "≥" not in warning.message
     assert warning.product_ids is None
 
 
