@@ -38,14 +38,21 @@ Thiết kế dùng **Singleton** cho các tài nguyên dùng chung (Database, Re
 | Sàn | Trạng thái | Cách lấy dữ liệu |
 |---|---|---|
 | Tiki | Hỗ trợ | Crawl trực tiếp API công khai, có giới hạn tốc độ |
-| Shopee | Đang phát triển | Qua nhà cung cấp dữ liệu do người dùng cấu hình (Apify) |
+| Shopee | Hỗ trợ | Qua Apify với token do người dùng tự cấu hình; có trần chi phí mỗi link |
 | Lazada, Amazon, eBay, TikTok Shop | Nhận diện, chưa hỗ trợ | Báo lý do rõ ràng |
 
-Hướng thiết kế: lõi không phụ thuộc sàn — mỗi sàn là một plugin (nhận diện URL, cách lấy dữ liệu, ánh xạ dữ liệu), thêm sàn không phải sửa lõi.
+Lõi không phụ thuộc sàn: mỗi sàn là một plugin trong `backend/app/platforms/plugins/` (nhận diện URL, cách lấy dữ liệu, ánh xạ dữ liệu), được `PlatformRegistry` tự phát hiện; thêm sàn không phải sửa lõi. Frontend lấy danh sách sàn từ `GET /api/platforms`.
+
+**Lấy review Shopee tiết kiệm chi phí** (Apify tính tiền theo từng review trả về):
+
+- Nhóm chê (1–3★, có bình luận, 12 tháng gần nhất, tối đa 150) chạy trước với 80% ngân sách còn lại.
+- Nhóm khen (4–5★, có bình luận và ảnh/video, tối đa 30) nhận phần ngân sách còn lại.
+- Tổng chi mỗi link không vượt trần của profile (mặc định $0.50). Lần làm mới chỉ lấy review mới hơn review đã lưu.
+- Mẫu review là mẫu phân tầng, nên báo cáo và agent không suy ra điểm sản phẩm từ mẫu. Điểm và số lượt đánh giá hiển thị là số Shopee công bố.
 
 ## Bảo mật và dữ liệu
 
-- API key LLM được mã hoá (Fernet) trong DB, luôn trả về dạng che.
+- API key LLM và token nhà cung cấp dữ liệu (Apify) được mã hoá (Fernet) trong DB, luôn trả về dạng che; hệ thống không có token mặc định.
 - Mọi request ra ngoài đi qua kiểm tra URL chống SSRF (chặn IP nội bộ, kiểm tra lại sau redirect, ghim DNS).
 - Nội dung thu thập được coi là dữ liệu không tin cậy (chống prompt injection trong review/mô tả).
 - CSV chống formula injection; mặc định không xuất tên người đánh giá.
@@ -55,7 +62,7 @@ Hướng thiết kế: lõi không phụ thuộc sàn — mỗi sàn là một p
 - Trang chủ: dán link, mục "Gần đây" (chỉ source còn trong hạn 48 giờ).
 - Trang source: báo cáo tổng quan, bảng sản phẩm, khía cạnh, cảnh báo, tải CSV, chat với agent.
 - Lịch sử: mọi source đã thu thập.
-- Cài đặt: quản lý LLM profile (kiểm tra khả năng của model: tool calling, JSON mode…).
+- Cài đặt: quản lý LLM profile (kiểm tra khả năng của model: tool calling, JSON mode…) và nguồn dữ liệu (token Apify, trần chi phí mỗi link).
 - Song ngữ Việt/Anh, hỗ trợ dark mode, đạt WCAG AA.
 
 ## API chính
@@ -71,6 +78,8 @@ Hướng thiết kế: lõi không phụ thuộc sàn — mỗi sàn là một p
 | POST | `/api/chat`; GET/DELETE `/api/chat/sessions…` | Hỏi đáp và phiên chat |
 | POST | `/api/search` | Tìm kiếm hybrid trong source |
 | CRUD | `/api/llm/profiles…`, POST `/api/llm/models` | Quản lý LLM profile |
+| CRUD | `/api/data-providers/profiles…` (+ verify) | Quản lý nhà cung cấp dữ liệu (Apify) |
+| GET | `/api/platforms` | Danh sách sàn và mẫu URL |
 
 Tài liệu đầy đủ: Swagger tại `/docs` khi chạy API, schema tại `backend/openapi.json`.
 
