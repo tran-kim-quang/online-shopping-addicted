@@ -1,0 +1,657 @@
+[
+ {
+  "recordType": "product",
+  "status": "complete",
+  "country": "vn",
+  "currency": "VND",
+  "shopId": "1801204805",
+  "itemId": "49867965494",
+  "name": "Tai Nghe Không Dây Bluetooth Pro 2 Bass Căng Chống Ồn Định Vị Google Map Đổi Tên Cảm Ứng Bảo Hành 24 Tháng",
+  "price": 195000,
+  "originalPrice": null,
+  "discountPercent": null,
+  "rating": null,
+  "ratingCount": null,
+  "sold": null,
+  "soldStatus": "not_reported",
+  "stock": null,
+  "stockStatus": "in_stock",
+  "location": "Tỉnh Bắc Ninh",
+  "images": [
+   "https://down-vn.img.susercontent.com/file/vn-11134201-81ztc-mt7m3uavu5tt26",
+   "https://down-vn.img.susercontent.com/file/vn-11134201-81ztc-mt7m3w1ia8lic6"
+  ],
+  "url": "https://shopee.vn/product/1801204805/49867965494",
+  "shopUrl": "https://shopee.vn/shop/1801204805",
+  "searchTerm": null,
+  "description": "MÔ TẢ SẢN PHẨM \n\n• Chip mới nhất\n\n• Vi trình mới nhất\n\n• Màng loa cải thiện. Cho chất lượng âm thanh hay hơn. \n\n• Dung lượng pin cao hơn so với các bản cũ.\n\n• Theo dõi được % pin trên #widget. \n\n• Cảm biến tiệm cận - Cảm biến nhiệt. Khắc phục delay cho tai nghe. \n\n\n\nĐặc Điểm Tai nghe Bluetooth : \n\n* Có cảm biến tháo tai dừng nhạc\n\n* Đổi Tên\n\n* Bluetooth 5.3\n\n* Thời gian sạc: 1 giờ\n\n* Nghe liên tục 8 giờ\n\n* Pin tai nghe 45mah (có DC bảo vệ pin)\n\n* Pin hộp sạc 320mah\n\n* Đặc biệt siêu dễ kết nối, hiện cửa sổ ở điện thoại ấn cái được,\n\n\n\n Chức Năng:\n\n• Mở nắp là hiện popup, kết nối duy nhất 1 lần.\n\n• Mic cực tốt không chút âm tạp, đàm thoại dễ dàng cực thích.\n\n• Âm thanh đạt chuẩn 8/10\n\n• Tháo tai nghe dừng nhạc, đeo tai nghe tự động phát nhạc.\n\n• Cảm ứng cực nhạy. \n\n• Đổi tên, định vị, tuỳ chọn cài đặt cảm biến.\n\n• Play/Pause - Next/Back.\n\n• Nghe/Từ chối cuộc gọi.\n\n• Sạc không dây tiện lợi.",
+  "brand": null,
+  "brandId": null,
+  "categoryId": "100535",
+  "categories": [
+   {
+    "categoryId": "100535",
+    "name": "Thiết Bị Âm Thanh"
+   },
+   {
+    "categoryId": "100578",
+    "name": "Tai nghe nhét tai & chụp tai"
+   }
+  ],
+  "attributes": [
+   {
+    "name": "Kiểu kết nối",
+    "value": "Không dây"
+   },
+   {
+    "name": "Các loại tai nghe",
+    "value": "Nhét tai"
+   },
+   {
+    "name": "Game chuyên dụng",
+    "value": "Có"
+   },
+   {
+    "name": "Tần số tối đa",
+    "value": "50000Hz"
+   },
+   {
+    "name": "Tần số tối thiểu",
+    "value": "90Hz"
+   },
+   {
+    "name": "Độ nhạy",
+    "value": "90dB"
+   },
+   {
+    "name": "Thể thao chuyên dụng",
+    "value": "Có"
+   },
+   {
+    "name": "Chất liệu",
+    "value": "Nhựa, nhựa, kim loại, nhựa, nhựa, kim loại"
+   },
+   {
+    "name": "Tích hợp pin",
+    "value": "Có"
+   },
+   {
+    "name": "Tình trạng",
+    "value": "Mới"
+   },
+   {
+    "name": "Thiết bị âm thanh tương thích",
+    "value": "máy quay/chụp ảnh, điện thoại di động, xe máy, khác, PC & Laptop"
+   }
+  ],
+  "variants": [
+   {
+    "modelId": "371751102058",
+    "name": "PRO 2",
+    "price": null,
+    "stock": null,
+    "available": false,
+    "tierIndex": [
+     0
+    ]
+   },
+   {
+    "modelId": "316776526606",
+    "name": "PRO 2 + BULL TÍM",
+    "price": null,
+    "stock": null,
+    "available": true,
+    "tierIndex": [
+     2
+    ]
+   },
+   {
+    "modelId": "316776526607",
+    "name": "PRO 2 + CÁ MẬP",
+    "price": null,
+    "stock": null,
+    "available": true,
+    "tierIndex": [
+     3
+    ]
+   },
+   {
+    "modelId": "316776526608",
+    "name": "PRO 2+ ỐP TRONG",
+    "price": null,
+    "stock": null,
+    "available": true,
+    "tierIndex": [
+     1
+    ]
+   }
+  ],
+  "tierVariations": [
+   {
+    "name": "PHÂN LOẠI",
+    "options": [
+     "PRO 2",
+     "PRO 2+ ỐP TRONG",
+     "PRO 2 + BULL TÍM",
+     "PRO 2 + CÁ MẬP"
+    ],
+    "images": []
+   }
+  ],
+  "likedCount": null,
+  "ratingCountsByStar": null,
+  "videos": [],
+  "shopName": "ONL1C TECH VN",
+  "shopRating": 4.59,
+  "shopFollowers": null,
+  "isOfficialShop": false,
+  "isPreferredSeller": null,
+  "isFreeShipping": false,
+  "isCashOnDelivery": null,
+  "isWholesale": false,
+  "isGenuine": null,
+  "hasVideo": false,
+  "createdAt": "2026-09-17T03:53:03.000Z",
+  "condition": 1,
+  "isPreOrder": false,
+  "estimatedDeliveryDays": 2,
+  "source": "shopee",
+  "sourceRoute": "product_embedded_state+json_ld",
+  "fetchedAt": "2026-11-27T01:42:56.392Z",
+  "shopRatingCount": 17,
+  "priceStatus": "reported",
+  "shopLookupStatus": "reported"
+ },
+ {
+  "recordType": "product",
+  "status": "complete",
+  "country": "vn",
+  "currency": "VND",
+  "shopId": "1937969974",
+  "itemId": "48571216193",
+  "name": "Tai Nghe Bluetooth JBL Tune 230NC - Bass Căng - Pin 40H- Cảm Ứng Chạm, Bảo Hành 24 Tháng",
+  "price": 298000,
+  "originalPrice": null,
+  "discountPercent": null,
+  "rating": null,
+  "ratingCount": null,
+  "sold": null,
+  "soldStatus": "not_reported",
+  "stock": null,
+  "stockStatus": "in_stock",
+  "location": "Thành phố Hà Nội",
+  "images": [
+   "https://down-vn.img.susercontent.com/file/vn-11134207-81ztc-mvctjz9w8poqdb",
+   "https://down-vn.img.susercontent.com/file/vn-11134207-81ztc-mlep19hkauboaf",
+   "https://down-vn.img.susercontent.com/file/vn-11134207-81ztc-mlep19hmzriade",
+   "https://down-vn.img.susercontent.com/file/vn-11134207-81ztc-mlep19hm7o5c97",
+   "https://down-vn.img.susercontent.com/file/vn-11134207-81ztc-mlep19hm69kwc5",
+   "https://down-vn.img.susercontent.com/file/vn-11134207-81ztc-mlep19hk581v67",
+   "https://down-vn.img.susercontent.com/file/vn-11134207-81ztc-mlep19hll72gef"
+  ],
+  "url": "https://shopee.vn/product/1937969974/48571216193",
+  "shopUrl": "https://shopee.vn/shop/1937969974",
+  "searchTerm": null,
+  "description": "* ĐẶC ĐIỂM NỔI BẬT:\n- Phiên bản 1:1 mới nhất thị trường\n- Được thiết kế dạng nhét tai gần như được thừa hưởng trọn vẹn từ người đàn anh JBL Live Pro+ trước đây\n- JBL Tune 230NC là mẫu tai nghe được trang bị driver dynamic kích thước 6mm mang đếm âm thanh đúng chất nhà JBL.\n- Đắm chìm vào các bản nhạc Dance Pop, Rap, EDM, R&B yêu thích nhờ lượng bass dồi dào\n- Công nghệ chống ồn chủ động ANC\n- Thời gian chơi nhạc lên đến 6 giờ\n- Sạc siêu nhanh (sạc 10 phút cho 1 giờ chơi).  \n- Đạt chuẩn IPX4 chống nước và mồ hôi.\n- Sử dụng 4 micrô cho cuộc gọi rõ ràng, sắc nét (2 micrô trên mỗi tai nghe).\n- Sử dụng công nghệ Bluetooth 5.2.\n- Điều khiển cảm ứng chạm\n- Với 4 màu là đen, hồng, trắng, xanh, người sử dụng có thể dễ dàng lựa chọn theo sở thích, các tính riêng của từng người\n-------------------------------------------\n\n* THÔNG SỐ KỸ THUẬT:\n- Thiết kế: In-Ear (Intra-Aural)\n- Đáp ứng tần số: 20Hz - 20kHz\n- Kích thước Diver: 11mm\n- Loại pin hộp sạc: Li-ion Polymer 3.7V, 55mAh\n- Loại pin tai nghe: Li-ion Polymer 3.7V, 500mAh\n- Thời gian sạc lại: 2h\n- Thời lượng pin: 40h\n- Độ nhạy: 102 dB SPL\n- Trở kháng: 16 ohm\n- SPL Maximum: 91dB SPL\n---------------------------------------------",
+  "brand": "JBL",
+  "brandId": "1146612",
+  "categoryId": "100535",
+  "categories": [
+   {
+    "categoryId": "100535",
+    "name": "Thiết Bị Âm Thanh"
+   },
+   {
+    "categoryId": "100578",
+    "name": "Tai nghe nhét tai & chụp tai"
+   }
+  ],
+  "attributes": [
+   {
+    "name": "Kiểu kết nối",
+    "value": "Không dây"
+   },
+   {
+    "name": "Các loại tai nghe",
+    "value": "Nhét tai"
+   },
+   {
+    "name": "Game chuyên dụng",
+    "value": "Có"
+   },
+   {
+    "name": "Thiết bị âm thanh tương thích",
+    "value": "máy quay/chụp ảnh"
+   },
+   {
+    "name": "Tần số tối đa",
+    "value": "50000Hz"
+   },
+   {
+    "name": "Tần số tối thiểu",
+    "value": "90Hz"
+   },
+   {
+    "name": "Độ nhạy",
+    "value": "90dB"
+   },
+   {
+    "name": "Thể thao chuyên dụng",
+    "value": "Có"
+   },
+   {
+    "name": "Loại phụ kiện headphone",
+    "value": "Cáp âm thanh nổi"
+   },
+   {
+    "name": "Địa chỉ tổ chức chịu trách nhiệm sản xuất",
+    "value": "Đang cập nhật"
+   },
+   {
+    "name": "Tên tổ chức chịu trách nhiệm sản xuất",
+    "value": "Đang cập nhật"
+   },
+   {
+    "name": "Sản phẩm đặt theo yêu cầu",
+    "value": "Không"
+   },
+   {
+    "name": "Chất liệu",
+    "value": "Nhựa"
+   },
+   {
+    "name": "Tích hợp pin",
+    "value": "Có"
+   },
+   {
+    "name": "Tình trạng",
+    "value": "Mới"
+   },
+   {
+    "name": "SIRIM Certified",
+    "value": "No"
+   }
+  ],
+  "variants": [
+   {
+    "modelId": "346714997616",
+    "name": "Màu Trắng",
+    "price": null,
+    "stock": null,
+    "available": true,
+    "tierIndex": [
+     1
+    ]
+   },
+   {
+    "modelId": "346714997617",
+    "name": "Màu Xanh Dương",
+    "price": null,
+    "stock": null,
+    "available": true,
+    "tierIndex": [
+     2
+    ]
+   },
+   {
+    "modelId": "346714997618",
+    "name": "Màu Hồng",
+    "price": null,
+    "stock": null,
+    "available": true,
+    "tierIndex": [
+     3
+    ]
+   },
+   {
+    "modelId": "346714997615",
+    "name": "Màu Đen",
+    "price": null,
+    "stock": null,
+    "available": true,
+    "tierIndex": [
+     0
+    ]
+   }
+  ],
+  "tierVariations": [
+   {
+    "name": "Màu sắc",
+    "options": [
+     "Màu Đen",
+     "Màu Trắng",
+     "Màu Xanh Dương",
+     "Màu Hồng"
+    ],
+    "images": [
+     "https://down-vn.img.susercontent.com/file/vn-11134207-81ztc-mum9miepvwn610",
+     "https://down-vn.img.susercontent.com/file/vn-11134207-81ztc-mum9mkafn3erd9",
+     "https://down-vn.img.susercontent.com/file/vn-11134207-81ztc-mum9mmmjmmtg58",
+     "https://down-vn.img.susercontent.com/file/vn-11134207-81ztc-mum9mokgcv0l35"
+    ]
+   }
+  ],
+  "likedCount": null,
+  "ratingCountsByStar": null,
+  "videos": [
+   {
+    "videoId": "api/v4/11110105/mms/vn-11110105-6v98v-mlorazgydlhrb3.16000081773221068.mp4",
+    "url": "https://mms.vod.susercontent.com/api/v4/11110105/mms/vn-11110105-6v98v-mlorazgydlhrb3.default.mp4",
+    "durationSeconds": 30
+   }
+  ],
+  "shopName": "Mavis _ Tech _ Shop",
+  "shopRating": 4.81,
+  "shopFollowers": null,
+  "isOfficialShop": false,
+  "isPreferredSeller": null,
+  "isFreeShipping": false,
+  "isCashOnDelivery": null,
+  "isWholesale": false,
+  "isGenuine": null,
+  "hasVideo": false,
+  "createdAt": "2026-11-04T06:44:54.000Z",
+  "condition": 1,
+  "isPreOrder": false,
+  "estimatedDeliveryDays": 2,
+  "source": "shopee",
+  "sourceRoute": "product_embedded_state+json_ld",
+  "fetchedAt": "2026-11-27T01:43:07.542Z",
+  "priceStatus": "reported",
+  "shopRatingCount": 73,
+  "shopLookupStatus": "reported"
+ },
+ {
+  "recordType": "product",
+  "status": "complete",
+  "country": "vn",
+  "currency": "VND",
+  "shopId": "158660528",
+  "itemId": "27551742889",
+  "name": "Biore UV Smooth Velvet Sữa Chống Nắng Màng Nhung Mịn Lì - Nâng Tông Sáng Hồng SPF50+/PA++++ 30ml",
+  "price": 115900,
+  "originalPrice": null,
+  "discountPercent": null,
+  "rating": null,
+  "ratingCount": null,
+  "sold": null,
+  "soldStatus": "not_reported",
+  "stock": null,
+  "stockStatus": "in_stock",
+  "location": "Thành phố Hồ Chí Minh",
+  "images": [
+   "https://down-vn.img.susercontent.com/file/vn-11134207-81ztc-mux652m6hypxf0",
+   "https://down-vn.img.susercontent.com/file/vn-11134207-7ras8-mbgei294iefbe0",
+   "https://down-vn.img.susercontent.com/file/vn-11134207-7ras8-mbgd3apkxsz8d9",
+   "https://down-vn.img.susercontent.com/file/vn-11134207-7ras8-mbgd3apkweow44",
+   "https://down-vn.img.susercontent.com/file/vn-11134207-820l4-mgzvqsef0j6343",
+   "https://down-vn.img.susercontent.com/file/vn-11134207-7ras8-mbgd3aq4vl6c9f",
+   "https://down-vn.img.susercontent.com/file/vn-11134207-7ras8-mbgd3apkz7joc0",
+   "https://down-vn.img.susercontent.com/file/vn-11134207-7ras8-mbgd3aqev6k4d2"
+  ],
+  "url": "https://shopee.vn/product/158660528/27551742889",
+  "shopUrl": "https://shopee.vn/shop/158660528",
+  "searchTerm": null,
+  "description": "- Bảo vệ mạnh mẽ với khả năng chống nắng phổ rộng khỏi tia UVA, UVB: dạng SỮA (SPF50+/ PA++++)\n\n+ Mỏng nhẹ, mịn lì\n\n+ Kiểm soát dầu thừa, phù hợp cho cả da dầu.\n\n+ Được kiểm nghiệm da liễu, không gây bít tắc lỗ chân lông (trong điều kiện thử nghiệm).\n\n+ Kết cấu đa dạng: sữa & kem\n\n+ Hiệu ứng trên da : Pinkish filter_Nâng tông ửng hồng\n\n+ Lưu ý: lắc đều khi sử dụng\n\n\n\nXuất xứ thương hiệu: Nhật Bản\n\nSản xuất tại: Việt Nam\n\n\n\nThành phần sản phẩm\n\nCyclopentasiloxane, Zinc Oxide (nano), Alcohol, Water, Ethylhexyl Methoxycinnamate, Dimethicone, Hydrogenated Polyisobutene, Lauryl Methacrylate/Sodium Methacrylate Crosspolymer, Isopropyl Palmitate, Talc, Diethylamino Hydroxybenzoyl Hexyl Benzoate, Titanium Dioxide,\n\nTitanium Dioxide (nano), Polymethylsilsesquioxane, Glycerin, Mica,Bis-Ethylhexyloxyphenol Methoxyphenyl Triazine, PEG-12 Dimethicone Triethoxycaprylylsilane, Polysilicone-9, PEG-3 Dimethicone, Silica, Vinyl Dimethicone/Methicone Silsesquioxane Crosspolymer, Aluminum Hydroxide, Methicone, Dimethicone/Vinyl Dimethicone Crosspolymer, Stearic Acid, Phenoxyethanol, PEG-32, Fragrance, BHT, Tin Oxide, Tocopherol, Aluminum Dimyristate, Sodium Hyaluronate, Methylparaben, CI 73360, CI 77120.",
+  "brand": "Biore",
+  "brandId": "1800651",
+  "categoryId": "100630",
+  "categories": [
+   {
+    "categoryId": "100630",
+    "name": "Sắc Đẹp"
+   },
+   {
+    "categoryId": "100664",
+    "name": "Chăm sóc da mặt"
+   },
+   {
+    "categoryId": "100901",
+    "name": "Kem chống nắng cho mặt"
+   }
+  ],
+  "attributes": [
+   {
+    "name": "Điều kiện bảo quản",
+    "value": "Điều kiện thường"
+   },
+   {
+    "name": "Trọng lượng",
+    "value": "30g"
+   },
+   {
+    "name": "Địa chỉ tổ chức chịu trách nhiệm sản xuất",
+    "value": "Đang cập nhật"
+   },
+   {
+    "name": "Công Thức",
+    "value": "Dạng Lỏng"
+   },
+   {
+    "name": "Chỉ số chống nắng",
+    "value": "50"
+   },
+   {
+    "name": "Thể tích",
+    "value": "30ml"
+   },
+   {
+    "name": "Loại Da",
+    "value": "Mọi loại da"
+   },
+   {
+    "name": "Xuất xứ",
+    "value": "Việt Nam"
+   },
+   {
+    "name": "Sản phẩm đặt theo yêu cầu",
+    "value": "Không"
+   },
+   {
+    "name": "Kiểu đóng gói",
+    "value": "Đơn"
+   },
+   {
+    "name": "Loại phiên bản",
+    "value": "Phiên bản thông thường"
+   },
+   {
+    "name": "Thành Phần Hoạt Tính",
+    "value": "Tự nhiên"
+   },
+   {
+    "name": "Loại đặc biệt",
+    "value": "không gây dị ứng, Không cay mắt, Không hóa chất"
+   },
+   {
+    "name": "Chăm Sóc Da",
+    "value": "Whitening"
+   },
+   {
+    "name": "Hạn sử dụng",
+    "value": "36 tháng"
+   },
+   {
+    "name": "Thành phần",
+    "value": "Cyclopentasiloxane, Water (Aqua), Zinc Oxide, Alcohol, Ethylhexyl Methoxycinnamate, Lauryl Methacrylate/Sodium Methacrylate Crosspolymer, Dimethicone, Isopropyl Palmitate, Titanium Dioxide, Glycerin,"
+   },
+   {
+    "name": "Số lượng",
+    "value": "1"
+   },
+   {
+    "name": "Kích Cỡ Gói",
+    "value": "30ML"
+   },
+   {
+    "name": "Số lô sản xuất",
+    "value": "N/A"
+   },
+   {
+    "name": "Tên tổ chức chịu trách nhiệm sản xuất",
+    "value": "Công ty TNHH KAO Việt Nam"
+   }
+  ],
+  "variants": [
+   {
+    "modelId": "195149186979",
+    "name": null,
+    "price": null,
+    "stock": null,
+    "available": true,
+    "tierIndex": [
+     0
+    ]
+   }
+  ],
+  "tierVariations": [
+   {
+    "name": null,
+    "options": [
+     null
+    ],
+    "images": []
+   }
+  ],
+  "likedCount": null,
+  "ratingCountsByStar": null,
+  "videos": [],
+  "shopName": "KAO Official Store",
+  "shopRating": 4.93,
+  "shopFollowers": null,
+  "isOfficialShop": true,
+  "isPreferredSeller": null,
+  "isFreeShipping": false,
+  "isCashOnDelivery": null,
+  "isWholesale": false,
+  "isGenuine": null,
+  "hasVideo": false,
+  "createdAt": "2024-06-04T10:08:39.000Z",
+  "condition": 1,
+  "isPreOrder": false,
+  "estimatedDeliveryDays": 2,
+  "source": "shopee",
+  "sourceRoute": "product_embedded_state+json_ld",
+  "fetchedAt": "2026-11-27T01:43:34.442Z",
+  "priceStatus": "reported",
+  "shopRatingCount": 451671,
+  "shopLookupStatus": "reported"
+ },
+ {
+  "recordType": "product",
+  "status": "complete",
+  "country": "vn",
+  "currency": "VND",
+  "shopId": "18644537",
+  "itemId": "17979591922",
+  "name": "[DAILY] Sữa Chống Nắng Sunplay Skin Aqua Dưỡng Da Sáng Mịn Hasaki Sản Phẩm Chính Hãng",
+  "price": 111000,
+  "originalPrice": null,
+  "discountPercent": null,
+  "rating": 4.94,
+  "ratingCount": 57292,
+  "sold": null,
+  "soldStatus": "not_reported",
+  "stock": null,
+  "stockStatus": "in_stock",
+  "location": "Thành phố Hồ Chí Minh",
+  "images": [
+   "https://down-vn.img.susercontent.com/file/sg-11134201-82584-mvfsk0qroe0x03",
+   "https://down-vn.img.susercontent.com/file/sg-11134201-8259p-mv6xkfokcsn9ef",
+   "https://down-vn.img.susercontent.com/file/vn-11134201-7ras8-map85opjpql395",
+   "https://down-vn.img.susercontent.com/file/vn-11134201-7ras8-map85oozqk0o77",
+   "https://down-vn.img.susercontent.com/file/vn-11134201-7ras8-map85optpbyv5e",
+   "https://down-vn.img.susercontent.com/file/vn-11134201-7ras8-map85oqno447b8",
+   "https://down-vn.img.susercontent.com/file/vn-11134201-7ras8-map85op9q5eg0e"
+  ],
+  "url": "https://shopee.vn/product/18644537/17979591922",
+  "shopUrl": "https://shopee.vn/shop/18644537",
+  "searchTerm": null,
+  "description": "Sữa Chống Nắng Sunplay Skin Aqua Clear White SPF50+ PA++++ là dòng sản phẩm chống nắng dành riêng cho da mặt đến từ thương hiệu chống nắng Sunplay Skin Aqua, với công thức cải tiến mới năm 2021, ứng dụng công nghệ CHỐNG NẮNG - GIỮ ẨM đột phá từ Nhật Bản giúp chống nắng mạnh mẽ và bền bì trên da, đồng thời hạn chế tình trạng mất nước và duy trì độ ẩm tối ưu. Đặc biệt, sản phẩm còn có công dụng kiểm soát bã nhờn và dưỡng da sáng mịn đều màu, là giải pháp lý tưởng dành cho các cô nàng da dầu nhờn trong mùa hè nóng bức.\n\n\n\nSữa Chống Nắng Sunplay Skin Aqua Clear White SPF50+ PA++++ Dưỡng Da Sáng Mịn hiện đã có mặt tại Hasaki với 2 phiên bản (giao ngẫu nhiên):\n\n\n\nPhiên bản thường - 25g / 55g\n\nPhiên bản giới hạn Việt Nam Ơi (Limited Edition 2022) - 25g\n\n\n\nLoại da phù hợp:\n\nSản phẩm phù hợp cho da dầu, hỗn hợp dầu.\n\nGiải pháp cho tình trạng da:\n\nDa dầu thừa - lỗ chân lông to\n\n \n\n\nƯu thế nổi bật:\n\nChỉ số chống nắng SPF50+, PA++++ giúp chống nắng hiệu quả, bảo vệ da khỏi sạm nám, tàn nhang, cháy nắng và các dấu hiệu lão hóa da.\n\nCông nghệ Watery Capsule chứa các hạt chống nắng được bao bọc trong lớp màng nước giúp phản xạ đa chiều tia UVA/UVB, cho khả năng chống nắng tối ưu và bền bỉ trên da nhiều giờ liền.\n\nCông nghệ Ceramide Boost giúp tăng cường hàng rào bảo vệ và hạn chế mất nước khi da tiếp xúc với ánh nắng, duy trì độ ẩm tối ưu cho da.\n\nVitamin C & B3 giúp làm mờ các vùng da sạm màu, dưỡng da sáng mịn.\n\nKiểm soát dầu thừa hiệu quả với các hạt phấn siêu mịn có khả năng hấp thu bã nhờn.\n\nCông thức 5 KHÔNG: cồn, dầu khoáng, paraben, hương liệu, chất tạo màu.\n\n\n\nThông số sản phẩm:\n\nDung tích: 25g, 55g\n\nThương hiệu: Sunplay thuộc công ty TNHH Rohto-Mentholatum (Vietnam)",
+  "brand": "Sunplay",
+  "brandId": "4413595",
+  "categoryId": "100630",
+  "categories": [
+   {
+    "categoryId": "100630",
+    "name": "Sắc Đẹp"
+   },
+   {
+    "categoryId": "100664",
+    "name": "Chăm sóc da mặt"
+   },
+   {
+    "categoryId": "100901",
+    "name": "Kem chống nắng cho mặt"
+   }
+  ],
+  "attributes": [
+   {
+    "name": "Chỉ số chống nắng",
+    "value": "50"
+   },
+   {
+    "name": "Trọng lượng",
+    "value": "55g"
+   }
+  ],
+  "variants": [
+   {
+    "modelId": "145207930212",
+    "name": "55g",
+    "price": null,
+    "stock": null,
+    "available": true,
+    "tierIndex": [
+     1
+    ]
+   },
+   {
+    "modelId": "145207930211",
+    "name": "25g",
+    "price": null,
+    "stock": null,
+    "available": true,
+    "tierIndex": [
+     0
+    ]
+   }
+  ],
+  "tierVariations": [
+   {
+    "name": "Dung tích",
+    "options": [
+     "25g",
+     "55g"
+    ],
+    "images": [
+     "https://down-vn.img.susercontent.com/file/vn-11134201-7ras8-map85owhgxxde8",
+     "https://down-vn.img.susercontent.com/file/vn-11134201-7ras8-map85pdypymk05"
+    ]
+   }
+  ],
+  "likedCount": null,
+  "ratingCountsByStar": null,
+  "videos": [],
+  "shopName": "HASAKI VIETNAM",
+  "shopRating": 4.94,
+  "shopFollowers": null,
+  "isOfficialShop": false,
+  "isPreferredSeller": true,
+  "isFreeShipping": false,
+  "isCashOnDelivery": null,
+  "isWholesale": false,
+  "isGenuine": null,
+  "hasVideo": false,
+  "createdAt": "2022-07-18T06:56:07.000Z",
+  "condition": 1,
+  "isPreOrder": false,
+  "estimatedDeliveryDays": 2,
+  "source": "shopee",
+  "sourceRoute": "product_embedded_state+json_ld",
+  "fetchedAt": "2026-11-27T01:43:58.444Z",
+  "shopRatingCount": 2873683,
+  "priceStatus": "reported",
+  "shopLookupStatus": "reported"
+ }
+]
