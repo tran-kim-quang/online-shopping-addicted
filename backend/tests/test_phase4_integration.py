@@ -1212,7 +1212,8 @@ async def test_chat_rejects_source_without_ingest_stats(
 
 async def test_migration_0004_creates_chat_tables(session: AsyncSession) -> None:
     revision = (await session.execute(text("SELECT version_num FROM alembic_version"))).scalar()
-    assert revision == "0004_chat"
+    # Phase 6 (0005_data_providers) is now head; 0004's tables must still exist.
+    assert revision == "0005_data_providers"
 
     tables = set(
         (

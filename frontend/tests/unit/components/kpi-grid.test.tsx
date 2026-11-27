@@ -89,3 +89,57 @@ describe("KpiGrid", () => {
     expect(container.querySelector('[role="progressbar"]')).toBeTruthy();
   });
 });
+
+describe("KpiGrid with a stratified Shopee sample (C2/C3, A8.5)", () => {
+  const stratifiedTotals = () =>
+    makeTotals({
+      sold_total: null,
+      coverage_pct: null,
+      rating_avg_weighted: null,
+      review_count_reported: 0,
+      reviews_collected: 80,
+      sentiment: { positive: 20, neutral: 5, negative: 55, unanalyzed: 0 },
+    });
+
+  it("shows an em dash plus 'not published' when the platform reports no sold count", () => {
+    renderWithIntl(<KpiGrid totals={stratifiedTotals()} isStratified platform="shopee" />, {
+      locale: "vi",
+    });
+
+    const soldCard = screen.getByText("Đã bán").closest("div")?.parentElement;
+    expect(soldCard?.textContent).toContain("—");
+    expect(soldCard?.textContent).toContain("Sàn không công khai");
+    expect(soldCard?.textContent).not.toMatch(/\b0\b/);
+  });
+
+  it("says Shopee does not publish the rating instead of inventing one", () => {
+    renderWithIntl(<KpiGrid totals={stratifiedTotals()} isStratified platform="shopee" />, {
+      locale: "vi",
+    });
+
+    expect(screen.getByText("Shopee không công khai")).toBeInTheDocument();
+  });
+
+  it("drops the sentiment ratio bar and labels counts as 'in sample'", () => {
+    renderWithIntl(<KpiGrid totals={stratifiedTotals()} isStratified platform="shopee" />, {
+      locale: "vi",
+    });
+
+    // No percentage bar, no "x of y" review ratio, no coverage bar for stratified samples.
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Độ phủ/)).not.toBeInTheDocument();
+    expect(screen.queryByText("/ 0")).not.toBeInTheDocument();
+    expect(screen.getByText("trong mẫu")).toBeInTheDocument();
+    expect(screen.getByText("Mẫu chọn lọc (có nội dung)")).toBeInTheDocument();
+    expect(screen.getByText("80")).toBeInTheDocument();
+  });
+
+  it("uses the English 'in sample' label", () => {
+    renderWithIntl(<KpiGrid totals={stratifiedTotals()} isStratified platform="shopee" />, {
+      locale: "en",
+    });
+
+    expect(screen.getByText("in sample")).toBeInTheDocument();
+    expect(screen.getByText("Not published by platform")).toBeInTheDocument();
+  });
+});

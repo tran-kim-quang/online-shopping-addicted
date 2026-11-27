@@ -24,7 +24,9 @@ const BACKEND_STAGES: Array<[stage: string, expectedStep: number, expectedKey: s
   ["shop", 1, "products"],
   ["listing", 1, "products"],
   ["product", 1, "products"],
+  ["provider_product", 1, "products"],
   ["reviews", 2, "reviews"],
+  ["provider_reviews", 2, "reviews"],
   ["crawl_done", 2, "reviews"],
   ["ingest_start", 3, "sentiment"],
   ["sentiment", 3, "sentiment"],
@@ -51,7 +53,7 @@ describe("resolveStage", () => {
     for (const [stage] of BACKEND_STAGES) {
       expect(STAGE_TO_STEP_INDEX[stage], stage).toBeTypeOf("number");
     }
-    // 12 progress stages plus the defensive chunk/index aliases used by the UI.
+    // 14 progress stages plus the defensive chunk/index aliases used by the UI.
     expect(Object.keys(STAGE_TO_STEP_INDEX).sort()).toEqual(
       [
         "chunk",
@@ -62,6 +64,8 @@ describe("resolveStage", () => {
         "ingest_start",
         "listing",
         "product",
+        "provider_product",
+        "provider_reviews",
         "queued",
         "reviews",
         "sentiment",

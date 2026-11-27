@@ -12,7 +12,8 @@ import {
 import { mockApi } from "./mock-api";
 
 const RUNNING_SOURCE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-const URL_INPUT = "Đường dẫn shop hoặc sản phẩm Tiki";
+// Phase 6: the label is platform-neutral (the catalog decides what is supported).
+const URL_INPUT = "Đường dẫn shop hoặc sản phẩm";
 
 /**
  * Primary mocked journey — no backend, no LLM:
@@ -24,11 +25,16 @@ test.describe("ingest → source → chat (mocked API)", () => {
     const calls = await mockApi(page);
     await page.goto("/vi");
 
+    // Shopee is supported now, but `/x` matches none of its client patterns: the catalog
+    // rejects it before any API call (Phase 6 removed the hardcoded Tiki regex).
     await page.getByLabel(URL_INPUT).fill("https://shopee.vn/x");
     await page.getByRole("button", { name: "Phân tích" }).click();
 
-    await expect(page.locator("#ingest-url-error")).toContainText("Shopee");
+    await expect(page.locator("#ingest-url-error")).toContainText(
+      "Đường dẫn chưa được hỗ trợ"
+    );
     expect(calls.filter((call) => call.path === "/api/ingest")).toHaveLength(0);
+    await expect(page.getByRole("link", { name: "Cài đặt nguồn dữ liệu" })).toHaveCount(0);
   });
 
   test("runs the whole flow from link to cited answer", async ({ page }) => {

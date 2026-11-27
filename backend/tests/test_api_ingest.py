@@ -102,7 +102,6 @@ async def post_ingest(client: httpx.AsyncClient, **body: Any) -> httpx.Response:
 @pytest.mark.parametrize(
     ("url", "error_code"),
     [
-        ("https://shopee.vn/product/1", "unsupported_platform"),
         ("https://www.lazada.vn/products/x", "unsupported_platform"),
         ("https://example.com/san-pham", "unsupported_url"),
         ("ftp://tiki.vn/san-pham-p1.html", "unsupported_url"),

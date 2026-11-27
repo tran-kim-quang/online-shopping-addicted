@@ -347,3 +347,224 @@ export const analyzeJobSseBody = sse([
     },
   },
 ]);
+
+// ---------------------------------------------------------------------------
+// Phase 6: platform catalog, data provider profiles, stratified Shopee report
+// ---------------------------------------------------------------------------
+
+export const TIKI_PLATFORM = {
+  supported: true as const,
+  name: "tiki",
+  display_name: "Tiki",
+  hosts: ["m.tiki.vn", "tiki.vn", "www.tiki.vn"],
+  short_hosts: ["ti.ki", "www.ti.ki"],
+  kinds: ["product", "shop"],
+  currency: "VND",
+  requires_provider: null,
+  client_patterns: [
+    "^/[^/]+-p\\d+\\.html/?$",
+    "^/cua-hang/[A-Za-z0-9._-]+(?:/.*)?$",
+  ],
+};
+
+export const SHOPEE_PLATFORM = {
+  supported: true as const,
+  name: "shopee",
+  display_name: "Shopee",
+  hosts: ["shopee.vn", "www.shopee.vn"],
+  short_hosts: ["s.shopee.vn", "shp.ee", "vn.shp.ee"],
+  kinds: ["product", "shop"],
+  currency: "VND",
+  requires_provider: "apify",
+  client_patterns: [
+    "^/.+-i\\.\\d+\\.\\d+/?$",
+    "^/product/\\d+/\\d+/?$",
+    "^/shop/\\d+/?$",
+  ],
+};
+
+export const platforms = [
+  TIKI_PLATFORM,
+  SHOPEE_PLATFORM,
+  {
+    supported: false as const,
+    name: "lazada",
+    display_name: "Lazada",
+    hosts: ["lazada.vn"],
+    reason: "Lazada chưa được hỗ trợ: dùng hệ chống bot Alibaba (slider captcha).",
+  },
+  {
+    supported: false as const,
+    name: "amazon",
+    display_name: "Amazon",
+    hosts: ["amazon.com", "amzn.to"],
+    reason: "Amazon chưa được hỗ trợ: chống bot/captcha 503.",
+  },
+];
+
+export const DATA_PROVIDER_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+export const dataProviderProfile = {
+  id: DATA_PROVIDER_ID,
+  user_id: "local",
+  provider: "apify",
+  name: "Apify cá nhân",
+  api_token_masked: "api…cdef",
+  api_token_status: "set",
+  max_cost_usd_per_link: 0.3,
+  account_info: {
+    ok: true,
+    plan: "STARTER",
+    monthly_usage_usd: 1.5,
+    monthly_limit_usd: 49,
+    verified_at: "2026-11-27T02:00:00Z",
+  },
+  created_at: CRAWLED_AT,
+  updated_at: CRAWLED_AT,
+};
+
+export const SHOPEE_SOURCE_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+
+export const shopeeSourceListItem = {
+  ...sourceListItem,
+  id: SHOPEE_SOURCE_ID,
+  url: "https://shopee.vn/shop/1937969974",
+  platform: "shopee",
+  display_name: "Mavis _ Tech _ Shop",
+  shop_name: "Mavis _ Tech _ Shop",
+  products_count: 2,
+  reviews_collected: 83,
+};
+
+export const shopeeSourceSummary = {
+  ...sourceSummary,
+  id: SHOPEE_SOURCE_ID,
+  url: "https://shopee.vn/shop/1937969974",
+  platform: "shopee",
+  display_name: "Mavis _ Tech _ Shop",
+  shop: {
+    name: "Mavis _ Tech _ Shop",
+    url: "https://shopee.vn/shop/1937969974",
+    rating: 4.81,
+    follower_count: null,
+    product_count: 2,
+  },
+  reviews_count: 83,
+  sentiment_distribution: { positive: 10, neutral: 3, negative: 70, unanalyzed: 0 },
+};
+
+const shopeeProductRow = {
+  ...productRow,
+  product_id: PRODUCT_ID_A,
+  external_id: "48571216193",
+  title: "Tai Nghe Bluetooth JBL Tune 230NC",
+  url: "https://shopee.vn/product/1937969974/48571216193",
+  brand: "JBL",
+  category: "Tai nghe",
+  price: 298000,
+  list_price: null,
+  discount_pct: null,
+  sold_count: null,
+  rating_avg: 4.87,
+  rating_count: 54,
+  review_count_reported: null,
+  reviews_collected: 68,
+  positive: 8,
+  neutral: 2,
+  negative: 58,
+  positive_pct: null,
+  coverage_pct: null,
+  image_url: null,
+  short_description: null,
+};
+
+export const stratifiedReport = {
+  ...report,
+  source: {
+    ...report.source,
+    id: SHOPEE_SOURCE_ID,
+    url: "https://shopee.vn/shop/1937969974",
+    platform: "shopee",
+    display_name: "Mavis _ Tech _ Shop",
+    platform_display_name: "Shopee",
+    refresh_after: refreshAfterIn(12),
+    sampling: {
+      provider: "apify",
+      strategy: "stratified",
+      window_months: 12,
+      cost_usd: 0.25017,
+      groups: [
+        {
+          name: "low",
+          stars: [1, 2, 3],
+          with_media_only: false,
+          max: 150,
+          delivered: 68,
+          delivered_new: 65,
+          coverage: "shopee_limit",
+        },
+        {
+          name: "high",
+          stars: [4, 5],
+          with_media_only: true,
+          max: 30,
+          delivered: 15,
+          delivered_new: 15,
+          coverage: "budget",
+        },
+        {
+          name: "other",
+          stars: [4, 5],
+          with_media_only: true,
+          max: 30,
+          delivered: 3,
+          coverage: "complete_to_date_raw",
+        },
+      ],
+    },
+  },
+  totals: {
+    ...report.totals,
+    products: 2,
+    sold_total: null,
+    coverage_pct: null,
+    rating_avg_weighted: 4.87,
+    review_count_reported: 0,
+    reviews_collected: 83,
+    sentiment: { positive: 10, neutral: 3, negative: 70, unanalyzed: 0 },
+  },
+  rating_distribution: [],
+  products: [
+    shopeeProductRow,
+    { ...shopeeProductRow, product_id: PRODUCT_ID_B, external_id: "27551742889", rating_avg: null, rating_count: null },
+  ],
+  aspects: {
+    top_positive: [{ aspect: "âm thanh", count: 6 }],
+    top_negative: [{ aspect: "pin", count: 9 }],
+    platform_tags: [
+      { tag: "chất lượng", count: 31 },
+      { tag: "giao hàng", count: 12 },
+    ],
+  },
+  warnings: [
+    {
+      code: "stratified_sample",
+      message:
+        "Đánh giá là mẫu chọn lọc (ưu tiên 1–3★ có nội dung trong 12 tháng); không dùng để tính tỉ lệ khen/chê.",
+      params: { low: 150, high: 30, window_months: 12 },
+      product_ids: null,
+    },
+    {
+      code: "shopee_limit",
+      message: "Nền tảng giới hạn số lượng đánh giá hiển thị trong feed công khai.",
+      params: {},
+      product_ids: null,
+    },
+    {
+      code: "missing_rating",
+      message: "1 sản phẩm không có điểm đánh giá do Shopee không công khai.",
+      params: { products: 1, platform: "Shopee" },
+      product_ids: [PRODUCT_ID_B],
+    },
+  ],
+};
