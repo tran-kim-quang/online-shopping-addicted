@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -15,9 +17,11 @@ from app.core.errors import (
     LLMError,
     LLMInvalidResponseError,
     LLMQuotaExceededError,
+    LLMRateLimitError,
     map_openai_error,
 )
 from app.core.system_usage import SystemUsage
+from app.llm.rate_limit import MAX_PACE_WAIT_SECONDS, RateLimitState, estimate_tokens
 from app.llm.types import (
     ChatResult,
     LLMConfig,
@@ -32,6 +36,8 @@ from app.net.pinned import make_safe_client
 from app.security.url_validator import UnsafeURLError
 
 _EMBED_BATCH_SIZE = 64
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_tool_arguments(name: str, raw_arguments: str | None) -> tuple[dict[str, Any], str]:
@@ -84,6 +90,9 @@ class LLMClient:
         else:
             self._http_client = http_client
             self._owns_http_client = False
+        # Token budget reported by the provider; the registry reuses one client per
+        # profile, so every request on the same key shares it.
+        self._rate_limit = RateLimitState()
         self._client = AsyncOpenAI(
             base_url=config.base_url,
             api_key=self._raw_key or "not-needed",
@@ -120,6 +129,24 @@ class LLMClient:
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
         return kwargs
+
+    async def _pace(self, estimated_tokens: int) -> None:
+        """Wait for the provider's token window when the next request would exceed it."""
+        wait = self._rate_limit.wait_for(estimated_tokens)
+        if wait <= 0:
+            self._rate_limit.reserve(estimated_tokens)
+            return
+        if wait > MAX_PACE_WAIT_SECONDS:
+            return  # a long window (e.g. daily cap): let the provider answer 429
+        logger.info("LLM token budget low; waiting %.1fs for the window to reset", wait)
+        await asyncio.sleep(wait)
+        self._rate_limit.window_refilled()
+
+    def _mapped_error(self, exc: Exception) -> LLMError:
+        mapped = map_openai_error(exc, api_key=self._raw_key)
+        if isinstance(mapped, LLMRateLimitError):
+            self._rate_limit.note_rate_limited(mapped.retry_after)
+        return mapped
 
     async def list_models(self) -> list[str]:
         """Fetch available model IDs from ``GET /models``."""
@@ -168,12 +195,15 @@ class LLMClient:
             max_tokens=max_tokens,
             stream=False,
         )
+        await self._pace(estimate_tokens(messages, max_tokens=max_tokens))
         try:
-            response = await self._client.chat.completions.create(**kwargs)
+            raw = await self._client.chat.completions.with_raw_response.create(**kwargs)
+            response = raw.parse()
         except (LLMError, UnsafeURLError):
             raise
         except Exception as exc:
-            raise map_openai_error(exc, api_key=self._raw_key) from exc
+            raise self._mapped_error(exc) from exc
+        self._rate_limit.update_from_headers(raw.headers)
 
         if not response.choices:
             raise LLMInvalidResponseError("Provider returned no choices in chat completion.")
@@ -235,6 +265,7 @@ class LLMClient:
         finish_reason: str | None = None
         usage: dict[str, Any] | None = None
 
+        await self._pace(estimate_tokens(messages, max_tokens=max_tokens))
         try:
             stream = await self._client.chat.completions.create(**kwargs)
             async for chunk in stream:
@@ -300,7 +331,7 @@ class LLMClient:
         except (LLMError, UnsafeURLError):
             raise
         except Exception as exc:
-            raise map_openai_error(exc, api_key=self._raw_key) from exc
+            raise self._mapped_error(exc) from exc
 
         if slots:
             parsed_calls: list[ToolCall] = []

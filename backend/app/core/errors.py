@@ -65,7 +65,12 @@ class LLMNotFoundError(LLMError):
 
 
 class LLMRateLimitError(LLMError):
-    """Provider rate limit exceeded (HTTP 429)."""
+    """Provider rate limit exceeded (HTTP 429).
+
+    ``retry_after`` carries the provider's wait hint in seconds when it sent one.
+    """
+
+    retry_after: float | None = None
 
 
 class LLMQuotaExceededError(LLMError):
@@ -121,6 +126,16 @@ class LLMInvalidResponseError(LLMError):
         self.raw = raw
 
 
+def _rate_limit_error(exc: Exception, message: str, code: int) -> LLMRateLimitError:
+    from app.llm.rate_limit import retry_after_seconds
+
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    err = LLMRateLimitError(message, status_code=code)
+    err.retry_after = retry_after_seconds(headers, message)
+    return err
+
+
 def map_openai_error(exc: Exception, *, api_key: str | None = None) -> LLMError:
     """Convert an OpenAI SDK / HTTP exception into a sanitized ``LLMError``."""
     secrets = (api_key,) if api_key else ()
@@ -144,7 +159,7 @@ def map_openai_error(exc: Exception, *, api_key: str | None = None) -> LLMError:
     if isinstance(exc, openai.NotFoundError):
         return LLMNotFoundError(raw_message, status_code=getattr(exc, "status_code", 404))
     if isinstance(exc, openai.RateLimitError):
-        return LLMRateLimitError(raw_message, status_code=getattr(exc, "status_code", 429))
+        return _rate_limit_error(exc, raw_message, getattr(exc, "status_code", 429))
     if isinstance(exc, (openai.BadRequestError, openai.UnprocessableEntityError)):
         return LLMBadRequestError(raw_message, status_code=getattr(exc, "status_code", 400))
     if isinstance(
@@ -176,7 +191,7 @@ def map_openai_error(exc: Exception, *, api_key: str | None = None) -> LLMError:
         if code == 404:
             return LLMNotFoundError(raw_message, status_code=code)
         if code == 429:
-            return LLMRateLimitError(raw_message, status_code=code)
+            return _rate_limit_error(exc, raw_message, code)
         if code in (400, 422):
             return LLMBadRequestError(raw_message, status_code=code)
         if code >= 500:
