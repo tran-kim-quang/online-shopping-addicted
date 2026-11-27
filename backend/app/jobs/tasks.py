@@ -8,6 +8,7 @@ import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.config import get_settings
@@ -15,6 +16,7 @@ from app.crawl.service import crawl_url
 from app.crawl.types import ProgressEvent
 from app.ingest.pipeline import analyze_source, ingest_source
 from app.jobs.events import TERMINAL_JOB_STATUSES, JobCancelledError, JobEvents
+from app.trends.service import TrendService
 
 logger = logging.getLogger(__name__)
 
@@ -532,5 +534,122 @@ async def run_analyze(
         started_message=f"Starting LLM sentiment analysis for source {source_id_str}",
         initial_source_id=source_id_str,
         work_fn=_execute_analyze,
+        on_finally=_release_lock,
+    )
+
+
+async def run_trend_search(
+    ctx: dict[str, Any],
+    job_id: str,
+    trend_search_id: str | uuid.UUID,
+) -> dict[str, Any]:
+    """Arq task: execute TikTok brand trend discovery for a ``TrendSearch`` row."""
+    from app.db.database import Database
+    from app.db.models import TrendSearch
+
+    events: JobEvents = ctx.get("job_events") or JobEvents()
+    session_factory = ctx.get("session_factory")
+    sc_client_factory = ctx.get("sc_client_factory")
+    llm_client = ctx.get("llm_client")
+    secret_box = ctx.get("secret_box")
+    settings = ctx.get("settings")
+
+    parsed_id = (
+        trend_search_id
+        if isinstance(trend_search_id, uuid.UUID)
+        else uuid.UUID(str(trend_search_id))
+    )
+    search_id_str = str(parsed_id)
+
+    lock_identity: list[tuple[str, str]] = []
+    sf = session_factory if session_factory is not None else Database().session_factory
+    async with sf() as session:
+        row = await session.get(TrendSearch, parsed_id)
+        if row is not None:
+            lock_identity.append((row.user_id, row.keyword_norm))
+
+    async def _on_trend_progress(ev: ProgressEvent) -> None:
+        await events.emit(
+            job_id,
+            stage=ev.stage,
+            done=ev.done,
+            total=ev.total,
+            message=ev.message,
+        )
+
+    async def _close_row(status: str, error: str) -> None:
+        # Keep the DB row in step with the job so the keyword is never left "running".
+        try:
+            async with sf() as session:
+                row = await session.get(TrendSearch, parsed_id)
+                if row is not None and row.status in ("queued", "running"):
+                    row.status = status
+                    row.error = error
+                    row.finished_at = datetime.now(UTC)
+                    await session.commit()
+        except Exception:
+            logger.exception("Failed closing trend search %s", search_id_str)
+
+    async def _execute_trend(runtime: _JobRuntime) -> dict[str, Any]:
+        try:
+            result = await TrendService().run_search(
+                parsed_id,
+                on_progress=_on_trend_progress,
+                session_factory=session_factory,
+                sc_client_factory=sc_client_factory,
+                llm_client=llm_client,
+                secret_box=secret_box,
+                settings=settings,
+            )
+        except (JobCancelledError, asyncio.CancelledError):
+            await _close_row("cancelled", "cancelled")
+            raise
+        except Exception:
+            await _close_row("failed", "internal_error")
+            raise
+        final_status = "done" if result.status == "completed" else result.status
+        final_error = result.error or ""
+        await runtime.stop_heartbeat()
+        await _set_status_or_cancel(
+            events,
+            job_id,
+            final_status,
+            source_id=search_id_str,
+            error=final_error,
+        )
+        await events.emit(
+            job_id,
+            stage=final_status,
+            done=result.videos_scanned,
+            total=result.videos_scanned,
+            message=(
+                f"Completed trend search with status={final_status} "
+                f"(brands={result.brands_count}, videos={result.videos_scanned}, "
+                f"comments={result.comments_scanned}, credits={result.credits_used})"
+            ),
+        )
+        return {
+            "job_id": job_id,
+            "status": final_status,
+            "source_id": search_id_str,
+            "error": result.error,
+        }
+
+    async def _release_lock() -> None:
+        if not lock_identity:
+            return
+        user_id, keyword_norm = lock_identity[0]
+        release_fn = getattr(events, "release_trend_lock", None)
+        if callable(release_fn):
+            await release_fn(user_id, keyword_norm, job_id)
+
+    return await _run_job_with_lifecycle(
+        task_name="run_trend_search",
+        job_id=job_id,
+        events=events,
+        settings=settings,
+        started_message=f"Starting TikTok trend search {search_id_str}",
+        initial_source_id=search_id_str,
+        work_fn=_execute_trend,
         on_finally=_release_lock,
     )

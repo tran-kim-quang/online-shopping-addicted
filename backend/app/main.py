@@ -21,6 +21,7 @@ from app.api.platforms import router as platforms_router
 from app.api.reports import router as reports_router
 from app.api.search import router as search_router
 from app.api.sources import router as sources_router
+from app.api.trends import router as trends_router
 from app.cache.redis import RedisClient
 from app.core.config import DEFAULT_CORS_ALLOW_ORIGINS, get_settings, parse_cors_origins
 from app.core.errors import (
@@ -200,6 +201,7 @@ def create_app() -> FastAPI:
     application.include_router(reports_router)
     application.include_router(search_router)
     application.include_router(chat_router)
+    application.include_router(trends_router)
     return application
 
 

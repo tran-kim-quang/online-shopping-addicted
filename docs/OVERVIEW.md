@@ -50,9 +50,18 @@ Lõi không phụ thuộc sàn: mỗi sàn là một plugin trong `backend/app/p
 - Tổng chi mỗi link không vượt trần của profile (mặc định $0.50). Lần làm mới chỉ lấy review mới hơn review đã lưu.
 - Mẫu review là mẫu phân tầng, nên báo cáo và agent không suy ra điểm sản phẩm từ mẫu. Điểm và số lượt đánh giá hiển thị là số Shopee công bố.
 
+## Hãng đang hot trên TikTok
+
+Trang **Xu hướng**: nhập keyword (vd "kem chống nắng") để biết hãng nào đang được nhắc tới nhiều trên TikTok trong 30 ngày qua. Đây là mức độ được bàn tán, không phải doanh số.
+
+- Dữ liệu lấy qua ScrapeCreators với API key do người dùng tự cấu hình: 3 trang tìm video theo keyword + 1 trang bình luận của 5 video tương tác cao nhất (khoảng 8 credit, có trần credit mỗi lần tìm, kết quả cùng keyword được dùng lại trong 24 giờ).
+- LLM của người dùng rút tên hãng và cảm xúc từ caption, hashtag và bình luận.
+- Điểm mỗi video = like + 2×bình luận + 3×share + 2×lưu, giảm một nửa sau mỗi 10 ngày; video nhắc nhiều hãng thì chia đều. Hãng cần xuất hiện ở ít nhất 2 video, hoặc 1 video từ 1 triệu lượt xem (gắn nhãn "Chỉ 1 video").
+- Mỗi hãng có tỷ lệ khen/trung lập/chê, nhãn "Nhiều quảng cáo" (theo cờ quảng cáo/hợp tác trả phí của TikTok và hashtag) và video dẫn chứng. Không lưu video, bình luận thô hay tên người bình luận.
+
 ## Bảo mật và dữ liệu
 
-- API key LLM và token nhà cung cấp dữ liệu (Apify) được mã hoá (Fernet) trong DB, luôn trả về dạng che; hệ thống không có token mặc định.
+- API key LLM và token nhà cung cấp dữ liệu (Apify, ScrapeCreators) được mã hoá (Fernet) trong DB, luôn trả về dạng che; hệ thống không có token mặc định.
 - Mọi request ra ngoài đi qua kiểm tra URL chống SSRF (chặn IP nội bộ, kiểm tra lại sau redirect, ghim DNS).
 - Nội dung thu thập được coi là dữ liệu không tin cậy (chống prompt injection trong review/mô tả).
 - CSV chống formula injection; mặc định không xuất tên người đánh giá.
@@ -62,7 +71,8 @@ Lõi không phụ thuộc sàn: mỗi sàn là một plugin trong `backend/app/p
 - Trang chủ: dán link, mục "Gần đây" (chỉ source còn trong hạn 48 giờ).
 - Trang source: báo cáo tổng quan, bảng sản phẩm, khía cạnh, cảnh báo, tải CSV, chat với agent.
 - Lịch sử: mọi source đã thu thập.
-- Cài đặt: quản lý LLM profile (kiểm tra khả năng của model: tool calling, JSON mode…) và nguồn dữ liệu (token Apify, trần chi phí mỗi link).
+- Xu hướng: tìm hãng đang hot trên TikTok theo keyword, kèm lịch sử tìm kiếm.
+- Cài đặt: quản lý LLM profile (kiểm tra khả năng của model: tool calling, JSON mode…) và nguồn dữ liệu (token Apify với trần chi phí mỗi link; API key ScrapeCreators với trần credit mỗi lần tìm).
 - Song ngữ Việt/Anh, hỗ trợ dark mode, đạt WCAG AA.
 
 ## API chính
@@ -78,7 +88,8 @@ Lõi không phụ thuộc sàn: mỗi sàn là một plugin trong `backend/app/p
 | POST | `/api/chat`; GET/DELETE `/api/chat/sessions…` | Hỏi đáp và phiên chat |
 | POST | `/api/search` | Tìm kiếm hybrid trong source |
 | CRUD | `/api/llm/profiles…`, POST `/api/llm/models` | Quản lý LLM profile |
-| CRUD | `/api/data-providers/profiles…` (+ verify) | Quản lý nhà cung cấp dữ liệu (Apify) |
+| CRUD | `/api/data-providers/profiles…` (+ verify) | Quản lý nhà cung cấp dữ liệu (Apify, ScrapeCreators) |
+| POST/GET | `/api/trends/searches`, `/api/trends/searches/{id}` | Tìm hãng đang hot trên TikTok (hoặc trả cache 24 giờ), lịch sử và kết quả |
 | GET | `/api/platforms` | Danh sách sàn và mẫu URL |
 
 Tài liệu đầy đủ: Swagger tại `/docs` khi chạy API, schema tại `backend/openapi.json`.
@@ -87,5 +98,6 @@ Tài liệu đầy đủ: Swagger tại `/docs` khi chạy API, schema tại `ba
 
 - Backend: pytest (unit, integration trên Postgres/Redis riêng, `live` mặc định bỏ qua), ruff.
 - Frontend: Vitest (unit), Playwright (e2e với API giả lập, axe kiểm accessibility), typecheck, ESLint, kiểm tra đủ khoá i18n.
+- Bộ test (`backend/tests/`, `frontend/tests/`) chỉ giữ trên máy phát triển, không đưa lên repo.
 
 Hướng dẫn chạy: xem [README](../README.md).

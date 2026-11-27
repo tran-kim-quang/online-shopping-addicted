@@ -36,7 +36,8 @@
     "noProfile": "Chưa cấu hình LLM",
     "selectProfile": "Chọn cấu hình LLM",
     "manageProfiles": "Quản lý cấu hình LLM",
-    "activeProfile": "Đang dùng"
+    "activeProfile": "Đang dùng",
+    "trends": "Xu hướng"
   },
   "status": {
     "pending": "Chờ xử lý",
@@ -108,6 +109,17 @@
       "steps": {
         "queued": "Chuẩn bị phân tích",
         "sentiment": "Phân tích cảm xúc & khía cạnh"
+      }
+    },
+    "trend": {
+      "title": "Đang tìm xu hướng \"{target}\"",
+      "completedTitle": "Đã hoàn tất tìm xu hướng",
+      "failedTitle": "Tìm xu hướng thất bại",
+      "steps": {
+        "searching": "Tìm video TikTok",
+        "comments": "Lấy bình luận nổi bật",
+        "extracting": "Trích xuất hãng bằng LLM",
+        "scoring": "Chấm điểm & xếp hạng"
       }
     }
   },
@@ -250,7 +262,14 @@
     "shopee_limit": "Shopee giới hạn số đánh giá trả về ở một số sản phẩm; có thể không lấy hết toàn bộ đánh giá.",
     "review_budget_reached": "Quá trình lấy đánh giá đã dừng sớm do chạm trần chi phí mỗi link.",
     "rating_counts_partial": "Shopee giới hạn lượt đọc nên tỷ lệ sao tính trên các lượt đọc được, chưa phải toàn bộ đánh giá.",
-    "missing_rating": "Có {products} sản phẩm chưa có điểm đánh giá công khai từ {platform}."
+    "missing_rating": "Có {products} sản phẩm chưa có điểm đánh giá công khai từ {platform}.",
+    "trend": {
+      "credit_cap_reached": "Đã đạt trần credit cấu hình; kết quả được tính trên dữ liệu đã thu thập.",
+      "provider_quota": "Tài khoản ScrapeCreators hết credit giữa chừng; kết quả được tính trên dữ liệu đã thu thập.",
+      "llm_partial": "Một số batch trích xuất LLM bị lỗi; kết quả có thể thiếu một phần.",
+      "few_videos": "Tìm thấy ít hơn 15 video trong 30 ngày qua; độ phủ hãng có thể hạn chế.",
+      "no_brands": "Không có hãng nào đạt ngưỡng tối thiểu để xếp hạng."
+    }
   },
   "chat": {
     "headerTitle": "Hỏi đáp",
@@ -444,8 +463,17 @@
       "tokenRequired": "Vui lòng nhập Apify API Token.",
       "maxCostRangeError": "Trần chi phí phải nằm trong khoảng 0.05 – 5.00 USD.",
       "submitCreate": "Lưu cấu hình",
-      "submitEdit": "Cập nhật"
-    }
+      "submitEdit": "Cập nhật",
+      "maxCreditsLabel": "Trần credit mỗi lần tìm",
+      "maxCreditsHelper": "Giới hạn từ 5 đến 100 credit cho mỗi lần tìm xu hướng (mặc định 15).",
+      "maxCreditsRangeError": "Trần credit phải nằm trong khoảng 5–100.",
+      "tokenLabelScrapeCreators": "ScrapeCreators API Key",
+      "tokenPlaceholderScrapeCreators": "Dán API key từ app.scrapecreators.com",
+      "tokenRequiredScrapeCreators": "Vui lòng nhập ScrapeCreators API Key."
+    },
+    "maxCredits": "Tối đa {credits} credit/lần",
+    "creditBalance": "Còn {count} credit",
+    "profileVerifiedCredits": "Đã xác thực \"{name}\" — còn {count} credit."
   },
   "errors": {
     "empty_url": "Vui lòng nhập đường dẫn shop hoặc sản phẩm.",
@@ -482,6 +510,55 @@
     "network_error": "Không kết nối được tới máy chủ API. Hãy kiểm tra backend đang chạy.",
     "stream_error": "Kết nối luồng dữ liệu bị gián đoạn.",
     "job_failed": "Tác vụ thu thập thất bại.",
-    "unknown_error": "Đã xảy ra lỗi không xác định."
+    "unknown_error": "Đã xảy ra lỗi không xác định.",
+    "provider_auth": "API key ScrapeCreators không hợp lệ hoặc đã hết hạn.",
+    "provider_quota": "Tài khoản ScrapeCreators đã hết credit.",
+    "wrong_provider": "Cần chọn cấu hình ScrapeCreators cho tính năng tìm xu hướng.",
+    "llm_failed": "Không thể trích xuất hãng bằng LLM. Hãy kiểm tra cấu hình LLM.",
+    "worker_lost": "Lượt tìm trước bị gián đoạn. Hãy thử tìm lại.",
+    "internal_error": "Có lỗi khi xử lý lượt tìm. Hãy thử lại.",
+    "cancelled": "Lượt tìm đã bị huỷ."
+  },
+  "trends": {
+    "title": "Xu hướng hãng trên TikTok",
+    "subtitle": "Nhập từ khoá sản phẩm để xem các hãng đang được nhắc tới nhiều trong 30 ngày qua.",
+    "emptyScTitle": "Chưa có nguồn dữ liệu ScrapeCreators",
+    "emptyScDescription": "Cấu hình API key ScrapeCreators trong phần Nguồn dữ liệu để bắt đầu tìm xu hướng TikTok.",
+    "goToDataSources": "Đi tới Nguồn dữ liệu",
+    "goToLlmSettings": "Đi tới Cài đặt LLM",
+    "keywordLabel": "Từ khoá tìm kiếm",
+    "keywordPlaceholder": "Ví dụ: kem chống nắng, tai nghe bluetooth...",
+    "searchButton": "Tìm hãng đang hot",
+    "searchingButton": "Đang gửi...",
+    "scProfileLabel": "Nguồn dữ liệu (ScrapeCreators)",
+    "selectScProfile": "Chọn nguồn ScrapeCreators",
+    "llmProfileLabel": "Cấu hình LLM",
+    "selectLlmProfile": "Chọn cấu hình LLM",
+    "missingScProfile": "Vui lòng chọn cấu hình ScrapeCreators.",
+    "missingLlmProfile": "Chưa có cấu hình LLM — bấm để cài đặt",
+    "keywordMinError": "Từ khoá cần ít nhất 2 ký tự.",
+    "creditEstimate": "Ước tính ~{estimated} credit · tối đa {max} credit",
+    "resultHeader": "“{keyword}” trên TikTok · {start} – {end}",
+    "resultStats": "{videos} video · {comments} bình luận · {credits} credit",
+    "cachedBadge": "Kết quả lưu sẵn {time}",
+    "refreshButton": "Làm mới",
+    "highAdBadge": "Nhiều quảng cáo",
+    "singleVideoBadge": "Chỉ 1 video",
+    "singleVideoTooltip": "Chỉ xuất hiện trong 1 video nhưng có trên 1 triệu lượt xem",
+    "brandMeta": "{videos} video · {creators} creator",
+    "brandPlays": "{plays} lượt xem",
+    "scoreUnit": "điểm",
+    "scoreAria": "Điểm xu hướng {score} trên 100",
+    "sentimentPositive": "Khen {pct}%",
+    "sentimentNeutral": "Trung lập {pct}%",
+    "sentimentNegative": "Chê {pct}%",
+    "evidenceToggle": "Video dẫn chứng ({count})",
+    "searchOnShopee": "Tìm trên Shopee",
+    "unknownAuthor": "creator",
+    "evidenceStats": "{plays} xem · {date}",
+    "footnote": "Mức độ được nhắc tới trên TikTok trong 30 ngày qua — không phải doanh số.",
+    "historyTitle": "Tìm kiếm gần đây",
+    "historyEmpty": "Chưa có lịch sử tìm kiếm xu hướng.",
+    "historyCredits": "{credits} credit"
   }
 }

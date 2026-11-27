@@ -44,6 +44,14 @@ export type AnalyzeUpToDateResponse =
   components["schemas"]["AnalyzeUpToDateResponse"];
 export type AnalyzeQueuedResponse =
   components["schemas"]["AnalyzeQueuedResponse"];
+export type CreateTrendSearchPayload =
+  components["schemas"]["CreateTrendSearchRequest"];
+export type TrendSearchQueuedResponse =
+  components["schemas"]["TrendSearchQueuedResponse"];
+export type TrendSearchSummary = components["schemas"]["TrendSearchSummary"];
+export type TrendSearchDetail = components["schemas"]["TrendSearchDetail"];
+export type TrendBrand = components["schemas"]["TrendBrand"];
+export type TrendEvidenceVideo = components["schemas"]["TrendEvidenceVideo"];
 
 export type IngestSubmitResponse =
   | { kind: "cached"; data: IngestCachedResponse }
@@ -437,4 +445,43 @@ export function getReviewsCsvUrl(
   const qs = search.toString();
   const base = `${getApiBaseUrl()}/api/sources/${encodeURIComponent(sourceId)}/export/reviews.csv`;
   return qs ? `${base}?${qs}` : base;
+}
+
+export async function createTrendSearch(
+  payload: CreateTrendSearchPayload
+): Promise<TrendSearchQueuedResponse> {
+  const { data, error, response } = await apiClient.POST(
+    "/api/trends/searches",
+    { body: payload }
+  );
+  if (error !== undefined || !data) {
+    throw normalizeApiError(response.status, error, response.statusText);
+  }
+  return data;
+}
+
+export async function listTrendSearches(
+  limit = 20
+): Promise<TrendSearchSummary[]> {
+  const { data, error, response } = await apiClient.GET(
+    "/api/trends/searches",
+    { params: { query: { limit } } }
+  );
+  if (error !== undefined || !data) {
+    throw normalizeApiError(response.status, error, response.statusText);
+  }
+  return data;
+}
+
+export async function getTrendSearch(
+  searchId: string
+): Promise<TrendSearchDetail> {
+  const { data, error, response } = await apiClient.GET(
+    "/api/trends/searches/{search_id}",
+    { params: { path: { search_id: searchId } } }
+  );
+  if (error !== undefined || !data) {
+    throw normalizeApiError(response.status, error, response.statusText);
+  }
+  return data;
 }

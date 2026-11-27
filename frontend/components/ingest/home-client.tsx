@@ -139,9 +139,18 @@ export function HomeClient() {
   const queryClient = useQueryClient();
   const { activeProfileId } = useActiveProfile();
   const {
+    profiles: dataProviderProfiles = [],
     activeProfile: activeDataProvider,
-    activeProfileId: activeDataProviderId,
   } = useActiveDataProvider();
+  // The active profile is shared with other provider kinds (e.g. ScrapeCreators for
+  // trends), so fall back to the first profile of the provider the link needs.
+  const resolveProviderProfile = React.useCallback(
+    (provider: string) =>
+      activeDataProvider?.provider === provider
+        ? activeDataProvider
+        : (dataProviderProfiles.find((p) => p.provider === provider) ?? null),
+    [activeDataProvider, dataProviderProfiles]
+  );
   const platformsQuery = usePlatforms();
 
   const [url, setUrl] = React.useState("");
@@ -233,10 +242,8 @@ export function HomeClient() {
 
     const requiredProvider = validation.platform?.requires_provider ?? null;
     if (requiredProvider) {
-      const hasMatchingProvider =
-        activeDataProvider &&
-        activeDataProvider.provider === requiredProvider;
-      if (!hasMatchingProvider || !activeDataProviderId) {
+      const providerProfile = resolveProviderProfile(requiredProvider);
+      if (!providerProfile) {
         setMissingProvider(requiredProvider);
         setUrlError(
           t("dataProviderRequired", {
@@ -259,7 +266,9 @@ export function HomeClient() {
 
     await startIngest({
       targetUrl: validation.normalizedUrl,
-      dataProviderProfileId: requiredProvider ? activeDataProviderId : null,
+      dataProviderProfileId: requiredProvider
+        ? (resolveProviderProfile(requiredProvider)?.id ?? null)
+        : null,
       maxProductsVal:
         parsedMaxProducts !== undefined && Number.isFinite(parsedMaxProducts)
           ? parsedMaxProducts

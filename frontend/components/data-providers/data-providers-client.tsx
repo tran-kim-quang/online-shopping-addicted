@@ -41,7 +41,11 @@ import {
   verifyDataProviderProfile,
   type DataProviderProfileResponse,
 } from "@/lib/api/client";
-import { formatCurrencyUsd, formatShortDateTime } from "@/lib/format";
+import {
+  formatCurrencyUsd,
+  formatNumber,
+  formatShortDateTime,
+} from "@/lib/format";
 import { translateUnknownError } from "@/lib/error-messages";
 
 export function DataProvidersClient() {
@@ -73,7 +77,8 @@ export function DataProvidersClient() {
 
   const handleSaved = (profile: DataProviderProfileResponse) => {
     toast.success(t("profileSaved", { name: profile.name }));
-    if (!activeProfileId) {
+    // Only Apify profiles back link analysis; ScrapeCreators is picked on the trends page.
+    if (!activeProfileId && profile.provider !== "scrapecreators") {
       setActiveProfileId(profile.id);
     }
     void queryClient.invalidateQueries({
@@ -85,12 +90,21 @@ export function DataProvidersClient() {
     setVerifyingId(profile.id);
     try {
       const res = await verifyDataProviderProfile(profile.id);
-      toast.success(
-        t("profileVerified", {
-          name: profile.name,
-          plan: res.plan ?? "Apify",
-        })
-      );
+      if (res.credit_count !== undefined && res.credit_count !== null) {
+        toast.success(
+          t("profileVerifiedCredits", {
+            name: profile.name,
+            count: formatNumber(res.credit_count, locale),
+          })
+        );
+      } else {
+        toast.success(
+          t("profileVerified", {
+            name: profile.name,
+            plan: res.plan ?? "Apify",
+          })
+        );
+      }
       await queryClient.invalidateQueries({
         queryKey: DATA_PROVIDER_PROFILES_QUERY_KEY,
       });
@@ -170,6 +184,7 @@ export function DataProvidersClient() {
         <div className="space-y-3">
           {profiles.map((profile) => {
             const isActive = profile.id === activeProfileId;
+            const canBeActive = profile.provider !== "scrapecreators";
             const isUndecryptable =
               profile.api_token_status === "undecryptable";
             const isVerifying = verifyingId === profile.id;
@@ -183,6 +198,10 @@ export function DataProvidersClient() {
             const monthlyLimit =
               typeof accountInfo.monthly_limit_usd === "number"
                 ? accountInfo.monthly_limit_usd
+                : null;
+            const creditCount =
+              typeof accountInfo.credit_count === "number"
+                ? accountInfo.credit_count
                 : null;
             const verifiedAt =
               typeof accountInfo.verified_at === "string"
@@ -252,20 +271,31 @@ export function DataProvidersClient() {
                         </span>
                         <span>·</span>
                         <span>
-                          {t("maxCost", {
-                            cost: formatCurrencyUsd(
-                              profile.max_cost_usd_per_link,
-                              locale
-                            ),
-                          })}
+                          {profile.provider === "scrapecreators"
+                            ? t("maxCredits", {
+                                credits: profile.max_credits_per_search ?? 15,
+                              })
+                            : t("maxCost", {
+                                cost: formatCurrencyUsd(
+                                  profile.max_cost_usd_per_link,
+                                  locale
+                                ),
+                              })}
                         </span>
                       </div>
 
-                      {plan || monthlyUsage !== null ? (
+                      {plan || monthlyUsage !== null || creditCount !== null ? (
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           {plan && (
                             <Badge variant="outline" className="text-[11px]">
                               {t("planLabel", { plan })}
+                            </Badge>
+                          )}
+                          {creditCount !== null && (
+                            <Badge variant="outline" className="font-mono text-[11px] tabular-nums">
+                              {t("creditBalance", {
+                                count: formatNumber(creditCount, locale),
+                              })}
                             </Badge>
                           )}
                           {monthlyUsage !== null && (
@@ -295,7 +325,7 @@ export function DataProvidersClient() {
                     </div>
 
                     <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                      {!isActive && (
+                      {!isActive && canBeActive && (
                         <Button
                           type="button"
                           variant="outline"

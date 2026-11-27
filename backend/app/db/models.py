@@ -18,6 +18,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -79,13 +80,17 @@ class LLMProfile(Base):
 
 
 class DataProviderProfile(Base):
-    """User-configured external data provider profile (e.g. Apify)."""
+    """User-configured external data provider profile (e.g. Apify, ScrapeCreators)."""
 
     __tablename__ = "data_provider_profiles"
     __table_args__ = (
         CheckConstraint(
             "max_cost_usd_per_link >= 0.05 AND max_cost_usd_per_link <= 5.00",
             name="ck_data_provider_profiles_max_cost",
+        ),
+        CheckConstraint(
+            "max_credits_per_search IS NULL OR (max_credits_per_search BETWEEN 5 AND 100)",
+            name="ck_data_provider_profiles_max_credits",
         ),
     )
 
@@ -109,6 +114,10 @@ class DataProviderProfile(Base):
         nullable=False,
         default=Decimal("0.50"),
         server_default="0.50",
+    )
+    max_credits_per_search: Mapped[int | None] = mapped_column(
+        SmallInteger,
+        nullable=True,
     )
     account_info: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
@@ -614,4 +623,105 @@ class ReviewSummary(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+    )
+
+
+class TrendSearch(Base):
+    """Cached and tracked TikTok brand trend search by keyword."""
+
+    __tablename__ = "trend_searches"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'completed', 'failed', 'cancelled')",
+            name="ck_trend_searches_status",
+        ),
+        Index(
+            "ix_trend_searches_user_keyword_created_at",
+            "user_id",
+            "keyword_norm",
+            text("created_at DESC"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        default="local",
+        server_default="local",
+    )
+    keyword: Mapped[str] = mapped_column(String(100), nullable=False)
+    keyword_norm: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    platform: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="tiktok",
+        server_default="tiktok",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="queued",
+        server_default="queued",
+    )
+    data_provider_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("data_provider_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    llm_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("llm_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    job_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    credits_used: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    videos_scanned: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    comments_scanned: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    window_start: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    window_end: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    result: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True),
+        nullable=True,
+    )
+    warnings: Mapped[list[Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+    )
+    error: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
