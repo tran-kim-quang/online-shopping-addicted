@@ -130,7 +130,7 @@ describe("KpiGrid with a stratified Shopee sample (C2/C3, A8.5)", () => {
     expect(screen.queryByText(/Độ phủ/)).not.toBeInTheDocument();
     expect(screen.queryByText("/ 0")).not.toBeInTheDocument();
     expect(screen.getByText("trong mẫu")).toBeInTheDocument();
-    expect(screen.getByText("Mẫu chọn lọc (có nội dung)")).toBeInTheDocument();
+    expect(screen.getByText("Đã lưu 80 review có nội dung để phân tích")).toBeInTheDocument();
     expect(screen.getByText("80")).toBeInTheDocument();
   });
 

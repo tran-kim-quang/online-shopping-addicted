@@ -568,3 +568,155 @@ export const stratifiedReport = {
     },
   ],
 };
+
+// ---------------------------------------------------------------------------
+// Rating breakdown (R4): one product so the detail card renders, two states
+// ---------------------------------------------------------------------------
+
+export const SHOPEE_PRODUCT_URL_E2E =
+  "https://shopee.vn/product/1937969974/48571216193";
+
+const RATING_SINCE = "2025-11-27T05:13:58Z";
+const RATING_UNTIL = "2026-11-27T05:14:56Z";
+
+const ratingProductRow = {
+  ...shopeeProductRow,
+  review_count_reported: null,
+  reviews_collected: 68,
+  rating_count: null,
+  rating_counts: {
+    positive: 53,
+    neutral: 0,
+    negative: 1,
+    total: 54,
+    complete: true,
+    since: RATING_SINCE,
+    until: RATING_UNTIL,
+    products_with_counts: 1,
+    products_total: 1,
+  },
+};
+
+const ratingSampling = {
+  provider: "apify",
+  strategy: "stratified",
+  window_months: 12,
+  cost_usd: 0.00285,
+  runs: [
+    { kind: "metadata", run_id: "run-meta", cost_usd: 0.002 },
+    { kind: "low", run_id: "run-low", cost_usd: 0.00345 },
+    { kind: "high", run_id: "run-high", cost_usd: 0.002 },
+  ],
+  groups: [
+    {
+      name: "low",
+      stars: [1, 2, 3],
+      with_media_only: false,
+      max: 150,
+      delivered: 68,
+      delivered_new: 68,
+      coverage: "complete_to_date",
+    },
+    {
+      name: "high",
+      stars: [4, 5],
+      with_media_only: true,
+      max: 30,
+      delivered: 0,
+      delivered_new: 0,
+      coverage: "complete_to_date",
+    },
+  ],
+};
+
+/** Every star counted: ratio bar + percentages + the "since" window. */
+export const completeRatingReport = {
+  ...stratifiedReport,
+  source: {
+    ...stratifiedReport.source,
+    url: SHOPEE_PRODUCT_URL_E2E,
+    url_type: "product",
+    sampling: ratingSampling,
+  },
+  totals: {
+    ...stratifiedReport.totals,
+    products: 1,
+    rating_avg_weighted: null,
+    review_count_reported: 0,
+    reviews_collected: 68,
+    sentiment: { positive: 53, neutral: 0, negative: 1, unanalyzed: 0 },
+  },
+  rating_basis: "platform_counts" as const,
+  rating_counts: ratingProductRow.rating_counts,
+  rating_distribution: [
+    { stars: 5, count: 50, pct: 92.6, lower_bound: false },
+    { stars: 4, count: 3, pct: 5.6, lower_bound: false },
+    { stars: 3, count: 0, pct: 0, lower_bound: false },
+    { stars: 2, count: 0, pct: 0, lower_bound: false },
+    { stars: 1, count: 1, pct: 1.9, lower_bound: false },
+  ],
+  products: [ratingProductRow],
+  warnings: [
+    {
+      code: "stratified_sample",
+      message:
+        "Đánh giá là mẫu chọn lọc (ưu tiên 1–3★ có nội dung trong 12 tháng); không dùng để tính tỉ lệ khen/chê.",
+      params: { low: 150, high: 30, window_months: 12 },
+      product_ids: null,
+    },
+  ],
+};
+
+/** 5★ stopped at the Shopee read limit: lower bounds, no percentages, a warning. */
+export const partialRatingReport = {
+  ...completeRatingReport,
+  totals: {
+    ...completeRatingReport.totals,
+    sentiment: { positive: 146, neutral: 2, negative: 2, unanalyzed: 0 },
+  },
+  rating_counts: {
+    ...ratingProductRow.rating_counts,
+    positive: 146,
+    neutral: 2,
+    negative: 2,
+    total: 150,
+    complete: false,
+  },
+  rating_distribution: [
+    { stars: 5, count: 123, pct: null, lower_bound: true },
+    { stars: 4, count: 23, pct: null, lower_bound: false },
+    { stars: 3, count: 2, pct: null, lower_bound: false },
+    { stars: 2, count: 0, pct: null, lower_bound: false },
+    { stars: 1, count: 2, pct: null, lower_bound: false },
+  ],
+  products: [
+    {
+      ...ratingProductRow,
+      // Shopee reports an all-time total even when the read limit truncates the per-star counts.
+      rating_count: 54,
+      rating_counts: {
+        ...ratingProductRow.rating_counts,
+        positive: 146,
+        neutral: 2,
+        negative: 2,
+        total: 150,
+        complete: false,
+      },
+    },
+  ],
+  warnings: [
+    ...completeRatingReport.warnings,
+    {
+      code: "rating_counts_partial",
+      message: "Số lượt đánh giá theo sao chưa đầy đủ (thiếu/chưa đọc hết: 5★).",
+      params: { stars: "5★" },
+      product_ids: null,
+    },
+    {
+      code: "missing_rating",
+      message: "Shopee không công khai điểm đánh giá",
+      params: { products: 1, platform: "Shopee" },
+      product_ids: [PRODUCT_ID_A],
+    },
+  ],
+};

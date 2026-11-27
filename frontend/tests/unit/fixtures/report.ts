@@ -69,7 +69,7 @@ export function makeRankingItem(overrides: Partial<RankingItem> = {}): RankingIt
 }
 
 export function makeRatingBucket(overrides: Partial<RatingBucket> = {}): RatingBucket {
-  return { stars: 5, count: 50, pct: 41.7, ...overrides };
+  return { stars: 5, count: 50, pct: 41.7, lower_bound: false, ...overrides };
 }
 
 export function makeWarning(overrides: Partial<ReportWarning> = {}): ReportWarning {

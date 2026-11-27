@@ -353,9 +353,10 @@ async def seed_natural_source(session: AsyncSession) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def test_migration_head_is_0005_and_has_the_new_columns(session: AsyncSession) -> None:
+async def test_migration_head_is_0006_and_keeps_the_phase6_columns(session: AsyncSession) -> None:
     revision = (await session.execute(text("SELECT version_num FROM alembic_version"))).scalar_one()
-    assert revision == "0005_data_providers"
+    # 0006 adds ``products.rating_breakdown``; 0005's columns must still be there.
+    assert revision == "0006_product_rating_breakdown"
 
     review_columns = {
         row[0]
