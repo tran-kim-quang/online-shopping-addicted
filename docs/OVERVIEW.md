@@ -54,16 +54,16 @@ Lõi không phụ thuộc sàn: mỗi sàn là một plugin trong `backend/app/p
 
 ## Hãng đang hot trên TikTok
 
-Trang **Xu hướng**: nhập keyword (vd "kem chống nắng") để biết hãng nào đang được nhắc tới nhiều trên TikTok trong 30 ngày qua. Đây là mức độ được bàn tán, không phải doanh số.
+Trang **Xu hướng**: nhập keyword (vd "kem chống nắng") để biết 3 hãng (hoặc sản phẩm) được xem nhiều và khen nhiều nhất trên TikTok trong 30 ngày qua. Đây là mức độ được bàn tán, không phải doanh số.
 
 - Dữ liệu lấy qua ScrapeCreators với API key do người dùng tự cấu hình: 3 trang tìm video theo keyword + 1 trang bình luận của 5 video tương tác cao nhất (khoảng 8 credit, có trần credit mỗi lần tìm, kết quả cùng keyword được dùng lại trong 24 giờ).
-- LLM của người dùng rút tên hãng và cảm xúc từ caption, hashtag và bình luận.
-- Điểm mỗi video = like + 2×bình luận + 3×share + 2×lưu, giảm một nửa sau mỗi 10 ngày; video nhắc nhiều hãng thì chia đều. Hãng cần xuất hiện ở ít nhất 2 video, hoặc 1 video từ 1 triệu lượt xem (gắn nhãn "Chỉ 1 video").
+- LLM rút tên hãng và cảm xúc từ caption, hashtag và bình luận. Video không nêu hãng thì rút sản phẩm cụ thể (vd "kẹp nơ lụa"); sản phẩm chỉ lấp chỗ trống khi chưa đủ 3 hãng.
+- Điểm = tổng lượt xem (giảm một nửa sau mỗi 10 ngày; video nhắc nhiều hãng thì chia đều) × hệ số khen từ 0,5 đến 1,5 (tỷ lệ khen đã làm mượt; chưa có đánh giá thì ×1). Không có ngưỡng tối thiểu.
 - Mỗi hãng có tỷ lệ khen/trung lập/chê, nhãn "Nhiều quảng cáo" (theo cờ quảng cáo/hợp tác trả phí của TikTok và hashtag) và video dẫn chứng. Không lưu video, bình luận thô hay tên người bình luận.
 
 ## Trang admin và cấu hình dùng chung
 
-- Trang `/admin` (đăng nhập bằng `ADMIN_PASSWORD` ≥ 12 ký tự trong `.env`) cấu hình key dùng chung cho **LLM**, **Apify** (Shopee) và **ScrapeCreators** (TikTok). Mỗi mục có công tắc "Cho người dùng dùng" và hạn mức/ngày tính chung cho mọi người dùng (LLM: số lượt gọi; Apify: USD; ScrapeCreators: credit).
+- Trang `/admin` (đăng nhập bằng `ADMIN_PASSWORD` ≥ 12 ký tự trong `.env`; sau khi đăng nhập, menu có mục "Quản trị" trong 12 giờ) cấu hình key dùng chung cho **LLM**, **Apify** (Shopee) và **ScrapeCreators** (TikTok). Mỗi mục có công tắc "Cho người dùng dùng" và hạn mức/ngày tính chung cho mọi người dùng (LLM: số lượt gọi; Apify: USD; ScrapeCreators: credit).
 - Ở trang cài đặt, người dùng chọn "Dùng cấu hình của admin" (khi admin bật) hoặc "Tự cấu hình" cho từng loại. Hết hạn mức hoặc admin tắt thì app báo và dẫn sang tự cấu hình.
 - Người dùng được tách theo trình duyệt bằng cookie ẩn danh có chữ ký: profile, key, chat và lịch sử của ai người nấy thấy. Dữ liệu đã crawl và kết quả xu hướng cùng keyword dùng chung làm cache.
 
