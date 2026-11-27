@@ -914,6 +914,7 @@ export interface components {
             rating_count?: number | null;
             /** Rating Count Effective */
             rating_count_effective?: number | null;
+            rating_counts?: components["schemas"]["RatingCountsSummary"] | null;
             /** Review Count Reported */
             review_count_reported?: number | null;
             /**
@@ -993,7 +994,7 @@ export interface components {
         };
         /**
          * RatingBucket
-         * @description Star-rating count and percentage from collected reviews.
+         * @description Star-rating count and percentage from collected reviews or platform counts.
          */
         RatingBucket: {
             /**
@@ -1001,10 +1002,60 @@ export interface components {
              * @default 0
              */
             count: number;
+            /**
+             * Lower Bound
+             * @default false
+             */
+            lower_bound: boolean;
             /** Pct */
             pct?: number | null;
             /** Stars */
             stars: number;
+        };
+        /**
+         * RatingCountsSummary
+         * @description Aggregated star-rating counts from actor summary (per product or source).
+         */
+        RatingCountsSummary: {
+            /**
+             * Complete
+             * @default false
+             */
+            complete: boolean;
+            /**
+             * Negative
+             * @default 0
+             */
+            negative: number;
+            /**
+             * Neutral
+             * @default 0
+             */
+            neutral: number;
+            /**
+             * Positive
+             * @default 0
+             */
+            positive: number;
+            /**
+             * Products Total
+             * @default 0
+             */
+            products_total: number;
+            /**
+             * Products With Counts
+             * @default 0
+             */
+            products_with_counts: number;
+            /** Since */
+            since?: string | null;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /** Until */
+            until?: string | null;
         };
         /**
          * ReportAspects
@@ -1402,6 +1453,9 @@ export interface components {
             /** Products */
             products: components["schemas"]["ProductReportRow"][];
             rankings: components["schemas"]["ReportRankings"];
+            /** Rating Basis */
+            rating_basis?: ("reviews" | "platform_counts") | null;
+            rating_counts?: components["schemas"]["RatingCountsSummary"] | null;
             /** Rating Distribution */
             rating_distribution: components["schemas"]["RatingBucket"][];
             shop?: components["schemas"]["ReportShopInfo"] | null;

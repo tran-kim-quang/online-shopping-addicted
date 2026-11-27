@@ -61,7 +61,8 @@ def test_stratified_prompt_forbids_percentages_and_extra_collection() -> None:
     )
 
     assert "QUY TẮC MẪU ĐÁNH GIÁ CHỌN LỌC" in prompt
-    assert "KHÔNG nêu phần trăm khen/chê" in prompt
+    assert "CHỈ lấy từ `rating_counts`" in prompt
+    assert "TUYỆT ĐỐI KHÔNG dùng số lượng review trong DB để suy ra tỷ lệ khen/chê" in prompt
     assert "CHỈ lấy từ số sàn báo" in prompt
     assert "KHÔNG gợi ý người dùng hoặc tự thu thập thêm đánh giá" in prompt
     assert "`crawl_more(url)`" not in prompt

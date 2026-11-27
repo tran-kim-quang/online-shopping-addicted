@@ -377,8 +377,8 @@ async def test_recollection_uses_per_group_newer_than_dates() -> None:
     )
 
     low, high = client.review_calls()
-    assert low.payload["newerThan"] == "2026-06-01"
-    assert high.payload["newerThan"] == "2026-11-20"
+    assert low.payload["newerThan"] == "2026-06-01T12:00:00Z"
+    assert high.payload["newerThan"] == "2026-11-20T00:00:00Z"
 
 
 async def test_second_collection_only_sends_new_rows_and_maps_them() -> None:

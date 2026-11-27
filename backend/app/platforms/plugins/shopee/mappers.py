@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from app.crawl.types import ProductData, ReviewData, ShopData
+
+logger = logging.getLogger(__name__)
 
 
 def _clean_str(value: Any) -> str | None:
@@ -239,11 +243,20 @@ class MappedReviewItem:
 
 
 @dataclass(slots=True)
+class StarCount:
+    """Per-star rating count and completeness status from actor product_summary."""
+
+    count: int
+    complete: bool
+
+
+@dataclass(slots=True)
 class ParsedReviewsRun:
     """Parsed output of a single ``themineworks~shopee-reviews-scraper`` run."""
 
     items: list[MappedReviewItem] = field(default_factory=list)
     coverages_by_product: dict[str, str] = field(default_factory=dict)
+    star_counts_by_product: dict[str, dict[int, StarCount]] = field(default_factory=dict)
     budget_exhausted: bool = False
 
 
@@ -276,8 +289,11 @@ class ThemineworksReviewsMapper:
         raw_items: list[dict[str, Any]],
         *,
         run_budget_exhausted: bool = False,
+        requested_stars: Sequence[int] | None = None,
     ) -> ParsedReviewsRun:
         parsed = ParsedReviewsRun(budget_exhausted=run_budget_exhausted)
+        pending_fallback_summaries: list[tuple[str, dict[str, Any], bool]] = []
+        summary_stars: list[int] | None = None
 
         for row in raw_items:
             if not isinstance(row, dict):
@@ -289,6 +305,45 @@ class ThemineworksReviewsMapper:
                     cov = _clean_str(row.get("coverage"))
                     if pid and cov:
                         parsed.coverages_by_product[pid] = cov
+                    if pid:
+                        ratings_by_star = row.get("ratings_found_by_star")
+                        if isinstance(ratings_by_star, dict):
+                            star_lists = row.get("star_lists")
+                            if isinstance(star_lists, dict):
+                                star_map: dict[int, StarCount] = {}
+                                for star_key, status_raw in star_lists.items():
+                                    star_num = _to_int(star_key)
+                                    if star_num is None or not (1 <= star_num <= 5):
+                                        continue
+                                    status_str = str(status_raw or "").strip()
+                                    if status_str == "not_requested":
+                                        continue
+                                    count_val = _to_int(ratings_by_star.get(str(star_num)))
+                                    if count_val is None or count_val < 0:
+                                        continue
+                                    if status_str in {"complete", "complete_to_date"}:
+                                        is_complete = True
+                                    elif status_str in {"stopped", "limit_reached"}:
+                                        is_complete = False
+                                    else:
+                                        logger.warning(
+                                            "Unknown star_lists status %r for product %s star %s",
+                                            status_raw,
+                                            pid,
+                                            star_num,
+                                        )
+                                        is_complete = False
+                                    star_map[star_num] = StarCount(
+                                        count=count_val,
+                                        complete=is_complete,
+                                    )
+                                if star_map:
+                                    parsed.star_counts_by_product[pid] = star_map
+                            else:
+                                counts_complete = bool(row.get("counts_complete"))
+                                pending_fallback_summaries.append(
+                                    (pid, ratings_by_star, counts_complete)
+                                )
                 elif row_type == "summary":
                     billing = row.get("billing")
                     billing_exhausted = isinstance(billing, dict) and bool(
@@ -296,6 +351,15 @@ class ThemineworksReviewsMapper:
                     )
                     if bool(row.get("stopped_by_max_cost")) or billing_exhausted:
                         parsed.budget_exhausted = True
+                    raw_stars = row.get("stars")
+                    if isinstance(raw_stars, list):
+                        parsed_stars = [
+                            s
+                            for s in (_to_int(item) for item in raw_stars)
+                            if s is not None and 1 <= s <= 5
+                        ]
+                        if parsed_stars:
+                            summary_stars = parsed_stars
                 continue
 
             review_id = row.get("review_id")
@@ -357,5 +421,23 @@ class ThemineworksReviewsMapper:
                     shop_id=_clean_str(str(row["shop_id"])) if row.get("shop_id") else None,
                 )
             )
+
+        effective_stars = (
+            [s for s in requested_stars if 1 <= s <= 5]
+            if requested_stars is not None
+            else (summary_stars or [1, 2, 3, 4, 5])
+        )
+        for pid, ratings_by_star, counts_complete in pending_fallback_summaries:
+            star_map = parsed.star_counts_by_product.setdefault(pid, {})
+            for star_num in effective_stars:
+                count_val = _to_int(ratings_by_star.get(str(star_num)))
+                if count_val is None or count_val < 0:
+                    continue
+                star_map[star_num] = StarCount(count=count_val, complete=counts_complete)
+
+        if parsed.budget_exhausted:
+            for star_map in parsed.star_counts_by_product.values():
+                for star_num, sc in star_map.items():
+                    star_map[star_num] = StarCount(count=sc.count, complete=False)
 
         return parsed

@@ -21,7 +21,10 @@ from app.crawl.classifier import resolve_and_classify_url
 from app.crawl.errors import CrawlError, ProviderError, UnsupportedPlatformError
 from app.crawl.repository import (
     create_source,
+    extract_newer_than_from_breakdowns,
     get_latest_review_timestamps_by_group,
+    get_product_rating_breakdowns,
+    merge_rating_breakdown,
     update_source,
     upsert_product,
     upsert_reviews,
@@ -351,6 +354,7 @@ async def crawl_url(
             await _emit(on_progress, "product", 1, 1, product_data.title)
 
             newer_than_by_group: dict[str, datetime] | None = None
+            existing_breakdowns: dict[str, dict[str, Any]] = {}
             if (
                 not dry_run
                 and session_factory is not None
@@ -358,11 +362,21 @@ async def crawl_url(
             ):
                 try:
                     async with session_factory() as session:
-                        newer_than_by_group = await get_latest_review_timestamps_by_group(
+                        existing_breakdowns = await get_product_rating_breakdowns(
                             session,
                             platform=parsed.platform,
                             product_external_id=product_data.external_id,
                         )
+                        newer_than_by_group = extract_newer_than_from_breakdowns(
+                            existing_breakdowns
+                        )
+                        fallback_newer = await get_latest_review_timestamps_by_group(
+                            session,
+                            platform=parsed.platform,
+                            product_external_id=product_data.external_id,
+                        )
+                        for grp, ts in fallback_newer.items():
+                            newer_than_by_group.setdefault(grp, ts)
                 except Exception:
                     newer_than_by_group = None
 
@@ -392,6 +406,15 @@ async def crawl_url(
                     product_data.external_id,
                     exc,
                 )
+
+            new_breakdowns = getattr(fetcher, "rating_breakdowns_by_product", None)
+            if isinstance(new_breakdowns, dict) and product_data.external_id in new_breakdowns:
+                merged_bd = merge_rating_breakdown(
+                    existing_breakdowns.get(product_data.external_id),
+                    new_breakdowns[product_data.external_id],
+                )
+                if merged_bd is not None:
+                    product_data = product_data.model_copy(update={"rating_breakdown": merged_bd})
 
             await _emit(
                 on_progress,
@@ -527,14 +550,25 @@ async def crawl_url(
             fetcher, "supports_shop_review_feed", False
         ):
             shop_newer_than: dict[str, datetime] | None = None
+            existing_shop_breakdowns: dict[str, dict[str, Any]] = {}
             if not dry_run and session_factory is not None:
                 try:
                     async with session_factory() as session:
-                        shop_newer_than = await get_latest_review_timestamps_by_group(
+                        existing_shop_breakdowns = await get_product_rating_breakdowns(
                             session,
                             platform=parsed.platform,
                             shop_external_id=shop_data.external_id,
                         )
+                        shop_newer_than = extract_newer_than_from_breakdowns(
+                            existing_shop_breakdowns
+                        )
+                        fallback_shop_newer = await get_latest_review_timestamps_by_group(
+                            session,
+                            platform=parsed.platform,
+                            shop_external_id=shop_data.external_id,
+                        )
+                        for grp, ts in fallback_shop_newer.items():
+                            shop_newer_than.setdefault(grp, ts)
                 except Exception:
                     shop_newer_than = None
 
@@ -556,6 +590,21 @@ async def crawl_url(
                 if ext_id not in seen_ext_ids:
                     products_to_save.append(minimal_prod)
                     seen_ext_ids.add(ext_id)
+            new_shop_breakdowns = getattr(fetcher, "rating_breakdowns_by_product", None)
+            if isinstance(new_shop_breakdowns, dict) and new_shop_breakdowns:
+                products_to_save = [
+                    item.model_copy(
+                        update={
+                            "rating_breakdown": merge_rating_breakdown(
+                                existing_shop_breakdowns.get(item.external_id),
+                                new_shop_breakdowns.get(item.external_id),
+                            )
+                        }
+                    )
+                    if item.external_id in new_shop_breakdowns
+                    else item
+                    for item in products_to_save
+                ]
             stats.products_total = len(products_to_save)
 
             if dry_run:

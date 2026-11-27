@@ -21,6 +21,7 @@ const KNOWN_WARNING_CODES = new Set([
   "stratified_sample",
   "shopee_limit",
   "review_budget_reached",
+  "rating_counts_partial",
   "missing_rating",
 ]);
 

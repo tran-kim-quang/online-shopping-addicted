@@ -10,6 +10,8 @@ export type ProductReportRow = components["schemas"]["ProductReportRow"];
 export type RankingItem = components["schemas"]["RankingItem"];
 export type ReportWarning = components["schemas"]["ReportWarning"];
 export type RatingBucket = components["schemas"]["RatingBucket"];
+export type RatingCountsSummary =
+  components["schemas"]["RatingCountsSummary"];
 export type AspectCount = components["schemas"]["AspectCount"];
 export type PlatformTagCount = components["schemas"]["PlatformTagCount"];
 export type SupportedPlatformInfo =

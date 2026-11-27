@@ -120,6 +120,27 @@ export function formatDateTime(
   return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
 }
 
+export function formatDate(
+  value: string | Date | null | undefined,
+  locale: AppLocale | string
+): string {
+  const date = parseDate(value);
+  if (!date) return EMPTY_VALUE;
+  if (locale.startsWith("en")) {
+    return new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }).format(date);
+  }
+  const parts = extractDateParts(date, "vi-VN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return `${parts.day}/${parts.month}/${parts.year}`;
+}
+
 export function formatShortDateTime(
   value: string | Date | null | undefined,
   locale: AppLocale | string

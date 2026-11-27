@@ -350,6 +350,45 @@ def _get_review_sample_mode(ctx: AgentContext) -> Literal["stratified", "natural
     return "natural"
 
 
+def _format_product_rating_counts(product: Product) -> dict[str, Any] | None:
+    bd = getattr(product, "rating_breakdown", None)
+    if not isinstance(bd, dict):
+        return None
+    stars = bd.get("stars")
+    if not isinstance(stars, dict) or not stars:
+        return None
+
+    star_vals: dict[int, int] = {}
+    star_complete: dict[int, bool] = {}
+    formatted_stars: dict[str, dict[str, Any]] = {}
+    for star in range(1, 6):
+        entry = stars.get(str(star))
+        if isinstance(entry, dict):
+            cnt = max(0, int(entry.get("count", 0)))
+            comp = bool(entry.get("complete"))
+            star_vals[star] = cnt
+            star_complete[star] = comp
+            formatted_stars[str(star)] = {"count": cnt, "complete": comp}
+        else:
+            star_vals[star] = 0
+            star_complete[star] = False
+
+    positive = star_vals[4] + star_vals[5]
+    neutral = star_vals[3]
+    negative = star_vals[1] + star_vals[2]
+    total = positive + neutral + negative
+    return {
+        "positive": positive,
+        "neutral": neutral,
+        "negative": negative,
+        "total": total,
+        "stars": formatted_stars,
+        "complete": all(star_complete.values()),
+        "since": bd.get("since") if isinstance(bd.get("since"), str) else None,
+        "until": bd.get("until") if isinstance(bd.get("until"), str) else None,
+    }
+
+
 async def _run_get_product(ctx: AgentContext, args: GetProductArgs) -> ToolResult:
     scoped = resolve_product_in_scope(ctx, args.product_id)
 
@@ -390,6 +429,7 @@ async def _run_get_product(ctx: AgentContext, args: GetProductArgs) -> ToolResul
         "sold_count": product.sold_count,
         "rating_avg": product.rating_avg,
         "rating_count": product.rating_count,
+        "rating_counts": _format_product_rating_counts(product),
         "review_count": product.review_count,
         "review_sample": _get_review_sample_mode(ctx),
         "positive_review_count": product.positive_review_count,
@@ -527,6 +567,7 @@ async def _run_query_products(ctx: AgentContext, args: QueryProductsArgs) -> Too
                 "sold_count": prod.sold_count,
                 "rating_avg": prod.rating_avg,
                 "rating_count": prod.rating_count,
+                "rating_counts": _format_product_rating_counts(prod),
                 "review_count": prod.review_count,
                 "review_sample": review_sample,
                 "positive_review_count": prod.positive_review_count,
@@ -978,6 +1019,7 @@ async def _run_summarize_reviews(ctx: AgentContext, args: SummarizeReviewsArgs) 
         "title": scoped.title,
         "rating_avg": scoped.rating_avg,
         "rating_count": scoped.rating_count,
+        "rating_counts": _format_product_rating_counts(scoped),
         "review_sample": review_sample,
         "total_reviews_collected": len(reviews),
         "star_distribution": None if review_sample == "stratified" else star_distribution,

@@ -235,7 +235,9 @@ test.describe("source: stratified Shopee report", () => {
     await page.waitForLoadState("networkidle");
 
     await expect(page.getByText("trong mẫu").first()).toBeVisible();
-    await expect(page.getByText("Mẫu chọn lọc (có nội dung)").first()).toBeVisible();
+    await expect(
+      page.getByText("Đã lưu 83 review có nội dung để phân tích").first()
+    ).toBeVisible();
     // No sentiment ratio bar: the KPI card labels counts only.
     await expect(page.getByRole("img", { name: /Tích cực \d+, Trung tính/ })).toHaveCount(0);
   });

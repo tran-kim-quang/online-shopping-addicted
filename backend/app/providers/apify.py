@@ -144,7 +144,7 @@ def _estimate_cost_from_items(
     run_data: dict[str, Any],
     items: list[dict[str, Any]],
 ) -> float | None:
-    """Estimate cost from non-``_type`` dataset rows when ``chargedEventCounts`` is absent."""
+    """Estimate cost from dataset summary row (``charged_for``) or non-``_type`` rows."""
     pricing_info = run_data.get("pricingInfo")
     if not isinstance(pricing_info, dict):
         return None
@@ -154,6 +154,28 @@ def _estimate_cost_from_items(
     events = pricing_per_event.get("actorChargeEvents")
     if not isinstance(events, dict):
         return None
+
+    run_start_price = 0.0
+    run_start_cfg = events.get("run-start")
+    if isinstance(run_start_cfg, dict):
+        price = _to_float(run_start_cfg.get("eventPriceUsd"))
+        if price is not None and price >= 0:
+            run_start_price = price
+
+    for row in items:
+        if not isinstance(row, dict) or row.get("_type") != "summary":
+            continue
+        charged_for = _to_float(row.get("charged_for"))
+        if charged_for is None or charged_for < 0:
+            continue
+        review_cfg = events.get("review")
+        if not isinstance(review_cfg, dict):
+            return None
+        review_price = _to_float(review_cfg.get("eventPriceUsd"))
+        if review_price is None or review_price < 0:
+            return None
+        start_fee = run_start_price if row.get("run_start_charged") else 0.0
+        return round(charged_for * review_price + start_fee, 6)
 
     item_price: float | None = None
     for event_name in ("review", "product"):
@@ -165,13 +187,6 @@ def _estimate_cost_from_items(
                 break
     if item_price is None:
         return None
-
-    run_start_price = 0.0
-    run_start_cfg = events.get("run-start")
-    if isinstance(run_start_cfg, dict):
-        price = _to_float(run_start_cfg.get("eventPriceUsd"))
-        if price is not None and price >= 0:
-            run_start_price = price
 
     item_count = sum(1 for row in items if isinstance(row, dict) and row.get("_type") is None)
     if item_count == 0 and run_start_price == 0.0:
@@ -461,17 +476,29 @@ class ApifyClient:
             prev_snapshot = curr_snapshot
 
         usage_cost = _to_float(run_data.get("usageTotalUsd")) or 0.0
-        charged = run_data.get("chargedEventCounts")
-        if isinstance(charged, dict) and charged:
-            event_cost = _estimate_cost_from_pricing(run_data)
-            cost_usd = round(max(usage_cost, event_cost if event_cost is not None else 0.0), 6)
-            return cost_usd, False, run_data
+        event_cost = _estimate_cost_from_pricing(run_data) or 0.0
+        dataset_cost = _estimate_cost_from_items(run_data, items)
 
-        estimated = _estimate_cost_from_items(run_data, items)
-        if estimated is not None:
-            cost_usd = round(max(usage_cost, estimated), 6)
-            return cost_usd, True, run_data
-        return round(usage_cost, 6), False, run_data
+        reported_cost = max(usage_cost, event_cost)
+        if dataset_cost is not None and dataset_cost > reported_cost:
+            return round(dataset_cost, 6), True, run_data
+        return round(reported_cost, 6), False, run_data
+
+    async def get_run_cost(self, run_id: str) -> float | None:
+        """Fetch latest run metadata once and return ``max(usageTotalUsd, sum(event*price))``."""
+        if not run_id:
+            return None
+        resp = await self._request_json(
+            "GET",
+            f"/v2/actor-runs/{run_id}",
+            params={"waitForFinish": 0},
+        )
+        run_data = resp.get("data") if isinstance(resp, dict) else None
+        if not isinstance(run_data, dict):
+            return None
+        usage_cost = _to_float(run_data.get("usageTotalUsd")) or 0.0
+        event_cost = _estimate_cost_from_pricing(run_data) or 0.0
+        return round(max(usage_cost, event_cost), 6)
 
     async def run_actor(
         self,
