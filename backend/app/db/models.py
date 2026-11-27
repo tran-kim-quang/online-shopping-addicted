@@ -287,6 +287,12 @@ class Product(Base):
         default=dict,
         server_default=text("'{}'::jsonb"),
     )
+    rating_breakdown: Mapped[dict[str, Any] | None] = mapped_column(
+        # `none_as_null` keeps "no data" a SQL NULL instead of a JSON `null`, so the
+        # upsert's `coalesce(excluded, products.rating_breakdown)` cannot erase counts.
+        JSONB(none_as_null=True),
+        nullable=True,
+    )
     positive_review_count: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

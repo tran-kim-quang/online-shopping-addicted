@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -75,6 +76,18 @@ def _resolve_group_coverage(
     return "complete", None
 
 
+def _format_utc_iso(dt: datetime) -> str:
+    return dt.astimezone(UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _subtract_months(dt: datetime, months: int) -> datetime:
+    total_months = dt.year * 12 + (dt.month - 1) - months
+    year, month0 = divmod(total_months, 12)
+    month = month0 + 1
+    max_day = calendar.monthrange(year, month)[1]
+    return dt.replace(year=year, month=month, day=min(dt.day, max_day))
+
+
 class ShopeeFetcher(PlatformFetcher):
     """Shopee data fetcher orchestrating product and 2-group stratified review Apify runs.
 
@@ -143,6 +156,8 @@ class ShopeeFetcher(PlatformFetcher):
         self.cost_usd: float = 0.0
         self.cost_estimated: bool = False
         self.sampling_metadata: dict[str, Any] | None = None
+        self.rating_breakdowns_by_product: dict[str, dict[str, Any]] = {}
+        self._runs: list[dict[str, Any]] = []
         self._shop_cache: dict[str, tuple[ShopData | None, list[ProductData]]] = {}
 
     async def aclose(self) -> None:
@@ -163,11 +178,40 @@ class ShopeeFetcher(PlatformFetcher):
                 ProgressEvent(stage=stage, done=done, total=total, message=message)
             )
 
+    def _record_run(self, kind: str, run_id: str | None, cost_usd: float) -> None:
+        if run_id:
+            self._runs.append(
+                {"kind": kind, "run_id": run_id, "cost_usd": round(float(cost_usd), 6)}
+            )
+
     def _refresh_sampling_cost(self) -> None:
         if self.sampling_metadata is not None:
             self.sampling_metadata["cost_usd"] = round(self.cost_usd, 6)
             if self.cost_estimated:
                 self.sampling_metadata["cost_estimated"] = True
+            if self._runs:
+                self.sampling_metadata["runs"] = [dict(r) for r in self._runs]
+
+    async def _reconcile_runs(self) -> None:
+        """Re-read each recorded Apify run once to capture delayed billing events."""
+        get_run_cost = getattr(self._client, "get_run_cost", None)
+        if not callable(get_run_cost) or not self._runs:
+            return
+        for entry in self._runs:
+            run_id = entry.get("run_id")
+            if not run_id:
+                continue
+            try:
+                reconciled = await get_run_cost(str(run_id))
+                if reconciled is not None:
+                    entry["cost_usd"] = round(
+                        max(float(entry["cost_usd"]), float(reconciled)),
+                        6,
+                    )
+            except Exception as exc:
+                logger.warning("Failed reconciling Apify run %s cost: %s", run_id, exc)
+        self.cost_usd = round(sum(float(r["cost_usd"]) for r in self._runs), 6)
+        self._refresh_sampling_cost()
 
     async def _load_shop_bundle(
         self,
@@ -188,6 +232,7 @@ class ShopeeFetcher(PlatformFetcher):
             heartbeat=self._heartbeat,
         )
         self.cost_usd += run.cost_usd
+        self._record_run("metadata", getattr(run, "run_id", None), run.cost_usd)
         if run.cost_estimated:
             self.cost_estimated = True
         self._refresh_sampling_cost()
@@ -213,6 +258,7 @@ class ShopeeFetcher(PlatformFetcher):
             heartbeat=self._heartbeat,
         )
         self.cost_usd += run.cost_usd
+        self._record_run("metadata", getattr(run, "run_id", None), run.cost_usd)
         if run.cost_estimated:
             self.cost_estimated = True
         self._refresh_sampling_cost()
@@ -293,12 +339,12 @@ class ShopeeFetcher(PlatformFetcher):
     ) -> tuple[list[MappedReviewItem], dict[str, Any]]:
         default_newer = f"{self._window_months} months"
         low_newer = (
-            newer_than_by_group["low"].astimezone(UTC).date().isoformat()
+            _format_utc_iso(newer_than_by_group["low"])
             if newer_than_by_group and "low" in newer_than_by_group
             else default_newer
         )
         high_newer = (
-            newer_than_by_group["high"].astimezone(UTC).date().isoformat()
+            _format_utc_iso(newer_than_by_group["high"])
             if newer_than_by_group and "high" in newer_than_by_group
             else default_newer
         )
@@ -328,7 +374,8 @@ class ShopeeFetcher(PlatformFetcher):
             payload: dict[str, Any],
             budget: float,
             done_now: int,
-        ) -> tuple[ParsedReviewsRun, float, bool]:
+            requested_stars: list[int],
+        ) -> tuple[ParsedReviewsRun, float, bool, datetime | None]:
             if budget <= 0:
                 parsed = ParsedReviewsRun(items=[], coverages_by_product={}, budget_exhausted=True)
                 await self._emit(
@@ -337,17 +384,20 @@ class ShopeeFetcher(PlatformFetcher):
                     2,
                     f"Completed review group '{group_name}' (0 reviews)",
                 )
-                return parsed, 0.0, False
+                return parsed, 0.0, False, None
 
+            started_at = datetime.now(UTC)
             run = await self._client.run_actor(
                 self._reviews_actor_id,
                 payload,
                 max_charge_usd=budget,
                 heartbeat=self._heartbeat,
             )
+            self._record_run(group_name, getattr(run, "run_id", None), run.cost_usd)
             parsed = ThemineworksReviewsMapper.parse_items(
                 run.items,
                 run_budget_exhausted=run.budget_exhausted,
+                requested_stars=requested_stars,
             )
             await self._emit(
                 "provider_reviews",
@@ -355,9 +405,11 @@ class ShopeeFetcher(PlatformFetcher):
                 2,
                 f"Completed review group '{group_name}' ({len(parsed.items)} reviews)",
             )
-            return parsed, run.cost_usd, run.cost_estimated
+            return parsed, run.cost_usd, run.cost_estimated, started_at
 
-        low_parsed, low_cost, low_estimated = await _run_group("low", low_input, low_budget, 1)
+        low_parsed, low_cost, low_estimated, low_started_at = await _run_group(
+            "low", low_input, low_budget, 1, [1, 2, 3]
+        )
         self.cost_usd += low_cost
         if low_estimated:
             self.cost_estimated = True
@@ -366,13 +418,46 @@ class ShopeeFetcher(PlatformFetcher):
         high_budget = round(max(0.0, self._max_cost_usd - self.cost_usd), 4)
         if high_budget < _MIN_HIGH_GROUP_BUDGET_USD:
             high_budget = 0.0
-        high_parsed, high_cost, high_estimated = await _run_group(
-            "high", high_input, high_budget, 2
+        high_parsed, high_cost, high_estimated, high_started_at = await _run_group(
+            "high", high_input, high_budget, 2, [4, 5]
         )
         self.cost_usd += high_cost
         if high_estimated:
             self.cost_estimated = True
         self._refresh_sampling_cost()
+
+        breakdowns: dict[str, dict[str, Any]] = {}
+        low_since_dt = (
+            newer_than_by_group["low"].astimezone(UTC)
+            if newer_than_by_group and "low" in newer_than_by_group
+            else _subtract_months(low_started_at or datetime.now(UTC), self._window_months)
+        )
+        since_iso = _format_utc_iso(low_since_dt)
+        all_pids = set(low_parsed.star_counts_by_product) | set(high_parsed.star_counts_by_product)
+        for pid in all_pids:
+            stars_dict: dict[str, dict[str, Any]] = {}
+            until_by_group: dict[str, str] = {}
+            low_counts = low_parsed.star_counts_by_product.get(pid)
+            if low_counts:
+                for star_num, sc in low_counts.items():
+                    stars_dict[str(star_num)] = {"count": sc.count, "complete": sc.complete}
+                if low_started_at is not None:
+                    until_by_group["low"] = _format_utc_iso(low_started_at)
+            high_counts = high_parsed.star_counts_by_product.get(pid)
+            if high_counts:
+                for star_num, sc in high_counts.items():
+                    stars_dict[str(star_num)] = {"count": sc.count, "complete": sc.complete}
+                if high_started_at is not None:
+                    until_by_group["high"] = _format_utc_iso(high_started_at)
+            if stars_dict and until_by_group:
+                breakdowns[pid] = {
+                    "source": "apify_review_summary",
+                    "since": since_iso,
+                    "until": min(until_by_group.values()),
+                    "until_by_group": until_by_group,
+                    "stars": stars_dict,
+                }
+        self.rating_breakdowns_by_product = breakdowns
 
         def _build_group_entry(
             name: str,
@@ -423,7 +508,11 @@ class ShopeeFetcher(PlatformFetcher):
         }
         if self.cost_estimated:
             sampling["cost_estimated"] = True
+        if self._runs:
+            sampling["runs"] = [dict(r) for r in self._runs]
         self.sampling_metadata = sampling
+
+        await self._reconcile_runs()
 
         deduped: dict[str, MappedReviewItem] = {}
         for item in [*low_parsed.items, *high_parsed.items]:

@@ -138,8 +138,9 @@ async def test_migration_0002_creates_tables(session_factory: Any) -> None:
         revision = (await session.execute(text("SELECT version_num FROM alembic_version"))).scalar()
 
     assert {"sources", "shops", "products", "reviews"} <= tables
-    # Phase 6 adds 0005_data_providers on top of 0004_chat (this fixture's ``upgrade head``).
-    assert revision == "0005_data_providers"
+    # Later phases keep stacking migrations (this fixture runs ``upgrade head``); 0006 adds
+    # ``products.rating_breakdown`` and none of the crawl tables from 0002 disappear.
+    assert revision == "0006_product_rating_breakdown"
 
 
 async def test_migration_0002_creates_expected_constraints_and_indexes(

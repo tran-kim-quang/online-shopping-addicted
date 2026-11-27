@@ -141,6 +141,10 @@
       "notPublishedByShopee": "Not published by Shopee",
       "notPublishedByPlatform": "Not published by platform",
       "stratifiedReviewsNote": "Stratified sample (with comments)",
+      "stratifiedReviewsSaved": "Saved {count} reviews with content for analysis",
+      "platformRatingCountSince": "{total} ratings since {since}",
+      "platformCountsComplete": "Based on {total} Shopee ratings since {since}",
+      "platformCountsIncomplete": "Share of {total} ratings read since {since}",
       "sentiment": "Review sentiment",
       "inSample": "in sample",
       "positive": "Positive",
@@ -151,6 +155,8 @@
     "ratingDistribution": {
       "title": "Star distribution",
       "subtitle": "Based on {count} collected reviews",
+      "subtitlePlatformComplete": "Based on {total} Shopee ratings since {since}",
+      "subtitlePlatformIncomplete": "Share of {total} ratings read since {since}",
       "starLabel": "{stars} stars",
       "empty": "No reviews collected yet to display star distribution.",
       "srTableCaption": "Star rating count and percentage breakdown"
@@ -243,6 +249,7 @@
     "stratified_sample": "Reviews are a stratified sample (prioritizing 1–3★ with comments in the last {window_months} months, max {low} low / {high} high); do not use to compute praise/complaint ratios.",
     "shopee_limit": "Shopee limits the number of reviews returned for some products; not all reviews may be fetched.",
     "review_budget_reached": "Review collection stopped early because the per-link cost ceiling was reached.",
+    "rating_counts_partial": "Shopee limits how many ratings can be read, so star shares are based on the ratings read, not all ratings.",
     "missing_rating": "{products} product(s) do not have a published rating from {platform}."
   },
   "chat": {
