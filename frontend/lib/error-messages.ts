@@ -22,6 +22,12 @@ const KNOWN_ERROR_KEYS = new Set([
   "provider_bad_input",
   "provider_unavailable",
   "wrong_provider",
+  "system_disabled",
+  "system_quota_exceeded",
+  "admin_disabled",
+  "admin_bad_password",
+  "admin_locked",
+  "admin_required",
   "llm_failed",
   "unsafe_url",
   "source_not_ready",
@@ -97,4 +103,18 @@ export function translateUnknownError(
     return error.message;
   }
   return tErrors("unknown_error");
+}
+
+const SYSTEM_ERROR_CODES = new Set(["system_disabled", "system_quota_exceeded"]);
+
+/**
+ * Settings page where the user can switch from the admin's shared config to their own,
+ * for errors raised by a shared admin resource; ``null`` for any other error.
+ */
+export function selfConfigureHref(
+  code: string | null | undefined,
+  kind: string | null | undefined
+): string | null {
+  if (!code || !SYSTEM_ERROR_CODES.has(code)) return null;
+  return kind === "llm" ? "/settings/llm" : "/settings/data-sources";
 }

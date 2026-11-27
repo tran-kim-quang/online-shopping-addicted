@@ -4,6 +4,214 @@
  */
 
 export interface paths {
+    "/api/admin/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Admin Config
+         * @description Return masked system LLM, Apify, and ScrapeCreators configurations and today's usage.
+         */
+        get: operations["get_admin_config_api_admin_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/llm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Upsert Admin Llm
+         * @description Create or update the system LLM profile.
+         */
+        put: operations["upsert_admin_llm_api_admin_llm_put"];
+        post?: never;
+        /**
+         * Delete Admin Llm
+         * @description Delete the system LLM profile.
+         */
+        delete: operations["delete_admin_llm_api_admin_llm_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/llm/sharing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Admin Llm Sharing
+         * @description Toggle ``shared_enabled`` and ``daily_limit`` on the system LLM profile.
+         */
+        patch: operations["update_admin_llm_sharing_api_admin_llm_sharing_patch"];
+        trace?: never;
+    };
+    "/api/admin/llm/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Admin Llm
+         * @description Re-probe the system LLM profile.
+         */
+        post: operations["test_admin_llm_api_admin_llm_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admin Login
+         * @description Authenticate admin with ``ADMIN_PASSWORD`` and set ``sqa_admin`` cookie.
+         */
+        post: operations["admin_login_api_admin_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admin Logout
+         * @description Clear the ``sqa_admin`` session cookie.
+         */
+        post: operations["admin_logout_api_admin_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/providers/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Upsert Admin Provider
+         * @description Create or update a system data provider profile (``apify`` or ``scrapecreators``).
+         */
+        put: operations["upsert_admin_provider_api_admin_providers__provider__put"];
+        post?: never;
+        /**
+         * Delete Admin Provider
+         * @description Delete a system data provider profile.
+         */
+        delete: operations["delete_admin_provider_api_admin_providers__provider__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/providers/{provider}/sharing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Admin Provider Sharing
+         * @description Toggle ``shared_enabled`` and ``daily_limit`` on a system data provider profile.
+         */
+        patch: operations["update_admin_provider_sharing_api_admin_providers__provider__sharing_patch"];
+        trace?: never;
+    };
+    "/api/admin/providers/{provider}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify Admin Provider
+         * @description Verify the system data provider token against Apify or ScrapeCreators.
+         */
+        post: operations["verify_admin_provider_api_admin_providers__provider__verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Admin Session
+         * @description Return whether the current browser holds a valid ``sqa_admin`` session.
+         */
+        get: operations["admin_session_api_admin_session_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat": {
         parameters: {
             query?: never;
@@ -33,7 +241,7 @@ export interface paths {
         };
         /**
          * List Chat Sessions
-         * @description List chat sessions (newest updated first), optionally filtered by ``source_id``.
+         * @description List chat sessions owned by the current user (newest updated first).
          */
         get: operations["list_chat_sessions_api_chat_sessions_get"];
         put?: never;
@@ -77,7 +285,7 @@ export interface paths {
         };
         /**
          * List Data Provider Profiles
-         * @description List saved data provider profiles with masked API tokens.
+         * @description List saved data provider profiles owned by the current user with masked API tokens.
          */
         get: operations["list_data_provider_profiles_api_data_providers_profiles_get"];
         put?: never;
@@ -225,7 +433,7 @@ export interface paths {
         };
         /**
          * List Profiles
-         * @description List saved LLM profiles with masked API keys.
+         * @description List saved LLM profiles owned by the current user with masked API keys.
          */
         get: operations["list_profiles_api_llm_profiles_get"];
         put?: never;
@@ -337,7 +545,7 @@ export interface paths {
         };
         /**
          * List Sources
-         * @description List sources with pagination, optional filters, and SQL-aggregated counts (no N+1).
+         * @description List sources in the current user's history with pagination and SQL-aggregated counts.
          */
         get: operations["list_sources_api_sources_get"];
         put?: never;
@@ -448,6 +656,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get System Options
+         * @description Return whether admin-shared LLM, Apify, and ScrapeCreators configs are available.
+         */
+        get: operations["get_system_options_api_system_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/trends/searches": {
         parameters: {
             query?: never;
@@ -457,7 +685,7 @@ export interface paths {
         };
         /**
          * List Trend Searches
-         * @description List recent TikTok brand trend searches without full result payloads.
+         * @description List recent TikTok brand trend searches in the current user's history.
          */
         get: operations["list_trend_searches_api_trends_searches_get"];
         put?: never;
@@ -516,6 +744,172 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AdminConfigResponse
+         * @description Response for ``GET /api/admin/config``.
+         */
+        AdminConfigResponse: {
+            apify?: components["schemas"]["AdminDataProviderConfigItem"] | null;
+            llm?: components["schemas"]["AdminLLMConfigItem"] | null;
+            scrapecreators?: components["schemas"]["AdminDataProviderConfigItem"] | null;
+        };
+        /**
+         * AdminDataProviderConfigItem
+         * @description Masked representation of a system data provider profile.
+         */
+        AdminDataProviderConfigItem: {
+            /** Account Info */
+            account_info?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Api Key Status
+             * @enum {string}
+             */
+            api_key_status: "set" | "undecryptable";
+            /** Daily Limit */
+            daily_limit: number | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Masked Key */
+            masked_key: string | null;
+            /** Max Cost Usd Per Link */
+            max_cost_usd_per_link?: number | null;
+            /** Max Credits Per Search */
+            max_credits_per_search?: number | null;
+            /** Name */
+            name: string;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "apify" | "scrapecreators";
+            /** Shared Enabled */
+            shared_enabled: boolean;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Used Today */
+            used_today: number;
+        };
+        /**
+         * AdminLLMConfigItem
+         * @description Masked representation of the system LLM profile.
+         */
+        AdminLLMConfigItem: {
+            /**
+             * Api Key Status
+             * @enum {string}
+             */
+            api_key_status: "set" | "none" | "undecryptable";
+            /** Base Url */
+            base_url: string;
+            /** Capabilities */
+            capabilities: {
+                [key: string]: unknown;
+            };
+            /** Chat Model */
+            chat_model: string;
+            /** Daily Limit */
+            daily_limit: number | null;
+            /** Embedding Model */
+            embedding_model: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Tested At */
+            last_tested_at?: string | null;
+            /** Masked Key */
+            masked_key: string | null;
+            /** Max Context Tokens */
+            max_context_tokens: number;
+            /** Name */
+            name: string;
+            /** Shared Enabled */
+            shared_enabled: boolean;
+            /** Small Model */
+            small_model: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Used Today */
+            used_today: number;
+        };
+        /**
+         * AdminLoginRequest
+         * @description Payload for ``POST /api/admin/login``.
+         */
+        AdminLoginRequest: {
+            /** Password */
+            password: string;
+        };
+        /**
+         * AdminSessionResponse
+         * @description Response for ``GET /api/admin/session`` and ``POST /api/admin/login``.
+         */
+        AdminSessionResponse: {
+            /** Authenticated */
+            authenticated: boolean;
+        };
+        /**
+         * AdminSharingUpdateRequest
+         * @description Payload for ``PATCH /api/admin/*\/sharing``.
+         */
+        AdminSharingUpdateRequest: {
+            /** Daily Limit */
+            daily_limit?: number | string | null;
+            /** Shared Enabled */
+            shared_enabled: boolean;
+        };
+        /**
+         * AdminUpsertLLMRequest
+         * @description Payload for ``PUT /api/admin/llm``.
+         */
+        AdminUpsertLLMRequest: {
+            /** Api Key */
+            api_key?: string | null;
+            /** Base Url */
+            base_url: string;
+            /** Chat Model */
+            chat_model: string;
+            /** Embedding Model */
+            embedding_model?: string | null;
+            /**
+             * Max Context Tokens
+             * @default 32000
+             */
+            max_context_tokens: number;
+            /**
+             * Name
+             * @default Shared LLM
+             */
+            name: string;
+            /** Small Model */
+            small_model?: string | null;
+        };
+        /**
+         * AdminUpsertProviderRequest
+         * @description Payload for ``PUT /api/admin/providers/{provider}``.
+         */
+        AdminUpsertProviderRequest: {
+            /** Api Token */
+            api_token?: string | null;
+            /** Max Cost Usd Per Link */
+            max_cost_usd_per_link?: number | string | null;
+            /** Max Credits Per Search */
+            max_credits_per_search?: number | null;
+            /** Name */
+            name: string;
+        };
         /**
          * AnalyzeQueuedResponse
          * @description 202 response when an async Arq LLM sentiment analysis job has been enqueued.
@@ -1620,6 +2014,72 @@ export interface components {
             supported: true;
         };
         /**
+         * SystemApifyOption
+         * @description Availability and quota summary for the admin-shared Apify configuration.
+         */
+        SystemApifyOption: {
+            /**
+             * Available
+             * @default false
+             */
+            available: boolean;
+            /** Max Cost Usd Per Link */
+            max_cost_usd_per_link?: number | null;
+            /** Profile Id */
+            profile_id?: string | null;
+            /** Remaining Today */
+            remaining_today?: number | null;
+        };
+        /**
+         * SystemLLMOption
+         * @description Availability and quota summary for the admin-shared LLM configuration.
+         */
+        SystemLLMOption: {
+            /**
+             * Available
+             * @default false
+             */
+            available: boolean;
+            /** Capabilities */
+            capabilities?: {
+                [key: string]: unknown;
+            } | null;
+            /** Chat Model */
+            chat_model?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Profile Id */
+            profile_id?: string | null;
+            /** Remaining Today */
+            remaining_today?: number | null;
+        };
+        /**
+         * SystemOptionsResponse
+         * @description Response payload for ``GET /api/system-options``.
+         */
+        SystemOptionsResponse: {
+            apify: components["schemas"]["SystemApifyOption"];
+            llm: components["schemas"]["SystemLLMOption"];
+            scrapecreators: components["schemas"]["SystemScrapeCreatorsOption"];
+        };
+        /**
+         * SystemScrapeCreatorsOption
+         * @description Availability and quota summary for the admin-shared ScrapeCreators configuration.
+         */
+        SystemScrapeCreatorsOption: {
+            /**
+             * Available
+             * @default false
+             */
+            available: boolean;
+            /** Max Credits Per Search */
+            max_credits_per_search?: number | null;
+            /** Profile Id */
+            profile_id?: string | null;
+            /** Remaining Today */
+            remaining_today?: number | null;
+        };
+        /**
          * TrendBrand
          * @description Ranked brand entry in a completed trend search.
          */
@@ -1880,6 +2340,333 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_admin_config_api_admin_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminConfigResponse"];
+                };
+            };
+        };
+    };
+    upsert_admin_llm_api_admin_llm_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminUpsertLLMRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminLLMConfigItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_admin_llm_api_admin_llm_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update_admin_llm_sharing_api_admin_llm_sharing_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminSharingUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminLLMConfigItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_admin_llm_api_admin_llm_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminLLMConfigItem"];
+                };
+            };
+        };
+    };
+    admin_login_api_admin_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_logout_api_admin_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSessionResponse"];
+                };
+            };
+        };
+    };
+    upsert_admin_provider_api_admin_providers__provider__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: "apify" | "scrapecreators";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminUpsertProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDataProviderConfigItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_admin_provider_api_admin_providers__provider__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: "apify" | "scrapecreators";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_admin_provider_sharing_api_admin_providers__provider__sharing_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: "apify" | "scrapecreators";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminSharingUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDataProviderConfigItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_admin_provider_api_admin_providers__provider__verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: "apify" | "scrapecreators";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerifyDataProviderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_session_api_admin_session_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSessionResponse"];
+                };
+            };
+        };
+    };
     chat_stream_endpoint_api_chat_post: {
         parameters: {
             query?: never;
@@ -2777,6 +3564,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_system_options_api_system_options_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemOptionsResponse"];
                 };
             };
         };

@@ -26,6 +26,13 @@ export interface DataProviderDialogProps {
   onOpenChange: (open: boolean) => void;
   editingProfile: DataProviderProfileResponse | null;
   onSaved: (profile: DataProviderProfileResponse) => void;
+  fixedProvider?: ProviderKind;
+  onSubmitOverride?: (payload: {
+    name: string;
+    api_token?: string;
+    max_cost_usd_per_link?: number;
+    max_credits_per_search?: number;
+  }) => Promise<DataProviderProfileResponse>;
 }
 
 const MIN_COST = 0.05;
@@ -41,6 +48,8 @@ export function DataProviderDialog({
   onOpenChange,
   editingProfile,
   onSaved,
+  fixedProvider,
+  onSubmitOverride,
 }: DataProviderDialogProps) {
   const t = useTranslations("dataProviders.form");
   const tCommon = useTranslations("common");
@@ -74,12 +83,12 @@ export function DataProviderDialog({
       );
     } else {
       setName("");
-      setProvider("apify");
+      setProvider(fixedProvider ?? "apify");
       setApiToken("");
       setMaxCost("0.50");
       setMaxCredits(String(DEFAULT_CREDITS));
     }
-  }, [open, editingProfile]);
+  }, [open, editingProfile, fixedProvider]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -131,7 +140,25 @@ export function DataProviderDialog({
     setIsSubmitting(true);
     try {
       let saved: DataProviderProfileResponse;
-      if (editingProfile) {
+      if (onSubmitOverride) {
+        const payload: {
+          name: string;
+          api_token?: string;
+          max_cost_usd_per_link?: number;
+          max_credits_per_search?: number;
+        } = {
+          name: cleanedName,
+        };
+        if (provider === "apify") {
+          payload.max_cost_usd_per_link = Math.round(parsedCost * 100) / 100;
+        } else {
+          payload.max_credits_per_search = parsedCredits;
+        }
+        if (cleanedToken) {
+          payload.api_token = cleanedToken;
+        }
+        saved = await onSubmitOverride(payload);
+      } else if (editingProfile) {
         const payload: {
           name?: string;
           api_token?: string;
@@ -195,7 +222,7 @@ export function DataProviderDialog({
 
           <div className="space-y-1.5">
             <Label htmlFor="dp-provider">{t("providerLabel")}</Label>
-            {isEditing ? (
+            {isEditing || fixedProvider ? (
               <Input
                 id="dp-provider"
                 value={

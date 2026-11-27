@@ -6,11 +6,14 @@ import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.admin import is_admin_enabled
+from app.api.admin import router as admin_router
 from app.api.chat import router as chat_router
 from app.api.data_providers import router as data_providers_router
 from app.api.health import router as health_router
@@ -21,6 +24,7 @@ from app.api.platforms import router as platforms_router
 from app.api.reports import router as reports_router
 from app.api.search import router as search_router
 from app.api.sources import router as sources_router
+from app.api.system_options import router as system_options_router
 from app.api.trends import router as trends_router
 from app.cache.redis import RedisClient
 from app.core.config import DEFAULT_CORS_ALLOW_ORIGINS, get_settings, parse_cors_origins
@@ -30,13 +34,17 @@ from app.core.errors import (
     LLMError,
     LLMInvalidResponseError,
     LLMNotFoundError,
+    LLMQuotaExceededError,
     LLMRateLimitError,
     LLMUnavailableError,
+    SystemProfileDisabledError,
+    SystemQuotaExceededError,
     sanitize_error_message,
 )
 from app.db.database import Database
 from app.jobs.queue import JobQueue
 from app.llm.registry import LLMClientRegistry
+from app.security.cookies import USER_COOKIE_NAME
 from app.security.secrets import SecretBox, SecretBoxError
 from app.security.url_validator import UnsafeURLError
 
@@ -81,6 +89,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     JobQueue().init(settings.REDIS_URL)
     SecretBox().init(settings.SECRET_KEY)
     LLMClientRegistry().configure(max_clients=settings.LLM_REGISTRY_MAX_CLIENTS)
+    if not is_admin_enabled(settings):
+        logging.getLogger(__name__).warning(
+            "ADMIN_PASSWORD is unset or shorter than 12 characters; /api/admin/* is disabled."
+        )
 
     try:
         yield
@@ -113,11 +125,23 @@ def create_app() -> FastAPI:
     application.add_middleware(
         CORSMiddleware,
         allow_origins=_resolve_cors_origins(),
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "PATCH", "DELETE"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Content-Type", "Last-Event-ID"],
         expose_headers=["Content-Disposition"],
     )
+
+    @application.middleware("http")
+    async def _attach_uid_cookie(request: Request, call_next: Any) -> Any:
+        resp = await call_next(request)
+        cookie_kwargs = getattr(request.state, "pending_uid_cookie", None)
+        already_set = any(
+            name.lower() == b"set-cookie" and value.startswith(f"{USER_COOKIE_NAME}=".encode())
+            for name, value in resp.raw_headers
+        )
+        if isinstance(cookie_kwargs, dict) and not already_set:
+            resp.set_cookie(**cookie_kwargs)
+        return resp
 
     @application.exception_handler(UnsafeURLError)
     async def _handle_unsafe_url(_request: Request, exc: UnsafeURLError) -> JSONResponse:
@@ -184,6 +208,36 @@ def create_app() -> FastAPI:
             content={"error": "llm_invalid_response", "detail": exc.message},
         )
 
+    @application.exception_handler(SystemProfileDisabledError)
+    async def _handle_system_profile_disabled(
+        _request: Request,
+        exc: SystemProfileDisabledError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"error": "system_disabled", "kind": exc.kind, "detail": exc.detail},
+        )
+
+    @application.exception_handler(SystemQuotaExceededError)
+    async def _handle_system_quota_exceeded(
+        _request: Request,
+        exc: SystemQuotaExceededError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content={"error": "system_quota_exceeded", "kind": exc.kind, "detail": exc.detail},
+        )
+
+    @application.exception_handler(LLMQuotaExceededError)
+    async def _handle_llm_quota_exceeded(
+        _request: Request,
+        exc: LLMQuotaExceededError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content={"error": "system_quota_exceeded", "kind": exc.kind, "detail": exc.message},
+        )
+
     @application.exception_handler(LLMError)
     async def _handle_llm_error(_request: Request, exc: LLMError) -> JSONResponse:
         return JSONResponse(
@@ -192,6 +246,8 @@ def create_app() -> FastAPI:
         )
 
     application.include_router(health_router)
+    application.include_router(admin_router)
+    application.include_router(system_options_router)
     application.include_router(platforms_router)
     application.include_router(data_providers_router)
     application.include_router(llm_profiles_router)

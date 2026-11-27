@@ -68,8 +68,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
-  const { profiles, activeProfile, setActiveProfileId, isLoading } =
-    useActiveProfile();
+  const {
+    profiles,
+    activeProfile,
+    isUsingSystem,
+    systemOption,
+    setActiveProfileId,
+    isLoading,
+  } = useActiveProfile();
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
 
@@ -123,7 +129,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return <div className="h-8 w-44 animate-pulse rounded-md bg-muted" />;
     }
 
-    if (!activeProfile) {
+    if (!activeProfile && !isUsingSystem) {
       return (
         <Link
           href="/settings/llm"
@@ -140,6 +146,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
       );
     }
+
+    const chipName = isUsingSystem
+      ? (systemOption?.name ?? t("adminSharedLabel"))
+      : (activeProfile?.name ?? "");
+    const chipModel = isUsingSystem
+      ? (systemOption?.chat_model ?? "")
+      : (activeProfile?.chat_model ?? "");
+    const chipDotColor = isUsingSystem
+      ? "bg-success"
+      : activeProfile
+        ? getProfileDotColor(activeProfile)
+        : "bg-muted-foreground";
 
     return (
       <DropdownMenu>
@@ -158,17 +176,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         >
           <span className="inline-flex min-w-0 items-center gap-1.5">
             <span
-              className={cn(
-                "size-2 shrink-0 rounded-full",
-                getProfileDotColor(activeProfile)
-              )}
+              className={cn("size-2 shrink-0 rounded-full", chipDotColor)}
               aria-hidden="true"
             />
-            <span className="truncate font-medium">{activeProfile.name}</span>
-            <span className="text-muted-foreground">·</span>
-            <span className="truncate font-mono text-[11px] text-muted-foreground">
-              {shortenModelName(activeProfile.chat_model)}
-            </span>
+            <span className="truncate font-medium">{chipName}</span>
+            {chipModel && (
+              <>
+                <span className="text-muted-foreground">·</span>
+                <span className="truncate font-mono text-[11px] text-muted-foreground">
+                  {shortenModelName(chipModel)}
+                </span>
+              </>
+            )}
           </span>
           <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
         </DropdownMenuTrigger>
@@ -176,8 +195,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <DropdownMenuGroup>
             <DropdownMenuLabel>{t("selectProfile")}</DropdownMenuLabel>
             <DropdownMenuSeparator />
+            {systemOption?.available && systemOption.profile_id && (
+              <DropdownMenuItem
+                onClick={() => {
+                  setActiveProfileId("system");
+                  setMobileOpen(false);
+                }}
+                className="flex items-center justify-between gap-2 py-2"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="size-2 shrink-0 rounded-full bg-success"
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">
+                      {systemOption.name ?? t("adminSharedLabel")}
+                    </div>
+                    {systemOption.chat_model && (
+                      <div className="truncate font-mono text-xs text-muted-foreground">
+                        {systemOption.chat_model}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {isUsingSystem && (
+                  <Check className="size-4 shrink-0 text-primary" />
+                )}
+              </DropdownMenuItem>
+            )}
             {profiles.map((profile) => {
-              const isSelected = profile.id === activeProfile.id;
+              const isSelected =
+                !isUsingSystem && profile.id === activeProfile?.id;
               return (
                 <DropdownMenuItem
                   key={profile.id}

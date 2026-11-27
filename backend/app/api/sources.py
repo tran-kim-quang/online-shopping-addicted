@@ -19,9 +19,12 @@ from app.api.deps import (
     get_secret_box,
     get_session,
     get_settings,
+    get_user_id,
 )
+from app.api.profile_resolver import resolve_llm_profile
+from app.api.user_history import upsert_user_source
 from app.core.config import Settings
-from app.db.models import Chunk, LLMProfile, Review, Source
+from app.db.models import Chunk, Review, Source
 from app.ingest.pipeline import resolve_source_scope
 from app.ingest.sentiment import count_reviews_needing_analysis
 from app.jobs.events import ANALYZE_LOCK_TTL_SECONDS, TERMINAL_JOB_STATUSES, JobEvents
@@ -171,16 +174,17 @@ async def list_sources(
     url_type: str | None = Query(default=None),
     platform: str | None = Query(default=None),
     fresh: bool = Query(default=False),
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> SourceListResponse:
-    """List sources with pagination, optional filters, and SQL-aggregated counts (no N+1)."""
+    """List sources in the current user's history with pagination and SQL-aggregated counts."""
     clean_status = _normalize_optional_filter(status_filter)
     clean_url_type = _normalize_optional_filter(url_type)
     clean_platform = _normalize_optional_filter(platform)
 
     where_clauses: list[str] = []
-    params: dict[str, Any] = {"limit": limit, "offset": offset}
+    params: dict[str, Any] = {"limit": limit, "offset": offset, "user_id": user_id}
     if clean_status is not None:
         where_clauses.append("s.status = :status")
         params["status"] = clean_status
@@ -200,7 +204,14 @@ async def list_sources(
 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
-    count_stmt = text(f"SELECT COUNT(*)::int AS total FROM sources s {where_sql}")
+    count_stmt = text(
+        f"""
+        SELECT COUNT(*)::int AS total
+        FROM sources s
+        JOIN user_sources us ON us.source_id = s.id AND us.user_id = :user_id
+        {where_sql}
+        """
+    )
     total = int((await session.execute(count_stmt, params)).scalar_one() or 0)
     if total == 0 or offset >= total:
         return SourceListResponse(items=[], total=total)
@@ -220,6 +231,7 @@ async def list_sources(
                 s.crawled_at,
                 s.updated_at
             FROM sources s
+            JOIN user_sources us ON us.source_id = s.id AND us.user_id = :user_id
             {where_sql}
             ORDER BY s.updated_at DESC, s.id DESC
             LIMIT :limit OFFSET :offset
@@ -353,6 +365,7 @@ async def list_sources(
                 COUNT(*)::int AS chat_sessions_count
             FROM chat_sessions cs
             JOIN page_sources ps ON ps.id = cs.source_id
+            WHERE cs.user_id = :user_id
             GROUP BY cs.source_id
         )
         SELECT
@@ -414,12 +427,15 @@ async def list_sources(
 @router.get("/{source_id}", response_model=SourceSummaryResponse)
 async def get_source_summary(
     source_id: uuid.UUID,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> SourceSummaryResponse:
     """Return a summary of a crawled/ingested source: shop, counts, sentiment, chunks."""
     source = await session.get(Source, source_id)
     if source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found.")
+    await upsert_user_source(session, user_id, source.id)
+    await session.commit()
 
     shop, products = await resolve_source_scope(session, source)
     product_ids = [p.id for p in products]
@@ -547,6 +563,7 @@ def _analysis_running_response(source_id: uuid.UUID, running_job_id: str | None)
 async def analyze_source_reviews_endpoint(
     source_id: uuid.UUID,
     body: AnalyzeSourceRequest,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
     settings: Settings = Depends(get_settings),  # noqa: B008
     secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
@@ -569,9 +586,7 @@ async def analyze_source_reviews_endpoint(
             },
         )
 
-    profile = await session.get(LLMProfile, body.llm_profile_id)
-    if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="LLM profile not found.")
+    profile = await resolve_llm_profile(session, body.llm_profile_id, user_id)
 
     # Decrypt API key up front so SecretBoxError returns 409 secret_key_mismatch JSON.
     if profile.api_key_enc:

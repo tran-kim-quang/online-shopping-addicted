@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,9 +24,9 @@ from app.crawl.types import ProgressEvent
 from app.db.database import Database
 from app.db.models import DataProviderProfile, LLMProfile, Product, TrendSearch
 from app.llm.client import LLMClient
+from app.llm.profile_config import build_llm_config
 from app.llm.registry import LLMClientRegistry
 from app.llm.structured import complete_json
-from app.llm.types import LLMConfig
 from app.providers.scrapecreators import ScrapeCreatorsClient, TikTokComment, TikTokVideo
 from app.security.secrets import SecretBox
 from app.trends.config import (
@@ -169,18 +169,7 @@ class TrendService(metaclass=SingletonMeta):
         settings: Settings,
         secret_box: SecretBox,
     ) -> LLMClient:
-        raw_key: str | None = None
-        if profile.api_key_enc:
-            raw_key = secret_box.decrypt(profile.api_key_enc)
-        config = LLMConfig(
-            base_url=profile.base_url,
-            api_key=SecretStr(raw_key) if raw_key else None,
-            chat_model=profile.chat_model,
-            small_model=profile.small_model,
-            embedding_model=profile.embedding_model,
-            timeout=settings.LLM_TIMEOUT_SECONDS,
-            max_retries=settings.LLM_MAX_RETRIES,
-        )
+        config = build_llm_config(profile, settings, secret_box=secret_box)
         return await LLMClientRegistry().get(config)
 
     async def _mark_failed(

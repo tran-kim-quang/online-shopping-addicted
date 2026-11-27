@@ -7,11 +7,12 @@ LLM do người dùng tự cấu hình: bất kỳ endpoint nào tương thích 
 ## Kiến trúc
 
 ```
-Next.js (web) ──HTTP/SSE──> FastAPI (api) ──> Postgres + pgvector
-                                 │                 ▲
-                                 └─ Arq queue ─> worker (crawl, ingest, phân tích)
-                                     (Redis)        │
-                                                    └─> sàn TMĐT / LLM của người dùng
+trình duyệt ──> nginx ──┬──> Next.js (web)
+                        └──> FastAPI (api) ──> Postgres + pgvector
+                     (/api, SSE)  │                 ▲
+                                  └─ Arq queue ─> worker (crawl, ingest, phân tích, xu hướng)
+                                      (Redis)        │
+                                                     └─> sàn TMĐT / TikTok / LLM
 ```
 
 | Thành phần | Công nghệ |
@@ -21,7 +22,8 @@ Next.js (web) ──HTTP/SSE──> FastAPI (api) ──> Postgres + pgvector
 | Lưu trữ | Postgres + pgvector (sản phẩm, shop, review, chunk + embedding, phiên chat) |
 | Embedding | `bge-m3` chạy local (không tốn phí, không gửi dữ liệu ra ngoài) |
 | Frontend | Next.js 15, React 19, TypeScript strict, Tailwind v4, shadcn/ui (Base UI), TanStack Query, next-intl (vi/en) |
-| Đóng gói | Docker Compose: `db`, `redis`, `api`, `worker`, `web` |
+| Đóng gói | Docker Compose: `nginx`, `web`, `api`, `worker`, `db`, `redis` |
+| Reverse proxy | nginx: một origin cho web + API, tắt buffer cho SSE, ghi đè `X-Forwarded-For`, giới hạn tần suất đăng nhập admin |
 
 Thiết kế dùng **Singleton** cho các tài nguyên dùng chung (Database, Redis, SecretBox, registry client LLM, registry adapter).
 
@@ -59,9 +61,16 @@ Trang **Xu hướng**: nhập keyword (vd "kem chống nắng") để biết hã
 - Điểm mỗi video = like + 2×bình luận + 3×share + 2×lưu, giảm một nửa sau mỗi 10 ngày; video nhắc nhiều hãng thì chia đều. Hãng cần xuất hiện ở ít nhất 2 video, hoặc 1 video từ 1 triệu lượt xem (gắn nhãn "Chỉ 1 video").
 - Mỗi hãng có tỷ lệ khen/trung lập/chê, nhãn "Nhiều quảng cáo" (theo cờ quảng cáo/hợp tác trả phí của TikTok và hashtag) và video dẫn chứng. Không lưu video, bình luận thô hay tên người bình luận.
 
+## Trang admin và cấu hình dùng chung
+
+- Trang `/admin` (đăng nhập bằng `ADMIN_PASSWORD` ≥ 12 ký tự trong `.env`) cấu hình key dùng chung cho **LLM**, **Apify** (Shopee) và **ScrapeCreators** (TikTok). Mỗi mục có công tắc "Cho người dùng dùng" và hạn mức/ngày tính chung cho mọi người dùng (LLM: số lượt gọi; Apify: USD; ScrapeCreators: credit).
+- Ở trang cài đặt, người dùng chọn "Dùng cấu hình của admin" (khi admin bật) hoặc "Tự cấu hình" cho từng loại. Hết hạn mức hoặc admin tắt thì app báo và dẫn sang tự cấu hình.
+- Người dùng được tách theo trình duyệt bằng cookie ẩn danh có chữ ký: profile, key, chat và lịch sử của ai người nấy thấy. Dữ liệu đã crawl và kết quả xu hướng cùng keyword dùng chung làm cache.
+
 ## Bảo mật và dữ liệu
 
-- API key LLM và token nhà cung cấp dữ liệu (Apify, ScrapeCreators) được mã hoá (Fernet) trong DB, luôn trả về dạng che; hệ thống không có token mặc định.
+- API key LLM và token nhà cung cấp dữ liệu (Apify, ScrapeCreators), kể cả key của admin, được mã hoá (Fernet) trong DB và luôn trả về dạng che; không đọc key từ biến môi trường.
+- Phiên admin là cookie `HttpOnly`, `SameSite=Strict`, hết hạn sau 12 giờ và mất hiệu lực khi đổi mật khẩu; khoá IP sau 5 lần sai trong 15 phút, nginx giới hạn thêm tần suất đăng nhập.
 - Mọi request ra ngoài đi qua kiểm tra URL chống SSRF (chặn IP nội bộ, kiểm tra lại sau redirect, ghim DNS).
 - Nội dung thu thập được coi là dữ liệu không tin cậy (chống prompt injection trong review/mô tả).
 - CSV chống formula injection; mặc định không xuất tên người đánh giá.
@@ -91,6 +100,8 @@ Trang **Xu hướng**: nhập keyword (vd "kem chống nắng") để biết hã
 | CRUD | `/api/data-providers/profiles…` (+ verify) | Quản lý nhà cung cấp dữ liệu (Apify, ScrapeCreators) |
 | POST/GET | `/api/trends/searches`, `/api/trends/searches/{id}` | Tìm hãng đang hot trên TikTok (hoặc trả cache 24 giờ), lịch sử và kết quả |
 | GET | `/api/platforms` | Danh sách sàn và mẫu URL |
+| GET | `/api/system-options` | Cấu hình dùng chung của admin đang bật và hạn mức còn lại (không lộ key) |
+| POST/GET/PUT/PATCH/DELETE | `/api/admin/…` | Đăng nhập admin, cấu hình key dùng chung, công tắc và hạn mức |
 
 Tài liệu đầy đủ: Swagger tại `/docs` khi chạy API, schema tại `backend/openapi.json`.
 

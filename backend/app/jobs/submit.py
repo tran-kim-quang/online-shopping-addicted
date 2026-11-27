@@ -140,6 +140,8 @@ async def submit_parsed_ingest(
     data_provider_profile_id: uuid.UUID | None = None,
     max_products: int | None = None,
     max_reviews: int | None = None,
+    user_id: str | None = None,
+    before_enqueue: Callable[[], Awaitable[None]] | None = None,
 ) -> IngestSubmitResult:
     """Check TTL cache for ``parsed`` and enqueue an Arq ingest job on cache miss."""
     if settings.CRAWL_CACHE_TTL_HOURS > 0:
@@ -169,6 +171,9 @@ async def submit_parsed_ingest(
                 refresh_after=refresh_after,
             )
 
+    if before_enqueue is not None:
+        await before_enqueue()
+
     job_id = str(uuid.uuid4())
     await job_events.create_job(job_id, url=parsed.canonical_url)
     await job_events.emit(
@@ -187,6 +192,8 @@ async def submit_parsed_ingest(
     }
     if data_provider_profile_id is not None:
         enqueue_kwargs["data_provider_profile_id"] = str(data_provider_profile_id)
+    if user_id is not None:
+        enqueue_kwargs["user_id"] = user_id
     await job_queue.enqueue_ingest(**enqueue_kwargs)
     return IngestSubmitResult(
         cached=False,

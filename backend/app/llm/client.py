@@ -14,8 +14,10 @@ from app.core.errors import (
     LLMBadRequestError,
     LLMError,
     LLMInvalidResponseError,
+    LLMQuotaExceededError,
     map_openai_error,
 )
+from app.core.system_usage import SystemUsage
 from app.llm.types import (
     ChatResult,
     LLMConfig,
@@ -129,6 +131,20 @@ class LLMClient:
         except Exception as exc:
             raise map_openai_error(exc, api_key=self._raw_key) from exc
 
+    async def _consume_system_quota_if_needed(self) -> None:
+        if not self.config.usage_kind:
+            return
+        allowed = await SystemUsage().try_consume(
+            self.config.usage_kind,
+            1.0,
+            self.config.daily_limit,
+        )
+        if not allowed:
+            raise LLMQuotaExceededError(
+                "Hạn mức LLM dùng chung hôm nay đã hết.",
+                kind=self.config.usage_kind,
+            )
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -141,6 +157,7 @@ class LLMClient:
         max_tokens: int | None = None,
     ) -> ChatResult:
         """Execute a non-streaming chat completion request."""
+        await self._consume_system_quota_if_needed()
         kwargs = self._build_chat_kwargs(
             messages,
             model=model,
@@ -200,6 +217,7 @@ class LLMClient:
         max_tokens: int | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Execute a streaming chat completion request, yielding normalized events."""
+        await self._consume_system_quota_if_needed()
         kwargs = self._build_chat_kwargs(
             messages,
             model=model,

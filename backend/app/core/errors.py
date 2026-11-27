@@ -68,6 +68,37 @@ class LLMRateLimitError(LLMError):
     """Provider rate limit exceeded (HTTP 429)."""
 
 
+class LLMQuotaExceededError(LLMError):
+    """Daily system quota for shared LLM key exceeded."""
+
+    def __init__(
+        self,
+        message: str = "Daily system LLM quota exceeded.",
+        *,
+        kind: str = "llm",
+    ) -> None:
+        super().__init__(message, status_code=429)
+        self.kind = kind
+
+
+class SystemProfileDisabledError(Exception):
+    """Raised when a user requests a system profile that admin has disabled."""
+
+    def __init__(self, *, kind: str, detail: str | None = None) -> None:
+        self.kind = kind
+        self.detail = detail or f"Shared {kind} configuration is currently disabled by admin."
+        super().__init__(self.detail)
+
+
+class SystemQuotaExceededError(Exception):
+    """Raised when a system data provider daily quota is exceeded before enqueueing."""
+
+    def __init__(self, *, kind: str, detail: str | None = None) -> None:
+        self.kind = kind
+        self.detail = detail or f"Daily system quota exceeded for {kind}."
+        super().__init__(self.detail)
+
+
 class LLMUnavailableError(LLMError):
     """Provider server error, timeout, or connection failure (5xx / network)."""
 

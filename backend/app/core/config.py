@@ -117,6 +117,9 @@ class Settings(BaseSettings):
     CORS_ALLOW_ORIGINS: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: list(DEFAULT_CORS_ALLOW_ORIGINS),
     )
+    ADMIN_PASSWORD: SecretStr | None = None
+    COOKIE_SECURE: bool = False
+    TRUST_PROXY_HEADERS: bool = False
 
     @field_validator("CORS_ALLOW_ORIGINS", mode="before")
     @classmethod

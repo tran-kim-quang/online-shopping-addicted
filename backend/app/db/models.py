@@ -10,6 +10,7 @@ from typing import Any
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     CHAR,
+    Boolean,
     CheckConstraint,
     Computed,
     DateTime,
@@ -35,6 +36,14 @@ class LLMProfile(Base):
     """User-configured OpenAI-compatible LLM provider profile."""
 
     __tablename__ = "llm_profiles"
+    __table_args__ = (
+        Index(
+            "uq_llm_profiles_system",
+            "user_id",
+            unique=True,
+            postgresql_where=text("user_id = 'system'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -66,6 +75,16 @@ class LLMProfile(Base):
         default=dict,
         server_default=text("'{}'::jsonb"),
     )
+    shared_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    daily_limit: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -91,6 +110,13 @@ class DataProviderProfile(Base):
         CheckConstraint(
             "max_credits_per_search IS NULL OR (max_credits_per_search BETWEEN 5 AND 100)",
             name="ck_data_provider_profiles_max_credits",
+        ),
+        Index(
+            "uq_data_provider_profiles_system_provider",
+            "user_id",
+            "provider",
+            unique=True,
+            postgresql_where=text("user_id = 'system'"),
         ),
     )
 
@@ -124,6 +150,16 @@ class DataProviderProfile(Base):
         nullable=False,
         default=dict,
         server_default=text("'{}'::jsonb"),
+    )
+    shared_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    daily_limit: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4),
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -724,4 +760,54 @@ class TrendSearch(Base):
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+
+
+class UserSource(Base):
+    """Per-browser-user link to a crawl source for personal history."""
+
+    __tablename__ = "user_sources"
+    __table_args__ = (Index("ix_user_sources_user_last_seen", "user_id", text("last_seen DESC")),)
+
+    user_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    first_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    last_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class UserTrendSearch(Base):
+    """Per-browser-user link to a trend search for personal history."""
+
+    __tablename__ = "user_trend_searches"
+    __table_args__ = (
+        Index("ix_user_trend_searches_user_last_seen", "user_id", text("last_seen DESC")),
+    )
+
+    user_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    trend_search_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("trend_searches.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    first_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    last_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )

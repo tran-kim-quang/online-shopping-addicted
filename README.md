@@ -19,15 +19,17 @@ python3 -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().d
 
 Dán giá trị sinh ra vào `SECRET_KEY` trong `.env`.
 
-### 2. Chạy bằng Docker Compose (Postgres + pgvector, Redis, API)
+### 2. Chạy bằng Docker Compose (nginx, web, API, worker, Postgres + pgvector, Redis)
 
 ```bash
 docker compose up -d --build
-curl http://localhost:8000/health
+curl http://localhost/health
 ```
 
-Các cổng mặc định trên host:
-- API: `http://localhost:8000` (Swagger UI tại `/docs`)
+nginx là cổng vào duy nhất (`HTTP_PORT`, mặc định 80): `/api`, `/health`, `/docs` đi tới API, còn lại tới web.
+API và web không mở cổng ra host.
+
+- Ứng dụng: `http://localhost` (Swagger UI tại `/docs`, trang admin tại `/vi/admin`)
 - Postgres (pgvector): `localhost:5433`
 - Redis: `localhost:6380`
 

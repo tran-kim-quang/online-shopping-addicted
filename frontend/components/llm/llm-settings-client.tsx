@@ -19,9 +19,11 @@ import type { AppLocale } from "@/i18n/routing";
 import {
   LLM_PROFILES_QUERY_KEY,
   useActiveProfile,
+  useSystemOptions,
 } from "@/components/providers";
 import { CapabilityBadges } from "@/components/llm/capability-badges";
 import { LlmProfileDialog } from "@/components/llm/llm-profile-dialog";
+import { ConfigSourceSelector } from "@/components/settings/config-source-selector";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,7 +43,7 @@ import {
   testLlmProfile,
   type ProfileResponse,
 } from "@/lib/api/client";
-import { formatShortDateTime } from "@/lib/format";
+import { formatNumber, formatShortDateTime } from "@/lib/format";
 import { translateUnknownError } from "@/lib/error-messages";
 
 function extractHost(url: string): string {
@@ -54,12 +56,19 @@ function extractHost(url: string): string {
 
 export function LlmSettingsClient() {
   const t = useTranslations("llm");
+  const tSystem = useTranslations("system");
   const tCommon = useTranslations("common");
   const tErrors = useTranslations("errors");
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
-  const { profiles, activeProfileId, setActiveProfileId, isLoading } =
-    useActiveProfile();
+  const { data: systemOptions } = useSystemOptions();
+  const {
+    profiles,
+    activeProfileId,
+    isUsingSystem,
+    setActiveProfileId,
+    isLoading,
+  } = useActiveProfile();
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingProfile, setEditingProfile] =
@@ -132,6 +141,42 @@ export function LlmSettingsClient() {
           <span>{t("addProfile")}</span>
         </Button>
       </header>
+
+      <ConfigSourceSelector
+        idPrefix="llm"
+        legend={tSystem("sourceLegend")}
+        mode={isUsingSystem ? "system" : "custom"}
+        onModeChange={(nextMode) => {
+          if (nextMode === "system") {
+            setActiveProfileId("system");
+          } else {
+            setActiveProfileId(profiles[0]?.id ?? null);
+          }
+        }}
+        adminLabel={tSystem("useAdminConfig")}
+        adminDescription={
+          systemOptions?.llm.available
+            ? tSystem("llmAdminDescription", {
+                name: systemOptions.llm.name ?? tSystem("adminSharedLabel"),
+                model: systemOptions.llm.chat_model ?? "",
+                remaining:
+                  systemOptions.llm.remaining_today !== null &&
+                  systemOptions.llm.remaining_today !== undefined
+                    ? tSystem("remainingCalls", {
+                        count: formatNumber(
+                          systemOptions.llm.remaining_today,
+                          locale
+                        ),
+                      })
+                    : tSystem("unlimitedToday"),
+              })
+            : ""
+        }
+        adminAvailable={Boolean(systemOptions?.llm.available)}
+        adminUnavailableReason={tSystem("adminUnavailableReason")}
+        customLabel={tSystem("useCustomConfig")}
+        customDescription={tSystem("llmCustomDescription")}
+      />
 
       {isLoading ? (
         <div aria-busy="true" className="space-y-3">

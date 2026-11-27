@@ -269,6 +269,7 @@ async def run_ingest(
     max_products: int | None = None,
     max_reviews: int | None = None,
     data_provider_profile_id: str | uuid.UUID | None = None,
+    user_id: str | None = None,
     **legacy_kwargs: Any,
 ) -> dict[str, Any]:
     """Arq task: crawl ``url`` then run ``ingest_source``, streaming progress via ``JobEvents``.
@@ -362,6 +363,21 @@ async def run_ingest(
 
         crawl_result = await crawl_url(url, **crawl_kwargs)
 
+        if parsed_provider_id is not None and getattr(crawl_result, "cost_usd", 0.0) > 0:
+            try:
+                from app.core.system_usage import SystemUsage
+                from app.db.database import Database
+                from app.db.models import DataProviderProfile
+                from app.security.cookies import SYSTEM_USER_ID
+
+                sf = session_factory if session_factory is not None else Database().session_factory
+                async with sf() as usage_session:
+                    prov = await usage_session.get(DataProviderProfile, parsed_provider_id)
+                    if prov is not None and prov.user_id == SYSTEM_USER_ID:
+                        await SystemUsage().add(prov.provider, float(crawl_result.cost_usd))
+            except Exception as exc:
+                logger.warning("Failed recording system provider cost for job %s: %s", job_id, exc)
+
         if crawl_result.source_id is not None:
             resolved_source_id = str(crawl_result.source_id)
             if resolved_source_id != runtime.source_id_str:
@@ -372,6 +388,26 @@ async def run_ingest(
                     "running",
                     source_id=runtime.source_id_str,
                 )
+            if user_id:
+                try:
+                    from app.api.user_history import upsert_user_source
+                    from app.db.database import Database
+
+                    sf = (
+                        session_factory
+                        if session_factory is not None
+                        else Database().session_factory
+                    )
+                    async with sf() as hist_session:
+                        await upsert_user_source(hist_session, user_id, crawl_result.source_id)
+                        await hist_session.commit()
+                except Exception as exc:
+                    logger.warning(
+                        "Failed recording user_source (%s, %s): %s",
+                        user_id,
+                        crawl_result.source_id,
+                        exc,
+                    )
 
         if crawl_result.status == "failed" or crawl_result.source_id is None:
             error_msg = crawl_result.error or "Crawl failed."
@@ -562,11 +598,19 @@ async def run_trend_search(
     search_id_str = str(parsed_id)
 
     lock_identity: list[tuple[str, str]] = []
+    system_provider_kind: list[str] = []
     sf = session_factory if session_factory is not None else Database().session_factory
     async with sf() as session:
         row = await session.get(TrendSearch, parsed_id)
         if row is not None:
-            lock_identity.append((row.user_id, row.keyword_norm))
+            lock_identity.append(("global", row.keyword_norm))
+            if row.data_provider_profile_id is not None:
+                from app.db.models import DataProviderProfile
+                from app.security.cookies import SYSTEM_USER_ID
+
+                prov = await session.get(DataProviderProfile, row.data_provider_profile_id)
+                if prov is not None and prov.user_id == SYSTEM_USER_ID:
+                    system_provider_kind.append(prov.provider)
 
     async def _on_trend_progress(ev: ProgressEvent) -> None:
         await events.emit(
@@ -609,6 +653,13 @@ async def run_trend_search(
             raise
         final_status = "done" if result.status == "completed" else result.status
         final_error = result.error or ""
+        if system_provider_kind and result.credits_used > 0:
+            try:
+                from app.core.system_usage import SystemUsage
+
+                await SystemUsage().add(system_provider_kind[0], float(result.credits_used))
+            except Exception as exc:
+                logger.warning("Failed recording system trend credits for job %s: %s", job_id, exc)
         await runtime.stop_heartbeat()
         await _set_status_or_cancel(
             events,

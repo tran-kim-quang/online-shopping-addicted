@@ -20,8 +20,10 @@ import type { AppLocale } from "@/i18n/routing";
 import {
   DATA_PROVIDER_PROFILES_QUERY_KEY,
   useActiveDataProvider,
+  useSystemOptions,
 } from "@/components/providers";
 import { DataProviderDialog } from "@/components/data-providers/data-provider-dialog";
+import { ConfigSourceSelector } from "@/components/settings/config-source-selector";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,12 +52,20 @@ import { translateUnknownError } from "@/lib/error-messages";
 
 export function DataProvidersClient() {
   const t = useTranslations("dataProviders");
+  const tSystem = useTranslations("system");
   const tCommon = useTranslations("common");
   const tErrors = useTranslations("errors");
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
-  const { profiles, activeProfileId, setActiveProfileId, isLoading } =
-    useActiveDataProvider();
+  const { data: systemOptions } = useSystemOptions();
+  const {
+    profiles,
+    activeProfileId,
+    isProviderUsingSystem,
+    setActiveProfileId,
+    setProviderSelection,
+    isLoading,
+  } = useActiveDataProvider();
 
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingProfile, setEditingProfile] =
@@ -153,6 +163,88 @@ export function DataProvidersClient() {
       <div className="flex items-start gap-2.5 rounded-[10px] border border-border bg-muted/40 p-3.5 text-xs text-muted-foreground">
         <Info className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
         <p className="leading-relaxed">{t("billingNote")}</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4">
+        <ConfigSourceSelector
+          idPrefix="apify"
+          legend={tSystem("apifyLegend")}
+          mode={isProviderUsingSystem("apify") ? "system" : "custom"}
+          onModeChange={(nextMode) => {
+            if (nextMode === "system") {
+              setProviderSelection("apify", "system");
+            } else {
+              const firstApify = profiles.find((p) => p.provider === "apify");
+              setProviderSelection("apify", firstApify?.id ?? null);
+            }
+          }}
+          adminLabel={tSystem("useAdminConfig")}
+          adminDescription={
+            systemOptions?.apify.available
+              ? tSystem("apifyAdminDescription", {
+                  maxCost: formatCurrencyUsd(
+                    systemOptions.apify.max_cost_usd_per_link ?? 0.5,
+                    locale
+                  ),
+                  remaining:
+                    systemOptions.apify.remaining_today !== null &&
+                    systemOptions.apify.remaining_today !== undefined
+                      ? tSystem("remainingUsd", {
+                          amount: formatCurrencyUsd(
+                            systemOptions.apify.remaining_today,
+                            locale
+                          ),
+                        })
+                      : tSystem("unlimitedToday"),
+                })
+              : ""
+          }
+          adminAvailable={Boolean(systemOptions?.apify.available)}
+          adminUnavailableReason={tSystem("adminUnavailableReason")}
+          customLabel={tSystem("useCustomConfig")}
+          customDescription={tSystem("apifyCustomDescription")}
+        />
+
+        <ConfigSourceSelector
+          idPrefix="scrapecreators"
+          legend={tSystem("scrapeCreatorsLegend")}
+          mode={isProviderUsingSystem("scrapecreators") ? "system" : "custom"}
+          onModeChange={(nextMode) => {
+            if (nextMode === "system") {
+              setProviderSelection("scrapecreators", "system");
+            } else {
+              const firstSc = profiles.find(
+                (p) => p.provider === "scrapecreators"
+              );
+              setProviderSelection("scrapecreators", firstSc?.id ?? null);
+            }
+          }}
+          adminLabel={tSystem("useAdminConfig")}
+          adminDescription={
+            systemOptions?.scrapecreators.available
+              ? tSystem("scrapeCreatorsAdminDescription", {
+                  maxCredits: formatNumber(
+                    systemOptions.scrapecreators.max_credits_per_search ?? 15,
+                    locale
+                  ),
+                  remaining:
+                    systemOptions.scrapecreators.remaining_today !== null &&
+                    systemOptions.scrapecreators.remaining_today !== undefined
+                      ? tSystem("remainingCredits", {
+                          count: formatNumber(
+                            systemOptions.scrapecreators.remaining_today,
+                            locale
+                          ),
+                        })
+                      : tSystem("unlimitedToday"),
+                })
+              : ""
+          }
+          adminAvailable={Boolean(systemOptions?.scrapecreators.available)}
+          adminUnavailableReason={tSystem("adminUnavailableReason")}
+          customLabel={tSystem("useCustomConfig")}
+          customDescription={tSystem("scrapeCreatorsCustomDescription")}
+        />
       </div>
 
       {isLoading ? (

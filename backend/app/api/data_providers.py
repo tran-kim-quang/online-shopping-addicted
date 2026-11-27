@@ -21,6 +21,7 @@ from app.api.deps import (
     get_scrapecreators_client_factory,
     get_secret_box,
     get_session,
+    get_user_id,
 )
 from app.crawl.errors import ProviderError
 from app.db.models import DataProviderProfile
@@ -149,12 +150,15 @@ def _to_response(
 
 @router.get("/profiles", response_model=list[DataProviderProfileResponse])
 async def list_data_provider_profiles(
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
     secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
 ) -> list[DataProviderProfileResponse]:
-    """List saved data provider profiles with masked API tokens."""
+    """List saved data provider profiles owned by the current user with masked API tokens."""
     result = await session.execute(
-        select(DataProviderProfile).order_by(DataProviderProfile.created_at.desc())
+        select(DataProviderProfile)
+        .where(DataProviderProfile.user_id == user_id)
+        .order_by(DataProviderProfile.created_at.desc())
     )
     profiles = result.scalars().all()
     return [_to_response(p, secret_box) for p in profiles]
@@ -167,12 +171,14 @@ async def list_data_provider_profiles(
 )
 async def create_data_provider_profile(
     body: CreateDataProviderProfileRequest,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
     secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
 ) -> DataProviderProfileResponse:
     """Encrypt token and create a new data provider profile."""
     token_enc = secret_box.encrypt(body.api_token)
     profile = DataProviderProfile(
+        user_id=user_id,
         provider=body.provider,
         name=body.name,
         api_token_enc=token_enc,
@@ -190,12 +196,13 @@ async def create_data_provider_profile(
 async def update_data_provider_profile(
     profile_id: uuid.UUID,
     body: UpdateDataProviderProfileRequest,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
     secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
 ) -> DataProviderProfileResponse:
     """Update profile name, token, or per-link cost ceiling."""
     profile = await session.get(DataProviderProfile, profile_id)
-    if profile is None:
+    if profile is None or profile.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Data provider profile not found.",
@@ -229,11 +236,12 @@ async def update_data_provider_profile(
 @router.delete("/profiles/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_data_provider_profile(
     profile_id: uuid.UUID,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> Response:
     """Delete a data provider profile."""
     profile = await session.get(DataProviderProfile, profile_id)
-    if profile is None:
+    if profile is None or profile.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Data provider profile not found.",
@@ -243,31 +251,15 @@ async def delete_data_provider_profile(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post(
-    "/profiles/{profile_id}/verify",
-    response_model=VerifyDataProviderResponse,
-    responses={
-        409: {"description": "Stored token cannot be decrypted with current SECRET_KEY."},
-        422: {"description": "Provider authentication failed."},
-    },
-)
-async def verify_data_provider_profile(
-    profile_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-    secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
-    client_factory: ApifyClientFactory = Depends(get_apify_client_factory),  # noqa: B008
-    sc_client_factory: ScrapeCreatorsClientFactory = Depends(  # noqa: B008
-        get_scrapecreators_client_factory
-    ),
+async def verify_data_provider_record(
+    profile: DataProviderProfile,
+    *,
+    session: AsyncSession,
+    secret_box: SecretBox,
+    client_factory: ApifyClientFactory,
+    sc_client_factory: ScrapeCreatorsClientFactory,
 ) -> VerifyDataProviderResponse | JSONResponse:
-    """Verify the saved provider token against Apify or ScrapeCreators."""
-    profile = await session.get(DataProviderProfile, profile_id)
-    if profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Data provider profile not found.",
-        )
-
+    """Verify a ``DataProviderProfile`` token and update ``account_info``."""
     plaintext_token = secret_box.decrypt(profile.api_token_enc)
 
     if profile.provider == "scrapecreators":
@@ -327,4 +319,39 @@ async def verify_data_provider_profile(
         plan=info.plan,
         monthly_usage_usd=info.monthly_usage_usd,
         monthly_limit_usd=info.monthly_limit_usd,
+    )
+
+
+@router.post(
+    "/profiles/{profile_id}/verify",
+    response_model=VerifyDataProviderResponse,
+    responses={
+        409: {"description": "Stored token cannot be decrypted with current SECRET_KEY."},
+        422: {"description": "Provider authentication failed."},
+    },
+)
+async def verify_data_provider_profile(
+    profile_id: uuid.UUID,
+    user_id: str = Depends(get_user_id),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+    secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
+    client_factory: ApifyClientFactory = Depends(get_apify_client_factory),  # noqa: B008
+    sc_client_factory: ScrapeCreatorsClientFactory = Depends(  # noqa: B008
+        get_scrapecreators_client_factory
+    ),
+) -> VerifyDataProviderResponse | JSONResponse:
+    """Verify the saved provider token against Apify or ScrapeCreators."""
+    profile = await session.get(DataProviderProfile, profile_id)
+    if profile is None or profile.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Data provider profile not found.",
+        )
+
+    return await verify_data_provider_record(
+        profile,
+        session=session,
+        secret_box=secret_box,
+        client_factory=client_factory,
+        sc_client_factory=sc_client_factory,
     )

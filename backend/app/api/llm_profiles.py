@@ -20,10 +20,12 @@ from app.api.deps import (
     get_session,
     get_settings,
     get_url_resolver,
+    get_user_id,
 )
 from app.core.config import Settings
 from app.db.models import LLMProfile
 from app.llm.capabilities import probe
+from app.llm.profile_config import build_llm_config
 from app.llm.registry import LLMClientRegistry
 from app.llm.types import LLMConfig
 from app.llm.url import normalize_base_url
@@ -202,38 +204,41 @@ async def list_provider_models(
     return ListModelsResponse(models=models)
 
 
-@router.post(
-    "/profiles",
-    response_model=ProfileResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_profile(
-    body: CreateProfileRequest,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-    registry: LLMClientRegistry = Depends(get_registry),  # noqa: B008
-    secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
-    settings: Settings = Depends(get_settings),  # noqa: B008
-    resolver: DNSResolver | None = Depends(get_url_resolver),  # noqa: B008
-) -> ProfileResponse | JSONResponse:
-    """Validate URL, probe provider capabilities, encrypt key, and save profile."""
+async def create_llm_profile_record(
+    *,
+    user_id: str,
+    name: str,
+    base_url: str,
+    api_key: str | None,
+    chat_model: str,
+    small_model: str | None,
+    embedding_model: str | None,
+    max_context_tokens: int,
+    session: AsyncSession,
+    registry: LLMClientRegistry,
+    secret_box: SecretBox,
+    settings: Settings,
+    resolver: DNSResolver | None,
+) -> tuple[LLMProfile | None, JSONResponse | None]:
+    """Validate URL, probe capabilities, encrypt key, and create an ``LLMProfile`` row."""
     safe_url = await _normalize_and_validate_url(
-        body.base_url,
+        base_url,
         settings=settings,
         resolver=resolver,
     )
     config = _build_config(
         base_url=safe_url,
-        api_key=body.api_key,
-        chat_model=body.chat_model,
-        small_model=body.small_model,
-        embedding_model=body.embedding_model,
+        api_key=api_key,
+        chat_model=chat_model,
+        small_model=small_model,
+        embedding_model=embedding_model,
         settings=settings,
     )
     client = await registry.get(config)
     caps = await probe(client, config, timeout=settings.LLM_PROBE_TIMEOUT_SECONDS)
 
     if not caps.chat:
-        return JSONResponse(
+        return None, JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={
                 "error": "llm_probe_failed",
@@ -243,63 +248,42 @@ async def create_profile(
             },
         )
 
-    api_key_enc = secret_box.encrypt(body.api_key) if body.api_key else None
+    api_key_enc = secret_box.encrypt(api_key) if api_key else None
     profile = LLMProfile(
-        name=body.name,
+        user_id=user_id,
+        name=name,
         base_url=safe_url,
         api_key_enc=api_key_enc,
-        chat_model=body.chat_model,
-        small_model=body.small_model,
-        embedding_model=body.embedding_model,
-        max_context_tokens=body.max_context_tokens,
+        chat_model=chat_model,
+        small_model=small_model,
+        embedding_model=embedding_model,
+        max_context_tokens=max_context_tokens,
         capabilities=caps.model_dump(mode="json"),
     )
     session.add(profile)
     await session.commit()
     await session.refresh(profile)
-    return _to_response(profile, secret_box)
+    return profile, None
 
 
-@router.get("/profiles", response_model=list[ProfileResponse])
-async def list_profiles(
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-    secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
-) -> list[ProfileResponse]:
-    """List saved LLM profiles with masked API keys."""
-    result = await session.execute(select(LLMProfile).order_by(LLMProfile.created_at.desc()))
-    profiles = result.scalars().all()
-    return [_to_response(p, secret_box) for p in profiles]
-
-
-@router.get("/profiles/{profile_id}", response_model=ProfileResponse)
-async def get_profile(
-    profile_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-    secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
-) -> ProfileResponse:
-    """Get a single LLM profile by ID."""
-    profile = await session.get(LLMProfile, profile_id)
-    if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found.")
-    return _to_response(profile, secret_box)
-
-
-@router.patch("/profiles/{profile_id}", response_model=ProfileResponse)
-async def update_profile(
-    profile_id: uuid.UUID,
-    body: UpdateProfileRequest,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-    registry: LLMClientRegistry = Depends(get_registry),  # noqa: B008
-    secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
-    settings: Settings = Depends(get_settings),  # noqa: B008
-    resolver: DNSResolver | None = Depends(get_url_resolver),  # noqa: B008
-) -> ProfileResponse | JSONResponse:
-    """Update an LLM profile; re-probes and invalidates cache when connection/model changes."""
-    profile = await session.get(LLMProfile, profile_id)
-    if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found.")
-
-    fields_set = body.model_fields_set
+async def update_llm_profile_record(
+    profile: LLMProfile,
+    *,
+    fields_set: set[str],
+    name: str | None,
+    base_url: str | None,
+    api_key: str | None,
+    chat_model: str | None,
+    small_model: str | None,
+    embedding_model: str | None,
+    max_context_tokens: int | None,
+    session: AsyncSession,
+    registry: LLMClientRegistry,
+    secret_box: SecretBox,
+    settings: Settings,
+    resolver: DNSResolver | None,
+) -> tuple[LLMProfile | None, JSONResponse | None]:
+    """Update an ``LLMProfile`` row; re-probes and invalidates cache on changes."""
     old_api_key: str | None = None
     old_config: LLMConfig | None = None
     try:
@@ -312,19 +296,12 @@ async def update_profile(
             profile.id,
         )
     else:
-        old_config = _build_config(
-            base_url=profile.base_url,
-            api_key=old_api_key,
-            chat_model=profile.chat_model,
-            small_model=profile.small_model,
-            embedding_model=profile.embedding_model,
-            settings=settings,
-        )
+        old_config = build_llm_config(profile, settings, secret_box=secret_box)
 
     new_base_url = profile.base_url
-    if "base_url" in fields_set and body.base_url is not None:
+    if "base_url" in fields_set and base_url is not None:
         new_base_url = await _normalize_and_validate_url(
-            body.base_url,
+            base_url,
             settings=settings,
             resolver=resolver,
         )
@@ -336,7 +313,7 @@ async def update_profile(
         and "api_key" not in fields_set
         and _origin(new_base_url) != _origin(profile.base_url)
     ):
-        return JSONResponse(
+        return None, JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={
                 "error": "api_key_required_on_host_change",
@@ -347,15 +324,13 @@ async def update_profile(
             },
         )
 
-    new_api_key = body.api_key if "api_key" in fields_set else old_api_key
+    new_api_key = api_key if "api_key" in fields_set else old_api_key
     new_chat_model = (
-        body.chat_model
-        if "chat_model" in fields_set and body.chat_model is not None
-        else profile.chat_model
+        chat_model if "chat_model" in fields_set and chat_model is not None else profile.chat_model
     )
-    new_small_model = body.small_model if "small_model" in fields_set else profile.small_model
+    new_small_model = small_model if "small_model" in fields_set else profile.small_model
     new_embedding_model = (
-        body.embedding_model if "embedding_model" in fields_set else profile.embedding_model
+        embedding_model if "embedding_model" in fields_set else profile.embedding_model
     )
 
     needs_reprobe = bool(fields_set & _REPROBE_FIELDS)
@@ -373,7 +348,7 @@ async def update_profile(
         client = await registry.get(new_config)
         caps = await probe(client, new_config, timeout=settings.LLM_PROBE_TIMEOUT_SECONDS)
         if not caps.chat:
-            return JSONResponse(
+            return None, JSONResponse(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 content={
                     "error": "llm_probe_failed",
@@ -384,25 +359,149 @@ async def update_profile(
             )
         profile.capabilities = caps.model_dump(mode="json")
 
-    if "name" in fields_set and body.name is not None:
-        profile.name = body.name
+    if "name" in fields_set and name is not None:
+        profile.name = name
     profile.base_url = new_base_url
     if "api_key" in fields_set:
-        profile.api_key_enc = secret_box.encrypt(body.api_key) if body.api_key else None
+        profile.api_key_enc = secret_box.encrypt(api_key) if api_key else None
     profile.chat_model = new_chat_model
     profile.small_model = new_small_model
     profile.embedding_model = new_embedding_model
-    if "max_context_tokens" in fields_set and body.max_context_tokens is not None:
-        profile.max_context_tokens = body.max_context_tokens
+    if "max_context_tokens" in fields_set and max_context_tokens is not None:
+        profile.max_context_tokens = max_context_tokens
 
     await session.commit()
     await session.refresh(profile)
+    return profile, None
+
+
+async def probe_llm_profile_record(
+    profile: LLMProfile,
+    *,
+    session: AsyncSession,
+    registry: LLMClientRegistry,
+    secret_box: SecretBox,
+    settings: Settings,
+) -> LLMProfile:
+    """Re-probe an existing ``LLMProfile`` and persist updated capabilities."""
+    config = build_llm_config(profile, settings, secret_box=secret_box)
+    client = await registry.get(config)
+    caps = await probe(client, config, timeout=settings.LLM_PROBE_TIMEOUT_SECONDS)
+
+    profile.capabilities = caps.model_dump(mode="json")
+    await session.commit()
+    await session.refresh(profile)
+    return profile
+
+
+@router.post(
+    "/profiles",
+    response_model=ProfileResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_profile(
+    body: CreateProfileRequest,
+    user_id: str = Depends(get_user_id),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+    registry: LLMClientRegistry = Depends(get_registry),  # noqa: B008
+    secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
+    settings: Settings = Depends(get_settings),  # noqa: B008
+    resolver: DNSResolver | None = Depends(get_url_resolver),  # noqa: B008
+) -> ProfileResponse | JSONResponse:
+    """Validate URL, probe provider capabilities, encrypt key, and save profile."""
+    profile, err_resp = await create_llm_profile_record(
+        user_id=user_id,
+        name=body.name,
+        base_url=body.base_url,
+        api_key=body.api_key,
+        chat_model=body.chat_model,
+        small_model=body.small_model,
+        embedding_model=body.embedding_model,
+        max_context_tokens=body.max_context_tokens,
+        session=session,
+        registry=registry,
+        secret_box=secret_box,
+        settings=settings,
+        resolver=resolver,
+    )
+    if err_resp is not None or profile is None:
+        assert err_resp is not None
+        return err_resp
     return _to_response(profile, secret_box)
+
+
+@router.get("/profiles", response_model=list[ProfileResponse])
+async def list_profiles(
+    user_id: str = Depends(get_user_id),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+    secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
+) -> list[ProfileResponse]:
+    """List saved LLM profiles owned by the current user with masked API keys."""
+    result = await session.execute(
+        select(LLMProfile)
+        .where(LLMProfile.user_id == user_id)
+        .order_by(LLMProfile.created_at.desc())
+    )
+    profiles = result.scalars().all()
+    return [_to_response(p, secret_box) for p in profiles]
+
+
+@router.get("/profiles/{profile_id}", response_model=ProfileResponse)
+async def get_profile(
+    profile_id: uuid.UUID,
+    user_id: str = Depends(get_user_id),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+    secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
+) -> ProfileResponse:
+    """Get a single LLM profile by ID."""
+    profile = await session.get(LLMProfile, profile_id)
+    if profile is None or profile.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found.")
+    return _to_response(profile, secret_box)
+
+
+@router.patch("/profiles/{profile_id}", response_model=ProfileResponse)
+async def update_profile(
+    profile_id: uuid.UUID,
+    body: UpdateProfileRequest,
+    user_id: str = Depends(get_user_id),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+    registry: LLMClientRegistry = Depends(get_registry),  # noqa: B008
+    secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
+    settings: Settings = Depends(get_settings),  # noqa: B008
+    resolver: DNSResolver | None = Depends(get_url_resolver),  # noqa: B008
+) -> ProfileResponse | JSONResponse:
+    """Update an LLM profile; re-probes and invalidates cache when connection/model changes."""
+    profile = await session.get(LLMProfile, profile_id)
+    if profile is None or profile.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found.")
+
+    updated, err_resp = await update_llm_profile_record(
+        profile,
+        fields_set=set(body.model_fields_set),
+        name=body.name,
+        base_url=body.base_url,
+        api_key=body.api_key,
+        chat_model=body.chat_model,
+        small_model=body.small_model,
+        embedding_model=body.embedding_model,
+        max_context_tokens=body.max_context_tokens,
+        session=session,
+        registry=registry,
+        secret_box=secret_box,
+        settings=settings,
+        resolver=resolver,
+    )
+    if err_resp is not None or updated is None:
+        assert err_resp is not None
+        return err_resp
+    return _to_response(updated, secret_box)
 
 
 @router.delete("/profiles/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_profile(
     profile_id: uuid.UUID,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
     registry: LLMClientRegistry = Depends(get_registry),  # noqa: B008
     secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
@@ -410,19 +509,11 @@ async def delete_profile(
 ) -> Response:
     """Delete an LLM profile and evict its cached client."""
     profile = await session.get(LLMProfile, profile_id)
-    if profile is None:
+    if profile is None or profile.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found.")
 
     try:
-        raw_key = _decrypt_optional(secret_box, profile.api_key_enc)
-        old_config = _build_config(
-            base_url=profile.base_url,
-            api_key=raw_key,
-            chat_model=profile.chat_model,
-            small_model=profile.small_model,
-            embedding_model=profile.embedding_model,
-            settings=settings,
-        )
+        old_config = build_llm_config(profile, settings, secret_box=secret_box)
         await registry.invalidate(old_config)
     except Exception:
         pass
@@ -435,6 +526,7 @@ async def delete_profile(
 @router.post("/profiles/{profile_id}/test", response_model=ProfileResponse)
 async def test_profile(
     profile_id: uuid.UUID,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
     registry: LLMClientRegistry = Depends(get_registry),  # noqa: B008
     secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
@@ -442,22 +534,14 @@ async def test_profile(
 ) -> ProfileResponse:
     """Re-probe an existing LLM profile and persist updated capabilities."""
     profile = await session.get(LLMProfile, profile_id)
-    if profile is None:
+    if profile is None or profile.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found.")
 
-    raw_key = _decrypt_optional(secret_box, profile.api_key_enc)
-    config = _build_config(
-        base_url=profile.base_url,
-        api_key=raw_key,
-        chat_model=profile.chat_model,
-        small_model=profile.small_model,
-        embedding_model=profile.embedding_model,
+    updated = await probe_llm_profile_record(
+        profile,
+        session=session,
+        registry=registry,
+        secret_box=secret_box,
         settings=settings,
     )
-    client = await registry.get(config)
-    caps = await probe(client, config, timeout=settings.LLM_PROBE_TIMEOUT_SECONDS)
-
-    profile.capabilities = caps.model_dump(mode="json")
-    await session.commit()
-    await session.refresh(profile)
-    return _to_response(profile, secret_box)
+    return _to_response(updated, secret_box)

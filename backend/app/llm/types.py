@@ -18,6 +18,8 @@ class LLMConfig(BaseModel):
     embedding_model: str | None = None
     timeout: float = 60.0
     max_retries: int = 2
+    usage_kind: str | None = None
+    daily_limit: float | None = None
 
     def __repr__(self) -> str:
         masked = "'***'" if self.api_key is not None else "None"

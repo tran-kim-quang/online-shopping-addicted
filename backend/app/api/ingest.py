@@ -17,19 +17,25 @@ from app.api.deps import (
     get_session,
     get_settings,
     get_url_resolver,
+    get_user_id,
 )
+from app.api.profile_resolver import resolve_data_provider_profile, resolve_llm_profile
+from app.api.user_history import upsert_user_source
 from app.core.config import Settings
+from app.core.errors import SystemQuotaExceededError
+from app.core.system_usage import SystemUsage
 from app.crawl.classifier import resolve_and_classify_url
 from app.crawl.errors import (
     ShortLinkUnresolvableError,
     UnsupportedPlatformError,
     UnsupportedURLError,
 )
-from app.db.models import DataProviderProfile, LLMProfile
+from app.db.models import DataProviderProfile
 from app.jobs.events import JobEvents
 from app.jobs.queue import JobQueue
 from app.jobs.submit import classify_ingest_url, submit_parsed_ingest
 from app.platforms.registry import PlatformRegistry
+from app.security.cookies import SYSTEM_USER_ID
 from app.security.url_validator import DNSResolver
 
 router = APIRouter(prefix="/api", tags=["ingest"])
@@ -73,6 +79,7 @@ class IngestQueuedResponse(BaseModel):
 )
 async def create_ingest(
     body: IngestRequest,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
     settings: Settings = Depends(get_settings),  # noqa: B008
     job_events: JobEvents = Depends(get_job_events),  # noqa: B008
@@ -114,6 +121,7 @@ async def create_ingest(
         )
 
     plugin = PlatformRegistry().get(parsed.platform)
+    provider_profile: DataProviderProfile | None = None
     if plugin.requires_provider:
         if body.data_provider_profile_id is None:
             return JSONResponse(
@@ -127,8 +135,15 @@ async def create_ingest(
                     ),
                 },
             )
-        provider_profile = await session.get(DataProviderProfile, body.data_provider_profile_id)
-        if provider_profile is None:
+        try:
+            provider_profile = await resolve_data_provider_profile(
+                session, body.data_provider_profile_id, user_id
+            )
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_404_NOT_FOUND:
+                raise
+            # Keep the documented ingest envelope (``data_provider_mismatch``) the
+            # frontend maps to an i18n message; the shared resolver speaks plain 404s.
             return JSONResponse(
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
@@ -149,12 +164,21 @@ async def create_ingest(
             )
 
     if body.llm_profile_id is not None:
-        profile = await session.get(LLMProfile, body.llm_profile_id)
-        if profile is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="LLM profile not found.",
-            )
+        await resolve_llm_profile(session, body.llm_profile_id, user_id)
+
+    async def _check_apify_quota() -> None:
+        if (
+            provider_profile is not None
+            and provider_profile.user_id == SYSTEM_USER_ID
+            and provider_profile.daily_limit is not None
+        ):
+            used = await SystemUsage().used(provider_profile.provider)
+            estimated = float(provider_profile.max_cost_usd_per_link)
+            if used + estimated > float(provider_profile.daily_limit) + 1e-9:
+                raise SystemQuotaExceededError(
+                    kind=provider_profile.provider,
+                    detail="Hạn mức chi phí Apify dùng chung hôm nay đã hết.",
+                )
 
     result = await submit_parsed_ingest(
         parsed,
@@ -166,8 +190,12 @@ async def create_ingest(
         data_provider_profile_id=body.data_provider_profile_id,
         max_products=body.max_products,
         max_reviews=body.max_reviews,
+        user_id=user_id,
+        before_enqueue=_check_apify_quota,
     )
     if result.cached and result.source_id is not None:
+        await upsert_user_source(session, user_id, result.source_id)
+        await session.commit()
         if result.crawled_at is not None and result.refresh_after is not None:
             cached_payload = IngestCachedResponse(
                 source_id=result.source_id,
