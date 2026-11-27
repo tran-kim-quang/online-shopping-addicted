@@ -3275,6 +3275,15 @@
             "title": "Evidence",
             "type": "array"
           },
+          "kind": {
+            "default": "brand",
+            "enum": [
+              "brand",
+              "product"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "likes": {
             "title": "Likes",
             "type": "integer"
@@ -3294,10 +3303,6 @@
           "sentiment": {
             "$ref": "#/components/schemas/TrendBrandSentiment"
           },
-          "single_video": {
-            "title": "Single Video",
-            "type": "boolean"
-          },
           "videos": {
             "title": "Videos",
             "type": "integer"
@@ -3311,8 +3316,7 @@
           "plays",
           "likes",
           "sentiment",
-          "ad_share",
-          "single_video"
+          "ad_share"
         ],
         "title": "TrendBrand",
         "type": "object"

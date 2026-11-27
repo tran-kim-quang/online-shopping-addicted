@@ -25,6 +25,7 @@
     "history": "History",
     "llmSettings": "LLM Settings",
     "dataSourcesSettings": "Data Sources",
+    "admin": "Admin",
     "openMenu": "Open navigation menu",
     "language": "Language",
     "switchToVi": "Chuyển sang tiếng Việt",
@@ -269,7 +270,7 @@
       "provider_quota": "ScrapeCreators credits ran out mid-search; results were computed from collected data.",
       "llm_partial": "Some LLM extraction batches failed; results may be incomplete.",
       "few_videos": "Fewer than 15 videos found in the last 30 days; brand coverage may be limited.",
-      "no_brands": "No brands met the minimum threshold to rank."
+      "no_brands": "No brand or specific product was found in the videos."
     }
   },
   "chat": {
@@ -529,7 +530,7 @@
   },
   "trends": {
     "title": "TikTok Brand Trends",
-    "subtitle": "Enter a product keyword to see which brands are trending over the last 30 days.",
+    "subtitle": "Enter a product keyword to see the 3 brands (or products) with the most views and praise on TikTok over the last 30 days.",
     "emptyScTitle": "No ScrapeCreators data source configured",
     "emptyScDescription": "Add a ScrapeCreators API key in Data Sources settings to start discovering TikTok brand trends.",
     "goToDataSources": "Go to Data Sources",
@@ -551,8 +552,8 @@
     "cachedBadge": "Cached {time}",
     "refreshButton": "Refresh",
     "highAdBadge": "High ad share",
-    "singleVideoBadge": "Single video",
-    "singleVideoTooltip": "Appeared in only 1 video but has over 1M views",
+    "productBadge": "Product",
+    "productTooltip": "The videos name no brand; this is a specific product they mention",
     "brandMeta": "{videos} videos · {creators} creators",
     "brandPlays": "{plays} views",
     "scoreUnit": "score",

@@ -18,6 +18,7 @@ import {
   Sparkles,
   Sun,
   TrendingUp,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "cn";
 import { Link, usePathname, useRouter, type AppLocale } from "@/i18n/routing";
@@ -39,7 +40,9 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import type { ProfileResponse } from "@/lib/api/client";
+import { useQuery } from "@tanstack/react-query";
+import { getAdminSession, type ProfileResponse } from "@/lib/api/client";
+import { ADMIN_SESSION_QUERY_KEY } from "@/lib/admin-session";
 
 function getProfileDotColor(profile: ProfileResponse): string {
   if (profile.api_key_status === "undecryptable") {
@@ -83,6 +86,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setMounted(true);
   }, []);
 
+  // The admin entry only shows for a browser holding a valid admin session (or
+  // while on the admin page itself), so regular users never see it.
+  const adminSessionQuery = useQuery({
+    queryKey: ADMIN_SESSION_QUERY_KEY,
+    queryFn: getAdminSession,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const onAdminPage = pathname === "/admin" || pathname.startsWith("/admin/");
+  const showAdminNav = onAdminPage || Boolean(adminSessionQuery.data?.authenticated);
+
   const navItems = React.useMemo(
     () => [
       {
@@ -115,8 +129,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         icon: Database,
         active: pathname.startsWith("/settings/data-sources"),
       },
+      ...(showAdminNav
+        ? [
+            {
+              href: "/admin",
+              label: t("admin"),
+              icon: ShieldCheck,
+              active: onAdminPage,
+            },
+          ]
+        : []),
     ],
-    [pathname, t]
+    [pathname, t, showAdminNav, onAdminPage]
   );
 
   const handleLocaleSwitch = (nextLocale: AppLocale) => {

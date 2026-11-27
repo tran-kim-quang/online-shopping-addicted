@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
@@ -93,7 +93,7 @@ class TrendBrand(BaseModel):
     likes: int
     sentiment: TrendBrandSentiment
     ad_share: float
-    single_video: bool
+    kind: Literal["brand", "product"] = "brand"
     evidence: list[TrendEvidenceVideo] = Field(default_factory=list)
 
 

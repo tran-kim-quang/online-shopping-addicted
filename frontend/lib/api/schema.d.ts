@@ -2090,6 +2090,12 @@ export interface components {
             creators: number;
             /** Evidence */
             evidence?: components["schemas"]["TrendEvidenceVideo"][];
+            /**
+             * Kind
+             * @default brand
+             * @enum {string}
+             */
+            kind: "brand" | "product";
             /** Likes */
             likes: number;
             /** Name */
@@ -2099,8 +2105,6 @@ export interface components {
             /** Score */
             score: number;
             sentiment: components["schemas"]["TrendBrandSentiment"];
-            /** Single Video */
-            single_video: boolean;
             /** Videos */
             videos: number;
         };

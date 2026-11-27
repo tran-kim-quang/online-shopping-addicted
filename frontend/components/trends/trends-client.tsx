@@ -126,7 +126,7 @@ function BrandCard({
                   {t("highAdBadge")}
                 </Badge>
               )}
-              {brand.single_video && (
+              {brand.kind === "product" && (
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -134,11 +134,11 @@ function BrandCard({
                         variant="outline"
                         className="cursor-help border-accent/40 bg-accent text-[11px] text-accent-foreground"
                       >
-                        {t("singleVideoBadge")}
+                        {t("productBadge")}
                       </Badge>
                     }
                   />
-                  <TooltipContent>{t("singleVideoTooltip")}</TooltipContent>
+                  <TooltipContent>{t("productTooltip")}</TooltipContent>
                 </Tooltip>
               )}
             </div>

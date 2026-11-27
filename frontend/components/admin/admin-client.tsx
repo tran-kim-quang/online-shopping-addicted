@@ -56,11 +56,11 @@ import {
   type DataProviderProfileResponse,
   type ProfileResponse,
 } from "@/lib/api/client";
+import { ADMIN_SESSION_QUERY_KEY } from "@/lib/admin-session";
 import { isApiError } from "@/lib/api/errors";
 import { formatCurrencyUsd, formatNumber } from "@/lib/format";
 import { translateUnknownError } from "@/lib/error-messages";
 
-const ADMIN_SESSION_QUERY_KEY = ["admin-session"] as const;
 const ADMIN_CONFIG_QUERY_KEY = ["admin-config"] as const;
 
 function toProfileResponse(item: AdminLLMConfigItem): ProfileResponse {
