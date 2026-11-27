@@ -15,7 +15,11 @@ import {
 } from "lucide-react";
 import { cn } from "cn";
 import { Link, useRouter, type AppLocale } from "@/i18n/routing";
-import { useActiveProfile } from "@/components/providers";
+import {
+  useActiveDataProvider,
+  useActiveProfile,
+  usePlatforms,
+} from "@/components/providers";
 import {
   IngestProgressPanel,
   type JobCompletionInfo,
@@ -40,6 +44,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,14 +68,40 @@ import {
 } from "@/lib/api/client";
 import { isApiError } from "@/lib/api/errors";
 import {
+  formatCurrencyUsd,
   formatDateTime,
   formatNumber,
   formatRelativeTime,
 } from "@/lib/format";
 import { estimateLlmRequests } from "@/lib/stages";
-import { translateUnknownError } from "@/lib/error-messages";
+import {
+  formatPlatformName,
+  translateUnknownError,
+} from "@/lib/error-messages";
 
 const IN_PROGRESS_STATUSES = new Set(["pending", "queued", "running"]);
+
+const KNOWN_SAMPLING_COVERAGES = new Set([
+  "complete",
+  "stopped_at_max",
+  "shopee_limit",
+  "budget",
+  "unknown",
+] as const);
+
+type KnownSamplingCoverage =
+  typeof KNOWN_SAMPLING_COVERAGES extends Set<infer T> ? T : never;
+
+function getSamplingCoverageLabel(
+  coverage: string | null | undefined,
+  t: (key: `sampling.coverage.${KnownSamplingCoverage}`) => string
+): string {
+  const normalized: KnownSamplingCoverage =
+    coverage && KNOWN_SAMPLING_COVERAGES.has(coverage as KnownSamplingCoverage)
+      ? (coverage as KnownSamplingCoverage)
+      : "unknown";
+  return t(`sampling.coverage.${normalized}`);
+}
 
 function getStatusBadgeClass(status: string): string {
   switch (status) {
@@ -98,6 +129,8 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { activeProfile, activeProfileId } = useActiveProfile();
+  const { activeProfileId: activeDataProviderId } = useActiveDataProvider();
+  const platformsQuery = usePlatforms();
 
   const [activeJobId, setActiveJobId] = React.useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
@@ -145,9 +178,19 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
     if (!source) return;
     setIsRefreshing(true);
     try {
+      const platformInfo = (platformsQuery.data ?? []).find(
+        (p) => p.supported && p.name === source.platform
+      );
+      const requiresProvider =
+        platformInfo && platformInfo.supported
+          ? platformInfo.requires_provider
+          : null;
       const res = await submitIngest({
         url: source.url,
         llm_profile_id: activeProfileId,
+        data_provider_profile_id: requiresProvider
+          ? activeDataProviderId
+          : null,
       });
       if (res.kind === "queued") {
         setActiveJobId(res.data.job_id);
@@ -468,6 +511,28 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
 
     if (!report) return null;
 
+    const sampling = (
+      report.source as {
+        sampling?: {
+          strategy?: string;
+          window_months?: number;
+          cost_usd?: number;
+          groups?: Array<{
+            name: string;
+            stars: number[];
+            with_media_only: boolean;
+            max: number;
+            delivered: number;
+            coverage: string;
+          }>;
+        } | null;
+      }
+    ).sampling;
+    const isStratified = sampling?.strategy === "stratified";
+    const platformDisplayName =
+      (report.source as { platform_display_name?: string | null })
+        .platform_display_name ?? formatPlatformName(source.platform);
+
     return (
       <div className="min-w-0 space-y-5">
         {activeAnalyzeJob && (
@@ -541,12 +606,61 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
           )}
         />
 
-        <KpiGrid totals={report.totals} />
-
-        <RatingDistributionChart
-          buckets={report.rating_distribution ?? []}
-          totalReviews={report.totals.reviews_collected ?? 0}
+        <KpiGrid
+          totals={report.totals}
+          isStratified={isStratified}
+          platform={source.platform}
         />
+
+        {isStratified && sampling && (
+          <Card className="min-w-0 border border-border bg-muted/30 shadow-none">
+            <CardContent className="min-w-0 space-y-2 p-3.5 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-semibold text-foreground">
+                  {t("sampling.title")}
+                </span>
+                {typeof sampling.cost_usd === "number" && (
+                  <Badge variant="outline" className="font-mono text-xs">
+                    {t("sampling.cost", {
+                      cost: formatCurrencyUsd(sampling.cost_usd, locale),
+                    })}
+                  </Badge>
+                )}
+              </div>
+              {Array.isArray(sampling.groups) && sampling.groups.length > 0 && (
+                <div className="flex min-w-0 flex-wrap gap-2">
+                  {sampling.groups.map((grp) => (
+                    <Badge
+                      key={grp.name}
+                      variant="outline"
+                      className="h-auto max-w-full min-w-0 shrink flex-wrap justify-start gap-1.5 whitespace-normal break-words bg-card px-2 py-1 text-left font-mono text-[11px]"
+                    >
+                      <span>
+                        {grp.name === "low"
+                          ? t("sampling.groupLow")
+                          : t("sampling.groupHigh")}
+                      </span>
+                      <span>
+                        {formatNumber(grp.delivered, locale)}/
+                        {formatNumber(grp.max, locale)}
+                      </span>
+                      <span className="text-muted-foreground">
+                        ({getSamplingCoverageLabel(grp.coverage, t)})
+                      </span>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {!isStratified && (
+          <RatingDistributionChart
+            buckets={report.rating_distribution ?? []}
+            totalReviews={report.totals.reviews_collected ?? 0}
+          />
+        )}
 
         {!isSingleProduct && (
           <RankingsTabs
@@ -558,16 +672,22 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
         <AspectsPanel
           aspects={report.aspects}
           analyzeAction={renderAnalyzeTrigger("sm")}
+          platformName={platformDisplayName}
         />
 
         {isSingleProduct && firstProduct ? (
-          <ProductDetailCard product={firstProduct} />
+          <ProductDetailCard
+            product={firstProduct}
+            platform={source.platform}
+          />
         ) : (
           <ProductsTable
             products={report.products ?? []}
             filteredProductIds={filteredProductIds}
             onClearFilter={() => setFilteredProductIds(null)}
             highlightedProductId={highlightedProductId}
+            isStratified={isStratified}
+            platform={source.platform}
           />
         )}
       </div>
@@ -584,8 +704,10 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
               {source.display_name}
             </h1>
             {source.platform && (
-              <Badge variant="outline" className="capitalize">
-                {source.platform}
+              <Badge variant="outline">
+                {(report?.source as { platform_display_name?: string | null })
+                  ?.platform_display_name ??
+                  formatPlatformName(source.platform)}
               </Badge>
             )}
             <Badge

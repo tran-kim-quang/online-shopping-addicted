@@ -44,7 +44,9 @@ export const STAGE_TO_STEP_INDEX: Readonly<Record<string, number>> = {
   shop: 1,
   listing: 1,
   product: 1,
+  provider_product: 1,
   reviews: 2,
+  provider_reviews: 2,
   crawl_done: 2,
   ingest_start: 3,
   sentiment: 3,
@@ -196,6 +198,19 @@ export function extractJobErrorCode(error: string | null | undefined): string {
   }
   if (prefix === "unsupported_platform") return "unsupported_platform";
   if (prefix === "unsupported_url") return "unsupported_url";
+  if (prefix === "short_link_unresolvable") return "short_link_unresolvable";
+  if (prefix === "paid_source_requires_user") return "paid_source_requires_user";
+  if (
+    prefix === "data_provider_required" ||
+    prefix === "data_provider_mismatch" ||
+    prefix === "provider_auth_failed" ||
+    prefix === "provider_quota_exceeded" ||
+    prefix === "provider_run_failed" ||
+    prefix === "provider_bad_input" ||
+    prefix === "provider_unavailable"
+  ) {
+    return prefix;
+  }
   if (
     prefix === "secret_key_mismatch" ||
     trimmed.toLowerCase().includes("decrypt secret")

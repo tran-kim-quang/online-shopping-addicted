@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.config import Settings
-from app.crawl.classifier import classify_url, is_tiki_short_url, resolve_and_classify_url
+from app.crawl.classifier import classify_url, is_short_url, resolve_and_classify_url
 from app.crawl.types import ParsedURL
 from app.db.models import Source
 from app.jobs.events import JobEvents
@@ -118,8 +118,8 @@ async def classify_ingest_url(
     resolver: DNSResolver | None = None,
     resolve_short_url_fn: ResolveShortUrlFn | None = None,
 ) -> ParsedURL:
-    """Classify ``url`` (resolving ``ti.ki`` short links through ``resolver`` if needed)."""
-    if is_tiki_short_url(url):
+    """Classify ``url`` (resolving plugin short links through ``resolver`` if needed)."""
+    if is_short_url(url):
         fn = resolve_short_url_fn if resolve_short_url_fn is not None else resolve_and_classify_url
         return await fn(
             url,
@@ -137,6 +137,7 @@ async def submit_parsed_ingest(
     job_events: JobEvents,
     job_queue: JobQueue,
     llm_profile_id: uuid.UUID | None = None,
+    data_provider_profile_id: uuid.UUID | None = None,
     max_products: int | None = None,
     max_reviews: int | None = None,
 ) -> IngestSubmitResult:
@@ -177,13 +178,16 @@ async def submit_parsed_ingest(
         total=None,
         message=f"Queued ingest for {parsed.canonical_url}",
     )
-    await job_queue.enqueue_ingest(
-        job_id=job_id,
-        url=parsed.canonical_url,
-        llm_profile_id=str(llm_profile_id) if llm_profile_id is not None else None,
-        max_products=max_products,
-        max_reviews=max_reviews,
-    )
+    enqueue_kwargs: dict[str, Any] = {
+        "job_id": job_id,
+        "url": parsed.canonical_url,
+        "llm_profile_id": str(llm_profile_id) if llm_profile_id is not None else None,
+        "max_products": max_products,
+        "max_reviews": max_reviews,
+    }
+    if data_provider_profile_id is not None:
+        enqueue_kwargs["data_provider_profile_id"] = str(data_provider_profile_id)
+    await job_queue.enqueue_ingest(**enqueue_kwargs)
     return IngestSubmitResult(
         cached=False,
         canonical_url=parsed.canonical_url,

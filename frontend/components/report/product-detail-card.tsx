@@ -16,10 +16,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export interface ProductDetailCardProps {
   product: ProductReportRow;
+  platform?: string | null;
 }
 
-export function ProductDetailCard({ product }: ProductDetailCardProps) {
+export function ProductDetailCard({
+  product,
+  platform = null,
+}: ProductDetailCardProps) {
   const t = useTranslations("source.productDetail");
+  const tSource = useTranslations("source");
   const tCommon = useTranslations("common");
   const locale = useLocale() as AppLocale;
   const [imgError, setImgError] = React.useState(false);
@@ -122,13 +127,24 @@ export function ProductDetailCard({ product }: ProductDetailCardProps) {
                     className="size-3.5 fill-accent text-accent"
                     aria-hidden="true"
                   />
-                  <span>{formatRating(product.rating_avg, locale)}</span>
-                  {product.rating_count !== null &&
-                    product.rating_count !== undefined && (
-                      <span className="text-xs text-muted-foreground">
-                        ({formatNumber(product.rating_count, locale)})
-                      </span>
-                    )}
+                  {product.rating_avg !== null &&
+                  product.rating_avg !== undefined ? (
+                    <>
+                      <span>{formatRating(product.rating_avg, locale)}</span>
+                      {product.rating_count !== null &&
+                        product.rating_count !== undefined && (
+                          <span className="text-xs text-muted-foreground">
+                            ({formatNumber(product.rating_count, locale)})
+                          </span>
+                        )}
+                    </>
+                  ) : platform === "shopee" ? (
+                    <span className="font-sans text-xs text-muted-foreground">
+                      {tSource("kpi.notPublishedByShopee")}
+                    </span>
+                  ) : (
+                    <span>—</span>
+                  )}
                 </dd>
               </div>
             </dl>

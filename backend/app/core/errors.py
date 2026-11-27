@@ -12,7 +12,7 @@ _SECRET_PATTERNS = (
     re.compile(r"(Bearer\s+)[A-Za-z0-9._\-]{8,}", re.IGNORECASE),
     # ``sk-…``/``sk_…``/``gsk_…``/``or-…`` style provider keys (hyphen or underscore).
     re.compile(r"\b(sk|pk|gsk|or|key)[-_][A-Za-z0-9._\-]{8,}", re.IGNORECASE),
-    re.compile(r"\b(sk_proj|sk_live|sk_test)_[A-Za-z0-9._\-]{8,}", re.IGNORECASE),
+    re.compile(r"\b(sk_proj|sk_live|sk_test|apify_api)_[A-Za-z0-9._\-]{8,}", re.IGNORECASE),
 )
 
 

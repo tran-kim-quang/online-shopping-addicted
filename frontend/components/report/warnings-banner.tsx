@@ -18,6 +18,10 @@ const KNOWN_WARNING_CODES = new Set([
   "stale_data",
   "missing_price",
   "missing_sold_count",
+  "stratified_sample",
+  "shopee_limit",
+  "review_budget_reached",
+  "missing_rating",
 ]);
 
 export interface WarningsBannerProps {

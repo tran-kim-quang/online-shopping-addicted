@@ -78,6 +78,57 @@ class LLMProfile(Base):
     )
 
 
+class DataProviderProfile(Base):
+    """User-configured external data provider profile (e.g. Apify)."""
+
+    __tablename__ = "data_provider_profiles"
+    __table_args__ = (
+        CheckConstraint(
+            "max_cost_usd_per_link >= 0.05 AND max_cost_usd_per_link <= 5.00",
+            name="ck_data_provider_profiles_max_cost",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        default="local",
+        server_default="local",
+        index=True,
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    api_token_enc: Mapped[str] = mapped_column(Text, nullable=False)
+    max_cost_usd_per_link: Mapped[Decimal] = mapped_column(
+        Numeric(6, 2),
+        nullable=False,
+        default=Decimal("0.50"),
+        server_default="0.50",
+    )
+    account_info: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class Source(Base):
     """Tracked crawl source URL (shop or product) and its latest crawl status."""
 
@@ -314,6 +365,27 @@ class Review(Base):
         nullable=True,
     )
     helpful_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    variant: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[list[Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+    )
+    sub_ratings: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    seller_reply: Mapped[str | None] = mapped_column(Text, nullable=True)
+    media_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     images: Mapped[list[Any]] = mapped_column(
         JSONB,
         nullable=False,

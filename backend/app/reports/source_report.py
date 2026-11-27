@@ -12,8 +12,10 @@ from sqlalchemy import case, func, literal_column, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
+from app.crawl.errors import UnsupportedPlatformError
 from app.db.models import Chunk, Product, Review, Shop, Source
 from app.ingest.pipeline import resolve_source_scope
+from app.platforms.registry import PlatformRegistry
 
 # ---------------------------------------------------------------------------
 # Pydantic response schemas (also exported to OpenAPI for Phase 5 UI)
@@ -27,6 +29,8 @@ class ReportSourceInfo(BaseModel):
     url: str
     url_type: str | None = None
     platform: str | None = None
+    platform_display_name: str | None = None
+    sampling: dict[str, Any] | None = None
     status: str
     display_name: str | None = None
     crawled_at: datetime | None = None
@@ -74,7 +78,7 @@ class ReportTotals(BaseModel):
 
     products: int = 0
     products_with_price: int = 0
-    sold_total: int = 0
+    sold_total: int | None = None
     price_min: float | None = None
     price_max: float | None = None
     price_median: float | None = None
@@ -150,11 +154,19 @@ class AspectCount(BaseModel):
     count: int
 
 
+class PlatformTagCount(BaseModel):
+    """Aggregated mention count for a marketplace-provided review tag."""
+
+    tag: str
+    count: int
+
+
 class ReportAspects(BaseModel):
     """Top positive and negative aspects extracted from reviews."""
 
     top_positive: list[AspectCount] = Field(default_factory=list)
     top_negative: list[AspectCount] = Field(default_factory=list)
+    platform_tags: list[PlatformTagCount] = Field(default_factory=list)
 
 
 class ReportWarning(BaseModel):
@@ -328,6 +340,23 @@ def _build_rankings(rows: list[ProductReportRow], top_n: int) -> ReportRankings:
     )
 
 
+def _extract_sampling(source: Source) -> dict[str, Any] | None:
+    if isinstance(source.stats, dict):
+        raw = source.stats.get("sampling")
+        if isinstance(raw, dict):
+            return dict(raw)
+    return None
+
+
+def _resolve_platform_display_name(platform: str | None) -> str | None:
+    if not platform:
+        return None
+    try:
+        return PlatformRegistry().get(platform).display_name
+    except UnsupportedPlatformError:
+        return platform
+
+
 def _build_warnings(
     *,
     source: Source,
@@ -339,52 +368,96 @@ def _build_warnings(
     now_utc: datetime,
 ) -> list[ReportWarning]:
     warnings: list[ReportWarning] = []
+    sampling = _extract_sampling(source)
+    is_stratified = isinstance(sampling, dict) and sampling.get("strategy") == "stratified"
 
-    # 1. partial_reviews
-    partial_rows = [
-        r
-        for r in product_rows
-        if r.review_count_reported is not None and r.reviews_collected < r.review_count_reported
-    ]
-    if partial_rows:
-        collected_sum = sum(r.reviews_collected for r in partial_rows)
-        reported_sum = sum(
-            r.review_count_reported for r in partial_rows if r.review_count_reported is not None
+    if is_stratified and isinstance(sampling, dict):
+        groups = sampling.get("groups") if isinstance(sampling.get("groups"), list) else []
+        low_group = next((g for g in groups if isinstance(g, dict) and g.get("name") == "low"), {})
+        high_group = next(
+            (g for g in groups if isinstance(g, dict) and g.get("name") == "high"),
+            {},
         )
+        low_max = int(low_group.get("max") or 150)
+        high_max = int(high_group.get("max") or 30)
+        window_months = int(sampling.get("window_months") or 12)
         warnings.append(
             ReportWarning(
-                code="partial_reviews",
+                code="stratified_sample",
                 message=(
-                    f"Mới thu thập {collected_sum}/{reported_sum} review "
-                    f"ở {len(partial_rows)} sản phẩm."
+                    f"Đánh giá là mẫu chọn lọc (ưu tiên 1–3★ có nội dung trong {window_months} "
+                    "tháng); không dùng để tính tỉ lệ khen/chê."
                 ),
-                params={
-                    "collected": collected_sum,
-                    "reported": reported_sum,
-                    "products": len(partial_rows),
-                },
-                product_ids=[r.product_id for r in partial_rows],
+                params={"low": low_max, "high": high_max, "window_months": window_months},
             )
         )
+        coverages = {
+            str(g.get("coverage"))
+            for g in groups
+            if isinstance(g, dict) and g.get("coverage") is not None
+        }
+        if "shopee_limit" in coverages:
+            warnings.append(
+                ReportWarning(
+                    code="shopee_limit",
+                    message="Nền tảng giới hạn số lượng đánh giá hiển thị trong feed công khai.",
+                    params={},
+                )
+            )
+        if "budget" in coverages:
+            warnings.append(
+                ReportWarning(
+                    code="review_budget_reached",
+                    message="Đã dừng thu thập đánh giá vì chạm trần chi phí mỗi link.",
+                    params={},
+                )
+            )
+    else:
+        # 1. partial_reviews
+        partial_rows = [
+            r
+            for r in product_rows
+            if r.review_count_reported is not None and r.reviews_collected < r.review_count_reported
+        ]
+        if partial_rows:
+            collected_sum = sum(r.reviews_collected for r in partial_rows)
+            reported_sum = sum(
+                r.review_count_reported for r in partial_rows if r.review_count_reported is not None
+            )
+            warnings.append(
+                ReportWarning(
+                    code="partial_reviews",
+                    message=(
+                        f"Mới thu thập {collected_sum}/{reported_sum} review "
+                        f"ở {len(partial_rows)} sản phẩm."
+                    ),
+                    params={
+                        "collected": collected_sum,
+                        "reported": reported_sum,
+                        "products": len(partial_rows),
+                    },
+                    product_ids=[r.product_id for r in partial_rows],
+                )
+            )
 
-    # 2. reported_count_lower
-    lower_rows = [
-        r
-        for r in product_rows
-        if r.review_count_reported is not None and r.reviews_collected > r.review_count_reported
-    ]
-    if lower_rows:
-        warnings.append(
-            ReportWarning(
-                code="reported_count_lower",
-                message=(
-                    f"Số review thu thập được nhiều hơn số liệu sàn báo ở {len(lower_rows)} "
-                    "sản phẩm (một số sàn không đếm đánh giá chỉ chấm sao)."
-                ),
-                params={"products": len(lower_rows)},
-                product_ids=[r.product_id for r in lower_rows],
+        # 2. reported_count_lower
+        lower_rows = [
+            r
+            for r in product_rows
+            if r.review_count_reported is not None and r.reviews_collected > r.review_count_reported
+        ]
+        if lower_rows:
+            warnings.append(
+                ReportWarning(
+                    code="reported_count_lower",
+                    message=(
+                        f"Số review thu thập được nhiều hơn số liệu sàn báo ở {len(lower_rows)} "
+                        "sản phẩm (một số sàn không đếm đánh giá chỉ chấm sao)."
+                    ),
+                    params={"products": len(lower_rows)},
+                    product_ids=[r.product_id for r in lower_rows],
+                )
             )
-        )
 
     # 3. sentiment_rating_only
     analyzed_count = (
@@ -480,6 +553,19 @@ def _build_warnings(
             )
         )
 
+    # 10. missing_rating
+    missing_rating_ids = [r.product_id for r in product_rows if r.rating_avg is None]
+    if missing_rating_ids:
+        platform_label = _resolve_platform_display_name(source.platform) or "Sàn"
+        warnings.append(
+            ReportWarning(
+                code="missing_rating",
+                message=f"{platform_label} không công khai điểm đánh giá",
+                params={"products": len(missing_rating_ids), "platform": platform_label},
+                product_ids=missing_rating_ids,
+            )
+        )
+
     return warnings
 
 
@@ -533,11 +619,16 @@ async def build_source_report(
         else None
     )
 
+    sampling = _extract_sampling(source)
+    is_stratified = isinstance(sampling, dict) and sampling.get("strategy") == "stratified"
+
     source_info = ReportSourceInfo(
         id=source.id,
         url=source.url,
         url_type=source.url_type,
         platform=source.platform,
+        platform_display_name=_resolve_platform_display_name(source.platform),
+        sampling=sampling,
         status=source.status,
         display_name=resolved_display_name,
         crawled_at=source.crawled_at,
@@ -558,7 +649,11 @@ async def build_source_report(
 
     if not product_ids:
         empty_totals = ReportTotals()
-        empty_dist = [RatingBucket(stars=star, count=0, pct=None) for star in range(5, 0, -1)]
+        empty_dist = (
+            []
+            if is_stratified
+            else [RatingBucket(stars=star, count=0, pct=None) for star in range(5, 0, -1)]
+        )
         warnings = _build_warnings(
             source=source,
             totals=empty_totals,
@@ -592,7 +687,7 @@ async def build_source_report(
             select(
                 func.count().label("products"),
                 func.count(Product.price).label("products_with_price"),
-                func.coalesce(func.sum(Product.sold_count), 0).label("sold_total"),
+                func.sum(Product.sold_count).label("sold_total"),
                 func.min(Product.price).label("price_min"),
                 func.max(Product.price).label("price_max"),
                 func.percentile_cont(0.5).within_group(Product.price.asc()).label("price_median"),
@@ -634,23 +729,26 @@ async def build_source_report(
     reviews_collected = int(rev_totals.reviews_collected or 0)
     review_count_reported = int(prod_agg.review_count_reported or 0)
 
-    # 3. Star rating distribution (always 5 down to 1).
-    star_rows = (
-        await session.execute(
-            select(Review.rating, func.count().label("cnt"))
-            .where(Review.product_id.in_(product_ids))
-            .group_by(Review.rating)
-        )
-    ).all()
-    counts_by_star: dict[int, int] = {int(r.rating): int(r.cnt or 0) for r in star_rows}
-    rating_distribution = [
-        RatingBucket(
-            stars=star,
-            count=counts_by_star.get(star, 0),
-            pct=_compute_pct(counts_by_star.get(star, 0), reviews_collected),
-        )
-        for star in range(5, 0, -1)
-    ]
+    # 3. Star rating distribution (empty for stratified samples; always 5 down to 1 otherwise).
+    if is_stratified:
+        rating_distribution: list[RatingBucket] = []
+    else:
+        star_rows = (
+            await session.execute(
+                select(Review.rating, func.count().label("cnt"))
+                .where(Review.product_id.in_(product_ids))
+                .group_by(Review.rating)
+            )
+        ).all()
+        counts_by_star: dict[int, int] = {int(r.rating): int(r.cnt or 0) for r in star_rows}
+        rating_distribution = [
+            RatingBucket(
+                stars=star,
+                count=counts_by_star.get(star, 0),
+                pct=_compute_pct(counts_by_star.get(star, 0), reviews_collected),
+            )
+            for star in range(5, 0, -1)
+        ]
 
     # 4. Per-product review aggregates (counts, sentiment, unanalyzed, last_review_at).
     per_prod_rows = (
@@ -733,6 +831,38 @@ async def build_source_report(
         elif sent == "negative" and len(top_negative) < effective_top_n:
             top_negative.append(AspectCount(aspect=name, count=cnt))
 
+    # 6b. Platform-provided review tags aggregated in Postgres.
+    safe_tags_array = case(
+        (func.jsonb_typeof(Review.tags) == "array", Review.tags),
+        else_=literal_column("'[]'::jsonb"),
+    )
+    tag_elem = (
+        func.jsonb_array_elements_text(safe_tags_array).table_valued("value").lateral("tag_elem")
+    )
+    tag_text_expr = func.btrim(func.coalesce(tag_elem.c.value, ""))
+    tag_rows = (
+        await session.execute(
+            select(
+                tag_text_expr.label("tag"),
+                func.count().label("cnt"),
+            )
+            .select_from(Review)
+            .join(tag_elem, true())
+            .where(
+                Review.product_id.in_(product_ids),
+                tag_text_expr != "",
+            )
+            .group_by(tag_text_expr)
+            .order_by(func.count().desc(), tag_text_expr.asc())
+            .limit(effective_top_n)
+        )
+    ).all()
+    platform_tags = [
+        PlatformTagCount(tag=str(row.tag).strip(), count=int(row.cnt or 0))
+        for row in tag_rows
+        if str(row.tag or "").strip() and int(row.cnt or 0) > 0
+    ]
+
     # Build per-product report rows, sorted by sold_count DESC NULLS LAST.
     product_rows: list[ProductReportRow] = []
     unanalyzed_product_ids: list[uuid.UUID] = []
@@ -788,11 +918,13 @@ async def build_source_report(
                 ),
                 review_count_reported=prod.review_count,
                 reviews_collected=prod_collected,
-                coverage_pct=_compute_pct(prod_collected, prod.review_count),
+                coverage_pct=(
+                    None if is_stratified else _compute_pct(prod_collected, prod.review_count)
+                ),
                 positive=pos,
                 neutral=neu,
                 negative=neg,
-                positive_pct=_compute_pct(pos, analyzed),
+                positive_pct=None if is_stratified else _compute_pct(pos, analyzed),
                 last_review_at=last_review_at,
             )
         )
@@ -815,7 +947,7 @@ async def build_source_report(
     totals = ReportTotals(
         products=int(prod_agg.products or 0),
         products_with_price=int(prod_agg.products_with_price or 0),
-        sold_total=int(prod_agg.sold_total or 0),
+        sold_total=int(prod_agg.sold_total) if prod_agg.sold_total is not None else None,
         price_min=_to_number(prod_agg.price_min),
         price_max=_to_number(prod_agg.price_max),
         price_median=_to_number(prod_agg.price_median),
@@ -823,7 +955,9 @@ async def build_source_report(
         review_count_reported=review_count_reported,
         reviews_collected=reviews_collected,
         reviews_rating_only=int(rev_totals.src_rating or 0),
-        coverage_pct=_compute_pct(reviews_collected, review_count_reported),
+        coverage_pct=(
+            None if is_stratified else _compute_pct(reviews_collected, review_count_reported)
+        ),
         sentiment=SentimentCounts(
             positive=int(rev_totals.pos or 0),
             neutral=int(rev_totals.neu or 0),
@@ -839,7 +973,11 @@ async def build_source_report(
     )
 
     rankings = _build_rankings(product_rows, effective_top_n)
-    aspects = ReportAspects(top_positive=top_positive, top_negative=top_negative)
+    aspects = ReportAspects(
+        top_positive=top_positive,
+        top_negative=top_negative,
+        platform_tags=platform_tags,
+    )
     warnings = _build_warnings(
         source=source,
         totals=totals,

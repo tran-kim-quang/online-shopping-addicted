@@ -20,11 +20,16 @@ from app.api.deps import (
 )
 from app.core.config import Settings
 from app.crawl.classifier import resolve_and_classify_url
-from app.crawl.errors import UnsupportedPlatformError, UnsupportedURLError
-from app.db.models import LLMProfile
+from app.crawl.errors import (
+    ShortLinkUnresolvableError,
+    UnsupportedPlatformError,
+    UnsupportedURLError,
+)
+from app.db.models import DataProviderProfile, LLMProfile
 from app.jobs.events import JobEvents
 from app.jobs.queue import JobQueue
 from app.jobs.submit import classify_ingest_url, submit_parsed_ingest
+from app.platforms.registry import PlatformRegistry
 from app.security.url_validator import DNSResolver
 
 router = APIRouter(prefix="/api", tags=["ingest"])
@@ -37,6 +42,7 @@ class IngestRequest(BaseModel):
 
     url: str = Field(min_length=1, max_length=2048)
     llm_profile_id: uuid.UUID | None = None
+    data_provider_profile_id: uuid.UUID | None = None
     max_products: int | None = Field(default=None, ge=1, le=500)
     max_reviews: int | None = Field(default=None, ge=0, le=1000)
 
@@ -81,6 +87,14 @@ async def create_ingest(
             resolver=resolver,
             resolve_short_url_fn=resolve_and_classify_url,
         )
+    except ShortLinkUnresolvableError as exc:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content={
+                "error": "short_link_unresolvable",
+                "detail": exc.message,
+            },
+        )
     except UnsupportedPlatformError as exc:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -99,6 +113,41 @@ async def create_ingest(
             },
         )
 
+    plugin = PlatformRegistry().get(parsed.platform)
+    if plugin.requires_provider:
+        if body.data_provider_profile_id is None:
+            return JSONResponse(
+                status_code=status.HTTP_409_CONFLICT,
+                content={
+                    "error": "data_provider_required",
+                    "provider": plugin.requires_provider,
+                    "detail": (
+                        f"Sàn {plugin.display_name} yêu cầu cấu hình nguồn dữ liệu "
+                        f"({plugin.requires_provider})."
+                    ),
+                },
+            )
+        provider_profile = await session.get(DataProviderProfile, body.data_provider_profile_id)
+        if provider_profile is None:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "error": "data_provider_mismatch",
+                    "detail": "Không tìm thấy cấu hình nguồn dữ liệu.",
+                },
+            )
+        if provider_profile.provider != plugin.requires_provider:
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                content={
+                    "error": "data_provider_mismatch",
+                    "detail": (
+                        "Cấu hình nguồn dữ liệu không đúng loại "
+                        f"(cần '{plugin.requires_provider}')."
+                    ),
+                },
+            )
+
     if body.llm_profile_id is not None:
         profile = await session.get(LLMProfile, body.llm_profile_id)
         if profile is None:
@@ -114,6 +163,7 @@ async def create_ingest(
         job_events=job_events,
         job_queue=job_queue,
         llm_profile_id=body.llm_profile_id,
+        data_provider_profile_id=body.data_provider_profile_id,
         max_products=body.max_products,
         max_reviews=body.max_reviews,
     )

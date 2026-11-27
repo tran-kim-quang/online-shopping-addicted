@@ -8,12 +8,14 @@ from app.core.singleton import SingletonMeta
 from app.crawl.errors import UnsupportedPlatformError
 from app.crawl.http import CrawlHttp
 from app.crawl.types import ParsedURL, ProductData, ReviewData, ShopData
+from app.platforms.base import PlatformFetcher
 
 
-class PlatformAdapter(ABC):
+class PlatformAdapter(PlatformFetcher, ABC):
     """Abstract base class for e-commerce platform crawlers."""
 
     platform: str
+    cost_usd: float = 0.0
 
     def __init__(self, http: CrawlHttp | None = None) -> None:
         self._http: CrawlHttp | None = http
@@ -77,10 +79,7 @@ class AdapterRegistry(metaclass=SingletonMeta):
         if adapter is None:
             raise UnsupportedPlatformError(
                 platform=key,
-                message=(
-                    f"Nền tảng '{platform}' chưa có adapter hỗ trợ. "
-                    "Xem docs/research/hard-ecommerce-sites.md."
-                ),
+                message=f"Nền tảng '{platform}' chưa có adapter hỗ trợ.",
             )
         return adapter
 

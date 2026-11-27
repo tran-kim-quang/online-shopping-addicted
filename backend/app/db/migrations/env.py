@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.models import (  # noqa: F401 — ensure models are registered
     Chunk,
+    DataProviderProfile,
     LLMProfile,
     Product,
     Review,

@@ -7,13 +7,14 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import case, cast, func, update
+from sqlalchemy import case, cast, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crawl.types import ProductData, ReviewData, ShopData
 from app.db.models import Product, Review, Shop, Source
+from app.ingest.quality import score_review_object
 
 _UNSET: Any = object()
 
@@ -225,6 +226,16 @@ async def upsert_reviews(
             "author": review.author,
             "created_at_source": review.created_at_source,
             "helpful_count": review.helpful_count,
+            "variant": review.variant,
+            "tags": review.tags,
+            "sub_ratings": review.sub_ratings,
+            "seller_reply": review.seller_reply,
+            "media_count": review.media_count,
+            "quality_score": (
+                review.quality_score
+                if review.quality_score is not None
+                else score_review_object(review)
+            ),
             "images": review.images,
             "raw": review.raw,
             "crawled_at": now,
@@ -242,6 +253,12 @@ async def upsert_reviews(
             "author": stmt.excluded.author,
             "created_at_source": stmt.excluded.created_at_source,
             "helpful_count": stmt.excluded.helpful_count,
+            "variant": stmt.excluded.variant,
+            "tags": stmt.excluded.tags,
+            "sub_ratings": stmt.excluded.sub_ratings,
+            "seller_reply": stmt.excluded.seller_reply,
+            "media_count": stmt.excluded.media_count,
+            "quality_score": stmt.excluded.quality_score,
             "images": stmt.excluded.images,
             "raw": stmt.excluded.raw,
             "crawled_at": stmt.excluded.crawled_at,
@@ -249,3 +266,45 @@ async def upsert_reviews(
     )
     await session.execute(stmt)
     return len(rows)
+
+
+async def get_latest_review_timestamps_by_group(
+    session: AsyncSession,
+    *,
+    platform: str,
+    product_external_id: str | None = None,
+    shop_external_id: str | None = None,
+) -> dict[str, datetime]:
+    """Return latest ``Review.created_at_source`` per stratified group (low 1-3, high 4-5)."""
+    stmt = (
+        select(
+            func.max(Review.created_at_source)
+            .filter(Review.rating.in_([1, 2, 3]))
+            .label("low_latest"),
+            func.max(Review.created_at_source)
+            .filter(Review.rating.in_([4, 5]))
+            .label("high_latest"),
+        )
+        .select_from(Review)
+        .join(Product, Review.product_id == Product.id)
+        .where(Product.platform == platform, Review.created_at_source.is_not(None))
+    )
+    if product_external_id is not None:
+        stmt = stmt.where(Product.external_id == product_external_id)
+    elif shop_external_id is not None:
+        stmt = stmt.join(Shop, Product.shop_id == Shop.id).where(
+            Shop.platform == platform,
+            Shop.external_id == shop_external_id,
+        )
+    else:
+        return {}
+
+    row = (await session.execute(stmt)).one_or_none()
+    if row is None:
+        return {}
+    out: dict[str, datetime] = {}
+    if row.low_latest is not None:
+        out["low"] = row.low_latest
+    if row.high_latest is not None:
+        out["high"] = row.high_latest
+    return out

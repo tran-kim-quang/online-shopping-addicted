@@ -84,6 +84,13 @@ class Settings(BaseSettings):
     CRAWL_CONCURRENCY: int = 2
     CRAWL_CACHE_TTL_HOURS: int = 48
 
+    APIFY_RUN_TIMEOUT_SECONDS: float = 600.0
+    APIFY_SHOPEE_PRODUCT_ACTOR: str = "cliqtomedia~shopee-scraper"
+    APIFY_SHOPEE_REVIEWS_ACTOR: str = "themineworks~shopee-reviews-scraper"
+    SHOPEE_REVIEW_WINDOW_MONTHS: int = 12
+    SHOPEE_LOW_STAR_MAX: int = 150
+    SHOPEE_HIGH_STAR_MAX: int = 30
+
     EMBEDDING_BACKEND: str = "local"
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"
     EMBEDDING_BATCH_SIZE: int = 16

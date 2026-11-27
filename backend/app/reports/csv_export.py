@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import re
 import unicodedata
 import uuid
@@ -60,6 +61,11 @@ REVIEWS_CSV_BASE_COLUMNS: tuple[str, ...] = (
     "aspects",
     "helpful_count",
     "created_at_source",
+    "variant",
+    "tags",
+    "sub_ratings",
+    "seller_reply",
+    "media_count",
 )
 
 _ASPECT_SYMBOLS: dict[str, str] = {
@@ -303,6 +309,11 @@ async def iter_reviews_csv(
         Review.aspects.label("aspects"),
         Review.helpful_count.label("helpful_count"),
         Review.created_at_source.label("created_at_source"),
+        Review.variant.label("variant"),
+        Review.tags.label("tags"),
+        Review.sub_ratings.label("sub_ratings"),
+        Review.seller_reply.label("seller_reply"),
+        Review.media_count.label("media_count"),
     ]
     if include_author:
         columns.append(Review.author.label("author"))
@@ -332,6 +343,18 @@ async def iter_reviews_csv(
         async for partition in stream_result.partitions(effective_batch):
             csv_batch: list[list[Any]] = []
             for row in partition:
+                raw_tags = getattr(row, "tags", None)
+                tags_cell = (
+                    "; ".join(str(t).strip() for t in raw_tags if isinstance(t, str) and t.strip())
+                    if isinstance(raw_tags, list)
+                    else ""
+                )
+                raw_sub_ratings = getattr(row, "sub_ratings", None)
+                sub_ratings_cell = (
+                    json.dumps(raw_sub_ratings, ensure_ascii=False, sort_keys=True)
+                    if isinstance(raw_sub_ratings, dict) and raw_sub_ratings
+                    else ""
+                )
                 record: list[Any] = [
                     row.product_external_id,
                     row.product_title,
@@ -344,6 +367,11 @@ async def iter_reviews_csv(
                     format_aspects_cell(row.aspects),
                     row.helpful_count,
                     row.created_at_source,
+                    getattr(row, "variant", None),
+                    tags_cell,
+                    sub_ratings_cell,
+                    getattr(row, "seller_reply", None),
+                    getattr(row, "media_count", 0),
                 ]
                 if include_author:
                     record.append(row.author)

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import and_, case, func, select
@@ -32,6 +33,7 @@ from app.jobs.submit import classify_ingest_url, submit_parsed_ingest
 from app.llm.client import LLMClient
 from app.llm.structured import complete_json
 from app.llm.types import ToolSpec
+from app.platforms.registry import PlatformRegistry
 from app.security.prompt import (
     UNTRUSTED_END_DELIMITER,
     UNTRUSTED_START_DELIMITER,
@@ -121,7 +123,7 @@ def _decimal_to_number(value: Decimal | None) -> int | float | None:
 
 
 def resolve_product_in_scope(ctx: AgentContext, raw_id: str) -> Product:
-    """Resolve ``P<n>``, UUID, or Tiki ``external_id`` strictly within ``ctx`` scope."""
+    """Resolve ``P<n>``, UUID, or marketplace ``external_id`` strictly within ``ctx`` scope."""
     cleaned = raw_id.strip()
     if cleaned.startswith("[") and cleaned.endswith("]"):
         cleaned = cleaned[1:-1].strip()
@@ -241,7 +243,7 @@ class GetProductArgs(BaseModel):
         min_length=1,
         max_length=128,
         description=(
-            "Product reference (e.g. 'P1'), product UUID, or Tiki external_id within scope."
+            "Product reference (e.g. 'P1'), product UUID, or external_id trên sàn within scope."
         ),
     )
 
@@ -330,13 +332,22 @@ class CrawlMoreArgs(BaseModel):
     url: str = Field(
         min_length=1,
         max_length=2048,
-        description="Valid Tiki product or shop URL to enqueue for background crawling.",
+        description="Valid marketplace product or shop URL to enqueue for background crawling.",
     )
 
 
 # ---------------------------------------------------------------------------
 # Tool 1: get_product
 # ---------------------------------------------------------------------------
+
+
+def _get_review_sample_mode(ctx: AgentContext) -> Literal["stratified", "natural"]:
+    stats = getattr(ctx.source, "stats", None)
+    if isinstance(stats, dict):
+        sampling = stats.get("sampling")
+        if isinstance(sampling, dict) and sampling.get("strategy") == "stratified":
+            return "stratified"
+    return "natural"
 
 
 async def _run_get_product(ctx: AgentContext, args: GetProductArgs) -> ToolResult:
@@ -380,6 +391,7 @@ async def _run_get_product(ctx: AgentContext, args: GetProductArgs) -> ToolResul
         "rating_avg": product.rating_avg,
         "rating_count": product.rating_count,
         "review_count": product.review_count,
+        "review_sample": _get_review_sample_mode(ctx),
         "positive_review_count": product.positive_review_count,
         "negative_review_count": product.negative_review_count,
         "neutral_review_count": product.neutral_review_count,
@@ -496,6 +508,7 @@ async def _run_query_products(ctx: AgentContext, args: QueryProductsArgs) -> Too
             .all()
         )
 
+    review_sample = _get_review_sample_mode(ctx)
     items: list[dict[str, Any]] = []
     for prod in rows:
         ref = ctx.citations.register_product(prod)
@@ -515,6 +528,7 @@ async def _run_query_products(ctx: AgentContext, args: QueryProductsArgs) -> Too
                 "rating_avg": prod.rating_avg,
                 "rating_count": prod.rating_count,
                 "review_count": prod.review_count,
+                "review_sample": review_sample,
                 "positive_review_count": prod.positive_review_count,
                 "negative_review_count": prod.negative_review_count,
                 "neutral_review_count": prod.neutral_review_count,
@@ -529,6 +543,7 @@ async def _run_query_products(ctx: AgentContext, args: QueryProductsArgs) -> Too
             "total_matching": total_matching,
             "sort_by": args.sort_by,
             "order": args.order,
+            "review_sample": review_sample,
             "items": items,
         },
         result_count=len(items),
@@ -618,6 +633,10 @@ def _format_review_item(
         "sentiment": review.sentiment,
         "aspects": review.aspects or [],
         "helpful_count": review.helpful_count,
+        "variant": getattr(review, "variant", None),
+        "tags": list(getattr(review, "tags", None) or []),
+        "sub_ratings": dict(getattr(review, "sub_ratings", None) or {}),
+        "quality_score": getattr(review, "quality_score", None),
         "created_at": (
             review.created_at_source.date().isoformat()
             if review.created_at_source is not None
@@ -681,11 +700,26 @@ async def _run_search_reviews(ctx: AgentContext, args: SearchReviewsArgs) -> Too
                     .all()
                 )
                 rev_map = {(r.product_id, r.external_id): r for r in rev_rows}
+                matched_pairs: list[tuple[Any, Product, Review]] = []
                 for hit in hits:
                     prod = ctx.products_by_id.get(hit.product_id)
                     rev = rev_map.get((hit.product_id, hit.source_ref))
                     if prod is None or rev is None:
                         continue
+                    matched_pairs.append((hit, prod, rev))
+                # Break equal search-score ties using quality_score descending.
+                matched_pairs.sort(
+                    key=lambda pair: (
+                        -round(float(pair[0].score), 8),
+                        -(
+                            float(pair[2].quality_score)
+                            if getattr(pair[2], "quality_score", None) is not None
+                            else -1.0
+                        ),
+                        str(pair[2].id),
+                    )
+                )
+                for hit, prod, rev in matched_pairs:
                     items.append(
                         _format_review_item(
                             ctx,
@@ -710,6 +744,7 @@ async def _run_search_reviews(ctx: AgentContext, args: SearchReviewsArgs) -> Too
                         select(Review)
                         .where(*clauses)
                         .order_by(
+                            Review.quality_score.desc().nullslast(),
                             Review.helpful_count.desc().nullslast(),
                             Review.created_at_source.desc().nullslast(),
                             Review.id.asc(),
@@ -807,6 +842,7 @@ async def _run_summarize_reviews(ctx: AgentContext, args: SummarizeReviewsArgs) 
                     select(Review)
                     .where(Review.product_id == scoped.id)
                     .order_by(
+                        Review.quality_score.desc().nullslast(),
                         Review.helpful_count.desc().nullslast(),
                         Review.created_at_source.desc().nullslast(),
                         Review.id.asc(),
@@ -935,14 +971,16 @@ async def _run_summarize_reviews(ctx: AgentContext, args: SummarizeReviewsArgs) 
                     )
                     llm_summary = None
 
+    review_sample = _get_review_sample_mode(ctx)
     data: dict[str, Any] = {
         "product_ref": p_ref,
         "product_id": str(scoped.id),
         "title": scoped.title,
         "rating_avg": scoped.rating_avg,
         "rating_count": scoped.rating_count,
+        "review_sample": review_sample,
         "total_reviews_collected": len(reviews),
-        "star_distribution": star_distribution,
+        "star_distribution": None if review_sample == "stratified" else star_distribution,
         "sentiment_counts": sentiment_counts,
         "top_positive_aspects": [
             {"aspect": name, "count": cnt}
@@ -965,6 +1003,31 @@ async def _run_summarize_reviews(ctx: AgentContext, args: SummarizeReviewsArgs) 
 # ---------------------------------------------------------------------------
 
 
+def _paid_source_error(display_name: str) -> ToolResult:
+    """Uniform refusal for links whose platform needs a user-configured paid provider."""
+    return ToolResult(
+        ok=False,
+        error=(
+            f"paid_source_requires_user: Link {display_name} cần người dùng tự dán "
+            "để kiểm soát chi phí."
+        ),
+    )
+
+
+def _paid_plugin_for_url(url: str) -> Any | None:
+    """Return the paid-provider plugin owning ``url``'s host (primary or short), else ``None``."""
+    try:
+        host = (urlsplit((url or "").strip()).hostname or "").lower()
+    except ValueError:
+        return None
+    if not host:
+        return None
+    plugin = PlatformRegistry().for_host(host)
+    if plugin is not None and plugin.requires_provider is not None:
+        return plugin
+    return None
+
+
 async def _run_crawl_more(ctx: AgentContext, args: CrawlMoreArgs) -> ToolResult:
     if ctx.crawl_turn_count >= ctx.settings.AGENT_CRAWL_MAX_PER_TURN:
         return ToolResult(
@@ -980,6 +1043,12 @@ async def _run_crawl_more(ctx: AgentContext, args: CrawlMoreArgs) -> ToolResult:
             ),
         )
 
+    # Paid platforms must be refused *before* resolving a short link: otherwise the tool would
+    # perform an outbound request (and could reach a paid scraper) just to learn the platform.
+    paid_plugin = _paid_plugin_for_url(args.url)
+    if paid_plugin is not None:
+        return _paid_source_error(paid_plugin.display_name)
+
     try:
         parsed = await classify_ingest_url(
             args.url,
@@ -988,6 +1057,14 @@ async def _run_crawl_more(ctx: AgentContext, args: CrawlMoreArgs) -> ToolResult:
         )
     except (UnsupportedPlatformError, UnsupportedURLError, UnsafeURLError) as exc:
         return ToolResult(ok=False, error=str(exc))
+
+    try:
+        plugin = PlatformRegistry().get(parsed.platform)
+    except UnsupportedPlatformError as exc:
+        return ToolResult(ok=False, error=str(exc))
+
+    if plugin.requires_provider:
+        return _paid_source_error(plugin.display_name)
 
     job_events = ctx.job_events if ctx.job_events is not None else JobEvents()
     job_queue = ctx.job_queue if ctx.job_queue is not None else JobQueue()
@@ -1134,7 +1211,7 @@ def build_agent_tools() -> dict[str, AgentTool]:
         AgentTool(
             name="crawl_more",
             description=(
-                "Đưa thêm 1 link sản phẩm hoặc shop Tiki hợp lệ vào hàng đợi thu thập dữ liệu "
+                "Đưa thêm 1 link sản phẩm hoặc shop hợp lệ trên sàn vào hàng đợi thu thập dữ liệu "
                 "nền (có giới hạn quota; không chờ hoàn tất và không tự mở rộng phạm vi phiên)."
             ),
             args_model=CrawlMoreArgs,

@@ -22,6 +22,19 @@ export function formatCurrencyVnd(
   }).format(value);
 }
 
+export function formatCurrencyUsd(
+  value: number | null | undefined,
+  locale: AppLocale | string
+): string {
+  if (!isFiniteNumber(value)) return EMPTY_VALUE;
+  return new Intl.NumberFormat(toIntlLocale(locale), {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(value);
+}
+
 export function formatNumber(
   value: number | null | undefined,
   locale: AppLocale | string,

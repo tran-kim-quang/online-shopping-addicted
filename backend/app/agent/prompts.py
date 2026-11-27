@@ -3,14 +3,34 @@
 from __future__ import annotations
 
 from app.agent.tools import AgentContext
+from app.crawl.errors import UnsupportedPlatformError
+from app.platforms.registry import PlatformRegistry
 from app.security.prompt import UNTRUSTED_END_DELIMITER, UNTRUSTED_START_DELIMITER
+
+
+def _resolve_platform_info(platform: str | None) -> tuple[str, bool]:
+    if not platform:
+        return "thương mại điện tử", False
+    try:
+        plugin = PlatformRegistry().get(platform)
+        return plugin.display_name, bool(plugin.requires_provider)
+    except UnsupportedPlatformError:
+        return platform, False
 
 
 def build_system_prompt(ctx: AgentContext) -> str:
     """Build the grounded, injection-hardened Vietnamese system prompt for ``ctx``."""
     scope_lines: list[str] = []
     source_type = ctx.source.url_type or ("product" if len(ctx.products) == 1 else "shop")
-    scope_lines.append(f"- Loại nguồn: {source_type} (nền tảng: {ctx.source.platform or 'tiki'})")
+    platform_display, requires_provider = _resolve_platform_info(ctx.source.platform)
+    sampling = (
+        ctx.source.stats.get("sampling")
+        if isinstance(ctx.source.stats, dict) and isinstance(ctx.source.stats.get("sampling"), dict)
+        else {}
+    )
+    is_stratified = sampling.get("strategy") == "stratified"
+
+    scope_lines.append(f"- Loại nguồn: {source_type} (nền tảng: {platform_display})")
     if ctx.shop is not None:
         shop_meta = ctx.shop.name
         if ctx.shop.rating is not None:
@@ -31,6 +51,29 @@ def build_system_prompt(ctx: AgentContext) -> str:
 
     scope_block = "\n".join(scope_lines)
 
+    crawl_more_hint = (
+        ""
+        if (is_stratified or requires_provider)
+        else (
+            "- Nếu cần thu thập thêm dữ liệu từ một link sản phẩm hoặc cửa hàng khác "
+            "ngoài phạm vi → gọi `crawl_more(url)` và thông báo cho người dùng rằng "
+            "dữ liệu đang được thu thập nền.\n"
+        )
+    )
+
+    stratified_block = (
+        "\nQUY TẮC MẪU ĐÁNH GIÁ CHỌN LỌC (BẮT BUỘC):\n"
+        "- Mẫu đánh giá được chọn lọc (ưu tiên 1–3★ có nội dung và 4–5★ có ảnh/video): "
+        "KHÔNG nêu phần trăm khen/chê hay trung bình sao tính từ mẫu đánh giá.\n"
+        "- Điểm đánh giá tổng thể CHỈ lấy từ số sàn báo (`rating_avg`, `rating_count`); "
+        "nếu không có thì nói rõ sàn không công khai.\n"
+        "- Phân tích theo chủ đề/khía cạnh và trích dẫn `[R..]`. "
+        "Nêu rõ khi số đánh giá về một khía cạnh ít (< 5).\n"
+        "- KHÔNG gợi ý người dùng hoặc tự thu thập thêm đánh giá.\n"
+        if is_stratified
+        else ""
+    )
+
     return (
         "Bạn là trợ lý Shop QA chuyên hỏi đáp về sản phẩm và cửa hàng thương mại điện tử "
         "dựa trên dữ liệu đã được thu thập sẵn.\n\n"
@@ -47,11 +90,11 @@ def build_system_prompt(ctx: AgentContext) -> str:
         "- Câu hỏi 'sản phẩm này là gì / công dụng / cho ai / thành phần / "
         "hướng dẫn sử dụng / bảo quản / thông số' → "
         "gọi `get_product` và `search_product_docs`.\n"
-        "- Câu hỏi 'người mua phản hồi thế nào / ưu nhược điểm / phân bố sao' → "
+        "- Câu hỏi 'người mua phản hồi thế nào / ưu nhược điểm / đánh giá chi tiết' → "
         "gọi `summarize_reviews` (có thể kết hợp `search_reviews` để xem chi tiết "
         "hoặc lọc theo khía cạnh/cảm xúc).\n"
-        "- Nếu cần thu thập thêm dữ liệu từ một link Tiki khác ngoài phạm vi → "
-        "gọi `crawl_more(url)` và thông báo cho người dùng rằng dữ liệu đang được thu thập nền.\n\n"
+        f"{crawl_more_hint}"
+        f"{stratified_block}\n"
         "NGUYÊN TẮC TRUNG THỰC & TRÍCH DẪN (BẮT BUỘC):\n"
         "1. CHỈ sử dụng thông tin và số liệu có trong kết quả công cụ của lượt này. "
         "TUYỆT ĐỐI KHÔNG tự bịa số liệu, giá bán, thông số kỹ thuật hay nhận xét không có.\n"
