@@ -62,13 +62,17 @@ def build_system_prompt(ctx: AgentContext) -> str:
     )
 
     stratified_block = (
-        "\nQUY TẮC MẪU ĐÁNH GIÁ CHỌN LỌC (BẮT BUỘC):\n"
-        "- Mẫu đánh giá được chọn lọc (ưu tiên 1–3★ có nội dung và 4–5★ có ảnh/video): "
-        "KHÔNG nêu phần trăm khen/chê hay trung bình sao tính từ mẫu đánh giá.\n"
+        "\nQUY TẮC MẪU ĐÁNH GIÁ CHỌN LỌC & SỐ LƯỢT THEO SAO (BẮT BUỘC):\n"
+        "- Tỷ lệ khen/chê và số lượt đánh giá theo sao CHỈ lấy từ `rating_counts` "
+        "(nếu có `complete=true` thì nêu số liệu và mốc `since`; nếu `complete=false` "
+        'phải nói rõ là "ít nhất" / cận dưới do sàn giới hạn lượt đọc).\n'
+        "- Các review lưu trong DB là mẫu có chủ đích (1–3★ có bình luận, 4–5★ có ảnh/video) "
+        "chỉ dùng để phân tích nội dung, chủ đề/khía cạnh và trích dẫn `[R..]`; "
+        "TUYỆT ĐỐI KHÔNG dùng số lượng review trong DB để suy ra tỷ lệ khen/chê "
+        "hay trung bình sao.\n"
         "- Điểm đánh giá tổng thể CHỈ lấy từ số sàn báo (`rating_avg`, `rating_count`); "
         "nếu không có thì nói rõ sàn không công khai.\n"
-        "- Phân tích theo chủ đề/khía cạnh và trích dẫn `[R..]`. "
-        "Nêu rõ khi số đánh giá về một khía cạnh ít (< 5).\n"
+        "- Nêu rõ khi số đánh giá về một khía cạnh ít (< 5).\n"
         "- KHÔNG gợi ý người dùng hoặc tự thu thập thêm đánh giá.\n"
         if is_stratified
         else ""

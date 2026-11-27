@@ -165,6 +165,7 @@ async def upsert_product(
         description_text=product.description_text,
         specs=product.specs,
         images=product.images,
+        rating_breakdown=product.rating_breakdown,
         raw=product.raw,
         crawled_at=now,
     )
@@ -189,6 +190,9 @@ async def upsert_product(
             "description_text": stmt.excluded.description_text,
             "specs": stmt.excluded.specs,
             "images": stmt.excluded.images,
+            "rating_breakdown": func.coalesce(
+                stmt.excluded.rating_breakdown, Product.rating_breakdown
+            ),
             "raw": stmt.excluded.raw,
             "crawled_at": stmt.excluded.crawled_at,
         },
@@ -308,3 +312,121 @@ async def get_latest_review_timestamps_by_group(
     if row.high_latest is not None:
         out["high"] = row.high_latest
     return out
+
+
+def merge_rating_breakdown(
+    old: dict[str, Any] | None,
+    new: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Merge an incremental ``rating_breakdown`` snapshot into an existing one."""
+    if not old:
+        return new
+    if not new:
+        return old
+
+    old_stars = old.get("stars") if isinstance(old.get("stars"), dict) else {}
+    new_stars = new.get("stars") if isinstance(new.get("stars"), dict) else {}
+    old_until_by_group = (
+        old.get("until_by_group") if isinstance(old.get("until_by_group"), dict) else {}
+    )
+    new_until_by_group = (
+        new.get("until_by_group") if isinstance(new.get("until_by_group"), dict) else {}
+    )
+
+    merged_stars: dict[str, dict[str, Any]] = {}
+    for star_key in sorted(set(old_stars) | set(new_stars)):
+        group = "low" if str(star_key) in {"1", "2", "3"} else "high"
+        old_entry = old_stars.get(star_key) if isinstance(old_stars.get(star_key), dict) else None
+        new_entry = new_stars.get(star_key) if isinstance(new_stars.get(star_key), dict) else None
+        if old_entry is not None and new_entry is not None:
+            merged_stars[str(star_key)] = {
+                "count": int(old_entry.get("count", 0)) + int(new_entry.get("count", 0)),
+                "complete": bool(old_entry.get("complete")) and bool(new_entry.get("complete")),
+            }
+        elif old_entry is not None:
+            merged_stars[str(star_key)] = {
+                "count": int(old_entry.get("count", 0)),
+                "complete": False
+                if group in new_until_by_group
+                else bool(old_entry.get("complete")),
+            }
+        elif new_entry is not None:
+            merged_stars[str(star_key)] = {
+                "count": int(new_entry.get("count", 0)),
+                "complete": False
+                if group in old_until_by_group
+                else bool(new_entry.get("complete")),
+            }
+
+    merged_until_by_group: dict[str, str] = {
+        **{str(k): str(v) for k, v in old_until_by_group.items() if v},
+        **{str(k): str(v) for k, v in new_until_by_group.items() if v},
+    }
+    until_val = (
+        min(merged_until_by_group.values())
+        if merged_until_by_group
+        else (new.get("until") or old.get("until"))
+    )
+    return {
+        "source": new.get("source") or old.get("source") or "apify_review_summary",
+        "since": old.get("since") or new.get("since"),
+        "until": until_val,
+        "until_by_group": merged_until_by_group,
+        "stars": merged_stars,
+    }
+
+
+def extract_newer_than_from_breakdowns(
+    breakdowns: dict[str, dict[str, Any]],
+) -> dict[str, datetime]:
+    """Extract per-group ``newerThan`` UTC datetimes from stored ``rating_breakdown``s."""
+    out: dict[str, datetime] = {}
+    for bd in breakdowns.values():
+        until_by_group = bd.get("until_by_group")
+        if not isinstance(until_by_group, dict):
+            continue
+        for group in ("low", "high"):
+            raw = until_by_group.get(group)
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            try:
+                dt = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=UTC)
+                else:
+                    dt = dt.astimezone(UTC)
+            except ValueError:
+                continue
+            if group not in out or dt < out[group]:
+                out[group] = dt
+    return out
+
+
+async def get_product_rating_breakdowns(
+    session: AsyncSession,
+    *,
+    platform: str,
+    product_external_id: str | None = None,
+    shop_external_id: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Return existing ``Product.rating_breakdown`` keyed by ``Product.external_id``."""
+    stmt = select(Product.external_id, Product.rating_breakdown).where(
+        Product.platform == platform,
+        Product.rating_breakdown.is_not(None),
+    )
+    if product_external_id is not None:
+        stmt = stmt.where(Product.external_id == product_external_id)
+    elif shop_external_id is not None:
+        stmt = stmt.join(Shop, Product.shop_id == Shop.id).where(
+            Shop.platform == platform,
+            Shop.external_id == shop_external_id,
+        )
+    else:
+        return {}
+
+    rows = (await session.execute(stmt)).all()
+    return {
+        str(row.external_id): dict(row.rating_breakdown)
+        for row in rows
+        if isinstance(row.rating_breakdown, dict)
+    }

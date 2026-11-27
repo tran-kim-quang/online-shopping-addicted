@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, literal_column, select, true
@@ -93,11 +93,26 @@ class ReportTotals(BaseModel):
 
 
 class RatingBucket(BaseModel):
-    """Star-rating count and percentage from collected reviews."""
+    """Star-rating count and percentage from collected reviews or platform counts."""
 
     stars: int
     count: int = 0
     pct: float | None = None
+    lower_bound: bool = False
+
+
+class RatingCountsSummary(BaseModel):
+    """Aggregated star-rating counts from actor summary (per product or source)."""
+
+    positive: int = 0
+    neutral: int = 0
+    negative: int = 0
+    total: int = 0
+    complete: bool = False
+    since: str | None = None
+    until: str | None = None
+    products_with_counts: int = 0
+    products_total: int = 0
 
 
 class ProductReportRow(BaseModel):
@@ -126,6 +141,7 @@ class ProductReportRow(BaseModel):
     negative: int = 0
     positive_pct: float | None = None
     last_review_at: datetime | None = None
+    rating_counts: RatingCountsSummary | None = None
 
 
 class RankingItem(BaseModel):
@@ -185,6 +201,8 @@ class SourceReport(BaseModel):
     shop: ReportShopInfo | None = None
     totals: ReportTotals
     rating_distribution: list[RatingBucket]
+    rating_basis: Literal["reviews", "platform_counts"] | None = None
+    rating_counts: RatingCountsSummary | None = None
     products: list[ProductReportRow]
     rankings: ReportRankings
     aspects: ReportAspects
@@ -357,6 +375,113 @@ def _resolve_platform_display_name(platform: str | None) -> str | None:
         return platform
 
 
+def _build_product_rating_counts(prod: Product) -> RatingCountsSummary | None:
+    bd = getattr(prod, "rating_breakdown", None)
+    if not isinstance(bd, dict):
+        return None
+    stars = bd.get("stars")
+    if not isinstance(stars, dict) or not stars:
+        return None
+
+    star_vals: dict[int, int] = {}
+    star_complete: dict[int, bool] = {}
+    for star in range(1, 6):
+        entry = stars.get(str(star))
+        if isinstance(entry, dict):
+            star_vals[star] = max(0, int(entry.get("count", 0)))
+            star_complete[star] = bool(entry.get("complete"))
+        else:
+            star_vals[star] = 0
+            star_complete[star] = False
+
+    positive = star_vals[4] + star_vals[5]
+    neutral = star_vals[3]
+    negative = star_vals[1] + star_vals[2]
+    total = positive + neutral + negative
+    return RatingCountsSummary(
+        positive=positive,
+        neutral=neutral,
+        negative=negative,
+        total=total,
+        complete=all(star_complete.values()),
+        since=bd.get("since") if isinstance(bd.get("since"), str) else None,
+        until=bd.get("until") if isinstance(bd.get("until"), str) else None,
+        products_with_counts=1,
+        products_total=1,
+    )
+
+
+def _aggregate_source_rating_counts(
+    products: list[Product],
+) -> tuple[list[RatingBucket], RatingCountsSummary | None, list[int]]:
+    """Aggregate ``Product.rating_breakdown`` across all products in scope."""
+    products_with_bd = [
+        p
+        for p in products
+        if isinstance(getattr(p, "rating_breakdown", None), dict)
+        and isinstance(p.rating_breakdown.get("stars"), dict)
+        and p.rating_breakdown.get("stars")
+    ]
+    if not products_with_bd:
+        return [], None, []
+
+    products_total = len(products)
+    products_with_counts = len(products_with_bd)
+    all_products_have_bd = products_with_counts == products_total
+
+    star_totals: dict[int, int] = {}
+    star_completes: dict[int, bool] = {}
+    for star in range(5, 0, -1):
+        star_sum = 0
+        star_complete = all_products_have_bd
+        for prod in products_with_bd:
+            entry = prod.rating_breakdown["stars"].get(str(star))
+            if isinstance(entry, dict):
+                star_sum += max(0, int(entry.get("count", 0)))
+                if not bool(entry.get("complete")):
+                    star_complete = False
+            else:
+                star_complete = False
+        star_totals[star] = star_sum
+        star_completes[star] = star_complete
+
+    all_complete = all(star_completes.values())
+    grand_total = sum(star_totals.values())
+    buckets = [
+        RatingBucket(
+            stars=star,
+            count=star_totals[star],
+            pct=_compute_pct(star_totals[star], grand_total) if all_complete else None,
+            lower_bound=not star_completes[star],
+        )
+        for star in range(5, 0, -1)
+    ]
+
+    since_vals = [
+        p.rating_breakdown["since"]
+        for p in products_with_bd
+        if isinstance(p.rating_breakdown.get("since"), str)
+    ]
+    until_vals = [
+        p.rating_breakdown["until"]
+        for p in products_with_bd
+        if isinstance(p.rating_breakdown.get("until"), str)
+    ]
+    summary = RatingCountsSummary(
+        positive=star_totals[4] + star_totals[5],
+        neutral=star_totals[3],
+        negative=star_totals[1] + star_totals[2],
+        total=grand_total,
+        complete=all_complete,
+        since=min(since_vals) if since_vals else None,
+        until=min(until_vals) if until_vals else None,
+        products_with_counts=products_with_counts,
+        products_total=products_total,
+    )
+    incomplete_stars = [s for s in range(1, 6) if not star_completes[s]]
+    return buckets, summary, incomplete_stars
+
+
 def _build_warnings(
     *,
     source: Source,
@@ -366,6 +491,8 @@ def _build_warnings(
     has_any_aspects: bool,
     ttl_hours: int,
     now_utc: datetime,
+    rating_counts: RatingCountsSummary | None = None,
+    incomplete_stars: list[int] | None = None,
 ) -> list[ReportWarning]:
     warnings: list[ReportWarning] = []
     sampling = _extract_sampling(source)
@@ -410,6 +537,21 @@ def _build_warnings(
                     code="review_budget_reached",
                     message="Đã dừng thu thập đánh giá vì chạm trần chi phí mỗi link.",
                     params={},
+                )
+            )
+        if rating_counts is not None and not rating_counts.complete:
+            missing_list = incomplete_stars or []
+            stars_label = ", ".join(f"{s}★" for s in missing_list)
+            warnings.append(
+                ReportWarning(
+                    code="rating_counts_partial",
+                    message=(
+                        "Số lượt đánh giá theo sao chưa đầy đủ "
+                        f"(thiếu/chưa đọc hết: {stars_label})."
+                        if stars_label
+                        else "Số lượt đánh giá theo sao chưa đầy đủ."
+                    ),
+                    params={"stars": stars_label},
                 )
             )
     else:
@@ -668,6 +810,8 @@ async def build_source_report(
             shop=shop_info,
             totals=empty_totals,
             rating_distribution=empty_dist,
+            rating_basis=None if is_stratified else "reviews",
+            rating_counts=None,
             products=[],
             rankings=ReportRankings(),
             aspects=ReportAspects(),
@@ -729,10 +873,17 @@ async def build_source_report(
     reviews_collected = int(rev_totals.reviews_collected or 0)
     review_count_reported = int(prod_agg.review_count_reported or 0)
 
-    # 3. Star rating distribution (empty for stratified samples; always 5 down to 1 otherwise).
+    # 3. Star rating distribution (platform_counts for stratified; reviews otherwise).
+    rating_basis: Literal["reviews", "platform_counts"] | None
+    rating_counts: RatingCountsSummary | None = None
+    incomplete_stars: list[int] = []
     if is_stratified:
-        rating_distribution: list[RatingBucket] = []
+        rating_distribution, rating_counts, incomplete_stars = _aggregate_source_rating_counts(
+            products
+        )
+        rating_basis = "platform_counts" if rating_counts is not None else None
     else:
+        rating_basis = "reviews"
         star_rows = (
             await session.execute(
                 select(Review.rating, func.count().label("cnt"))
@@ -926,6 +1077,7 @@ async def build_source_report(
                 negative=neg,
                 positive_pct=None if is_stratified else _compute_pct(pos, analyzed),
                 last_review_at=last_review_at,
+                rating_counts=_build_product_rating_counts(prod),
             )
         )
 
@@ -986,6 +1138,8 @@ async def build_source_report(
         has_any_aspects=has_any_aspects,
         ttl_hours=ttl_hours,
         now_utc=now_utc,
+        rating_counts=rating_counts,
+        incomplete_stars=incomplete_stars,
     )
 
     return SourceReport(
@@ -993,6 +1147,8 @@ async def build_source_report(
         shop=shop_info,
         totals=totals,
         rating_distribution=rating_distribution,
+        rating_basis=rating_basis,
+        rating_counts=rating_counts,
         products=product_rows,
         rankings=rankings,
         aspects=aspects,

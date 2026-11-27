@@ -610,6 +610,11 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
           totals={report.totals}
           isStratified={isStratified}
           platform={source.platform}
+          ratingBasis={report.rating_basis}
+          ratingCounts={report.rating_counts}
+          platformRatingCount={
+            isSingleProduct ? (firstProduct?.rating_count ?? null) : null
+          }
         />
 
         {isStratified && sampling && (
@@ -655,10 +660,15 @@ export function SourcePageClient({ sourceId }: { sourceId: string }) {
           </Card>
         )}
 
-        {!isStratified && (
+        {(!isStratified || report.rating_basis === "platform_counts") && (
           <RatingDistributionChart
             buckets={report.rating_distribution ?? []}
             totalReviews={report.totals.reviews_collected ?? 0}
+            ratingBasis={report.rating_basis}
+            ratingCounts={report.rating_counts}
+            platformRatingCount={
+              isSingleProduct ? (firstProduct?.rating_count ?? null) : null
+            }
           />
         )}
 

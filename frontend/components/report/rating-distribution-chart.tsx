@@ -12,20 +12,28 @@ import {
   YAxis,
 } from "recharts";
 import type { AppLocale } from "@/i18n/routing";
-import type { RatingBucket } from "@/lib/api/client";
-import { formatNumber, formatPercent } from "@/lib/format";
+import type {
+  RatingBucket,
+  RatingCountsSummary,
+  SourceReport,
+} from "@/lib/api/client";
+import { formatDate, formatNumber, formatPercent } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export interface RatingDistributionChartProps {
   buckets: RatingBucket[];
   totalReviews: number;
+  ratingBasis?: SourceReport["rating_basis"];
+  ratingCounts?: RatingCountsSummary | null;
+  platformRatingCount?: number | null;
 }
 
 interface ChartDatum {
   stars: number;
   starLabel: string;
   count: number;
-  pct: number;
+  pct: number | null;
+  lowerBound: boolean;
   barLabel: string;
 }
 
@@ -64,9 +72,23 @@ function RatingBarShape({
 export function RatingDistributionChart({
   buckets,
   totalReviews,
+  ratingBasis = null,
+  ratingCounts = null,
+  platformRatingCount = null,
 }: RatingDistributionChartProps) {
   const t = useTranslations("source.ratingDistribution");
   const locale = useLocale() as AppLocale;
+
+  const isPlatformCounts =
+    ratingBasis === "platform_counts" && ratingCounts !== null;
+  const countsComplete = isPlatformCounts ? Boolean(ratingCounts.complete) : true;
+  const showPercentages = !isPlatformCounts || countsComplete;
+  const effectiveTotal = isPlatformCounts
+    ? ratingCounts.total ?? totalReviews
+    : totalReviews;
+  const sinceFormatted = ratingCounts?.since
+    ? formatDate(ratingCounts.since, locale)
+    : null;
 
   const sorted = React.useMemo(
     () => [...buckets].sort((a, b) => b.stars - a.stars),
@@ -77,19 +99,53 @@ export function RatingDistributionChart({
     () =>
       sorted.map((b) => {
         const count = b.count ?? 0;
-        const pct = b.pct ?? 0;
+        const pct = b.pct ?? null;
+        const lowerBound = Boolean(b.lower_bound);
+        const countStr = `${lowerBound ? "≥ " : ""}${formatNumber(count, locale)}`;
+        const barLabel =
+          showPercentages && pct !== null
+            ? `${countStr} (${formatPercent(pct, locale)})`
+            : countStr;
         return {
           stars: b.stars,
           starLabel: `${b.stars}★`,
           count,
           pct,
-          barLabel: `${formatNumber(count, locale)} (${formatPercent(pct, locale)})`,
+          lowerBound,
+          barLabel,
         };
       }),
-    [sorted, locale]
+    [sorted, locale, showPercentages]
   );
 
   const maxCount = Math.max(1, ...data.map((d) => d.count));
+
+  const subtitleText = React.useMemo(() => {
+    if (!isPlatformCounts) {
+      return t("subtitle", { count: formatNumber(totalReviews, locale) });
+    }
+    if (countsComplete && sinceFormatted) {
+      return t("subtitlePlatformComplete", {
+        total: formatNumber(ratingCounts?.total ?? 0, locale),
+        since: sinceFormatted,
+      });
+    }
+    if (platformRatingCount !== null && platformRatingCount !== undefined) {
+      return t("subtitlePlatformIncompleteWithTotal", {
+        ratingCount: formatNumber(platformRatingCount, locale),
+      });
+    }
+    return t("subtitlePlatformIncomplete");
+  }, [
+    isPlatformCounts,
+    countsComplete,
+    sinceFormatted,
+    platformRatingCount,
+    ratingCounts,
+    totalReviews,
+    locale,
+    t,
+  ]);
 
   return (
     <Card className="border border-border bg-card shadow-none">
@@ -99,12 +155,12 @@ export function RatingDistributionChart({
             {t("title")}
           </CardTitle>
           <span className="font-mono text-xs text-muted-foreground tabular-nums">
-            {t("subtitle", { count: formatNumber(totalReviews, locale) })}
+            {subtitleText}
           </span>
         </div>
       </CardHeader>
       <CardContent>
-        {totalReviews === 0 ? (
+        {effectiveTotal === 0 && !isPlatformCounts ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
             {t("empty")}
           </p>
@@ -139,12 +195,20 @@ export function RatingDistributionChart({
                       fontSize: "12px",
                       color: "var(--popover-foreground)",
                     }}
-                    formatter={(value) => {
+                    formatter={(value, _name, item) => {
                       const num = typeof value === "number" ? value : 0;
+                      const datum = item?.payload as ChartDatum | undefined;
+                      const prefix = datum?.lowerBound ? "≥ " : "";
+                      if (!showPercentages) {
+                        return [
+                          `${prefix}${formatNumber(num, locale)}`,
+                          t("title"),
+                        ];
+                      }
                       const pct =
-                        totalReviews > 0 ? (num / totalReviews) * 100 : 0;
+                        effectiveTotal > 0 ? (num / effectiveTotal) * 100 : 0;
                       return [
-                        `${formatNumber(num, locale)} (${formatPercent(pct, locale)})`,
+                        `${prefix}${formatNumber(num, locale)} (${formatPercent(pct, locale)})`,
                         t("title"),
                       ];
                     }}
@@ -187,8 +251,15 @@ export function RatingDistributionChart({
                   {data.map((row) => (
                     <tr key={row.stars}>
                       <td>{t("starLabel", { stars: row.stars })}</td>
-                      <td>{row.count}</td>
-                      <td>{formatPercent(row.pct, locale)}</td>
+                      <td>
+                        {row.lowerBound ? "≥ " : ""}
+                        {row.count}
+                      </td>
+                      <td>
+                        {showPercentages && row.pct !== null
+                          ? formatPercent(row.pct, locale)
+                          : "—"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

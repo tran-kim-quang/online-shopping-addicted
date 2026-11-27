@@ -7,6 +7,7 @@ import type { AppLocale } from "@/i18n/routing";
 import type { ProductReportRow } from "@/lib/api/client";
 import {
   formatCurrencyVnd,
+  formatDate,
   formatNumber,
   formatPercent,
   formatRating,
@@ -132,12 +133,39 @@ export function ProductDetailCard({
                     <>
                       <span>{formatRating(product.rating_avg, locale)}</span>
                       {product.rating_count !== null &&
-                        product.rating_count !== undefined && (
-                          <span className="text-xs text-muted-foreground">
-                            ({formatNumber(product.rating_count, locale)})
-                          </span>
-                        )}
+                      product.rating_count !== undefined ? (
+                        <span className="text-xs text-muted-foreground">
+                          ({formatNumber(product.rating_count, locale)})
+                        </span>
+                      ) : product.rating_counts?.complete &&
+                        product.rating_counts.since ? (
+                        <span className="font-sans text-xs text-muted-foreground">
+                          (
+                          {tSource("kpi.platformRatingCountSince", {
+                            total: formatNumber(
+                              product.rating_counts.total ?? 0,
+                              locale
+                            ),
+                            since: formatDate(
+                              product.rating_counts.since,
+                              locale
+                            ),
+                          })}
+                          )
+                        </span>
+                      ) : null}
                     </>
+                  ) : product.rating_counts?.complete &&
+                    product.rating_counts.since ? (
+                    <span className="font-sans text-xs text-muted-foreground">
+                      {tSource("kpi.platformRatingCountSince", {
+                        total: formatNumber(
+                          product.rating_counts.total ?? 0,
+                          locale
+                        ),
+                        since: formatDate(product.rating_counts.since, locale),
+                      })}
+                    </span>
                   ) : platform === "shopee" ? (
                     <span className="font-sans text-xs text-muted-foreground">
                       {tSource("kpi.notPublishedByShopee")}

@@ -59,6 +59,7 @@ class ProductData(BaseModel):
     specs: dict[str, str] = Field(default_factory=dict)
     images: list[str] = Field(default_factory=list)
     shop: ShopData | None = None
+    rating_breakdown: dict[str, Any] | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
 
 

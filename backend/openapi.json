@@ -1018,6 +1018,16 @@
             ],
             "title": "Rating Count Effective"
           },
+          "rating_counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RatingCountsSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "review_count_reported": {
             "anyOf": [
               {
@@ -1211,12 +1221,17 @@
         "type": "object"
       },
       "RatingBucket": {
-        "description": "Star-rating count and percentage from collected reviews.",
+        "description": "Star-rating count and percentage from collected reviews or platform counts.",
         "properties": {
           "count": {
             "default": 0,
             "title": "Count",
             "type": "integer"
+          },
+          "lower_bound": {
+            "default": false,
+            "title": "Lower Bound",
+            "type": "boolean"
           },
           "pct": {
             "anyOf": [
@@ -1238,6 +1253,70 @@
           "stars"
         ],
         "title": "RatingBucket",
+        "type": "object"
+      },
+      "RatingCountsSummary": {
+        "description": "Aggregated star-rating counts from actor summary (per product or source).",
+        "properties": {
+          "complete": {
+            "default": false,
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "negative": {
+            "default": 0,
+            "title": "Negative",
+            "type": "integer"
+          },
+          "neutral": {
+            "default": 0,
+            "title": "Neutral",
+            "type": "integer"
+          },
+          "positive": {
+            "default": 0,
+            "title": "Positive",
+            "type": "integer"
+          },
+          "products_total": {
+            "default": 0,
+            "title": "Products Total",
+            "type": "integer"
+          },
+          "products_with_counts": {
+            "default": 0,
+            "title": "Products With Counts",
+            "type": "integer"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "title": "RatingCountsSummary",
         "type": "object"
       },
       "ReportAspects": {
@@ -2186,6 +2265,31 @@
           },
           "rankings": {
             "$ref": "#/components/schemas/ReportRankings"
+          },
+          "rating_basis": {
+            "anyOf": [
+              {
+                "enum": [
+                  "reviews",
+                  "platform_counts"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating Basis"
+          },
+          "rating_counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RatingCountsSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "rating_distribution": {
             "items": {

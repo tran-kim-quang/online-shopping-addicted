@@ -11,9 +11,10 @@ import {
   Tag,
 } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
-import type { SourceReport } from "@/lib/api/client";
+import type { RatingCountsSummary, SourceReport } from "@/lib/api/client";
 import {
   formatCurrencyVnd,
+  formatDate,
   formatNumber,
   formatPercent,
   formatRating,
@@ -25,15 +26,25 @@ export interface KpiGridProps {
   totals: SourceReport["totals"];
   isStratified?: boolean;
   platform?: string | null;
+  ratingBasis?: SourceReport["rating_basis"];
+  ratingCounts?: RatingCountsSummary | null;
+  platformRatingCount?: number | null;
 }
 
 export function KpiGrid({
   totals,
   isStratified = false,
   platform = null,
+  ratingBasis = null,
+  ratingCounts = null,
+  platformRatingCount = null,
 }: KpiGridProps) {
   const t = useTranslations("source.kpi");
   const locale = useLocale() as AppLocale;
+
+  const usePlatformCounts =
+    ratingBasis === "platform_counts" && ratingCounts !== null;
+  const countsComplete = usePlatformCounts ? Boolean(ratingCounts.complete) : false;
 
   const sentiment = totals.sentiment ?? {
     positive: 0,
@@ -41,14 +52,28 @@ export function KpiGrid({
     negative: 0,
     unanalyzed: 0,
   };
-  const positive = sentiment.positive ?? 0;
-  const neutral = sentiment.neutral ?? 0;
-  const negative = sentiment.negative ?? 0;
+  const positive = usePlatformCounts
+    ? ratingCounts.positive ?? 0
+    : sentiment.positive ?? 0;
+  const neutral = usePlatformCounts
+    ? ratingCounts.neutral ?? 0
+    : sentiment.neutral ?? 0;
+  const negative = usePlatformCounts
+    ? ratingCounts.negative ?? 0
+    : sentiment.negative ?? 0;
   const analyzedTotal = positive + neutral + negative;
+
+  const showSentimentBar =
+    (!isStratified && !usePlatformCounts) ||
+    (usePlatformCounts && countsComplete);
 
   const posPct = analyzedTotal > 0 ? (positive / analyzedTotal) * 100 : 0;
   const neuPct = analyzedTotal > 0 ? (neutral / analyzedTotal) * 100 : 0;
   const negPct = analyzedTotal > 0 ? (negative / analyzedTotal) * 100 : 0;
+
+  const sinceFormatted = ratingCounts?.since
+    ? formatDate(ratingCounts.since, locale)
+    : null;
 
   const coverageVal =
     totals.coverage_pct !== null && totals.coverage_pct !== undefined
@@ -121,7 +146,7 @@ export function KpiGrid({
                   / 5
                 </span>
               </>
-            ) : platform === "shopee" ? (
+            ) : platform === "shopee" && !(countsComplete && sinceFormatted) ? (
               <span className="font-sans text-xs font-medium text-muted-foreground">
                 {t("notPublishedByShopee")}
               </span>
@@ -129,6 +154,16 @@ export function KpiGrid({
               <span>—</span>
             )}
           </div>
+          {(platformRatingCount === null || platformRatingCount === undefined) &&
+            countsComplete &&
+            sinceFormatted && (
+              <div className="text-xs text-muted-foreground">
+                {t("platformRatingCountSince", {
+                  total: formatNumber(ratingCounts?.total ?? 0, locale),
+                  since: sinceFormatted,
+                })}
+              </div>
+            )}
         </CardContent>
       </Card>
 
@@ -206,7 +241,9 @@ export function KpiGrid({
             </>
           ) : (
             <div className="text-xs text-muted-foreground">
-              {t("stratifiedReviewsNote")}
+              {t("stratifiedReviewsSaved", {
+                count: formatNumber(totals.reviews_collected ?? 0, locale),
+              })}
             </div>
           )}
         </CardContent>
@@ -222,7 +259,7 @@ export function KpiGrid({
               aria-hidden="true"
             />
           </div>
-          {!isStratified && (
+          {showSentimentBar && (
             <div
               className="flex h-2 w-full overflow-hidden rounded-full bg-muted"
               role="img"
@@ -256,6 +293,7 @@ export function KpiGrid({
               />
               <span>{t("positive")}</span>
               <span className="font-mono font-semibold tabular-nums">
+                {usePlatformCounts && !countsComplete ? "≥ " : ""}
                 {formatNumber(positive, locale)}
               </span>
             </span>
@@ -269,6 +307,7 @@ export function KpiGrid({
               />
               <span>{t("neutral")}</span>
               <span className="font-mono font-semibold tabular-nums">
+                {usePlatformCounts && !countsComplete ? "≥ " : ""}
                 {formatNumber(neutral, locale)}
               </span>
             </span>
@@ -282,14 +321,26 @@ export function KpiGrid({
               />
               <span>{t("negative")}</span>
               <span className="font-mono font-semibold tabular-nums">
+                {usePlatformCounts && !countsComplete ? "≥ " : ""}
                 {formatNumber(negative, locale)}
               </span>
             </span>
           </div>
-          {isStratified && (
+          {usePlatformCounts ? (
             <div className="text-xs text-muted-foreground">
-              {t("inSample")}
+              {countsComplete && sinceFormatted
+                ? t("platformCountsComplete", {
+                    total: formatNumber(ratingCounts?.total ?? 0, locale),
+                    since: sinceFormatted,
+                  })
+                : t("platformCountsIncomplete")}
             </div>
+          ) : (
+            isStratified && (
+              <div className="text-xs text-muted-foreground">
+                {t("inSample")}
+              </div>
+            )
           )}
         </CardContent>
       </Card>
