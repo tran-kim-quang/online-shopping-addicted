@@ -23,7 +23,7 @@ trình duyệt ──> nginx ──┬──> Next.js (web)
 | Embedding | `bge-m3` chạy local (không tốn phí, không gửi dữ liệu ra ngoài) |
 | Frontend | Next.js 15, React 19, TypeScript strict, Tailwind v4, shadcn/ui (Base UI), TanStack Query, next-intl (vi/en) |
 | Đóng gói | Docker Compose: `nginx`, `web`, `api`, `worker`, `db`, `redis` |
-| Reverse proxy | nginx: một origin cho web + API, tắt buffer cho SSE, ghi đè `X-Forwarded-For`, giới hạn tần suất đăng nhập admin |
+| Reverse proxy | nginx: hai host (host chính cho web + API và ẩn admin; host admin riêng qua `ADMIN_HOST`), tắt buffer cho SSE, ghi đè `X-Forwarded-For`, giới hạn tần suất đăng nhập admin |
 
 Thiết kế dùng **Singleton** cho các tài nguyên dùng chung (Database, Redis, SecretBox, registry client LLM, registry adapter).
 
@@ -63,7 +63,8 @@ Trang **Xu hướng**: nhập keyword (vd "kem chống nắng") để biết 3 h
 
 ## Trang admin và cấu hình dùng chung
 
-- Trang `/admin` (đăng nhập bằng `ADMIN_PASSWORD` ≥ 12 ký tự trong `.env`; sau khi đăng nhập, menu có mục "Quản trị" trong 12 giờ) cấu hình key dùng chung cho **LLM**, **Apify** (Shopee) và **ScrapeCreators** (TikTok). Mỗi mục có công tắc "Cho người dùng dùng" và hạn mức/ngày tính chung cho mọi người dùng (LLM: số lượt gọi; Apify: USD; ScrapeCreators: credit).
+- Trang admin mở ở host riêng `http://admin.localhost` (deploy: đặt `ADMIN_HOST=admin.<domain>` kèm bản ghi DNS; host chính không mở trang admin và chặn `/api/admin/*`), đăng nhập bằng `ADMIN_PASSWORD` ≥ 12 ký tự trong `.env`. Tại đây cấu hình key dùng chung cho **LLM**, **Apify** (Shopee) và **ScrapeCreators** (TikTok); mỗi mục có công tắc "Cho người dùng dùng" và hạn mức/ngày tính chung cho mọi người dùng (LLM: số lượt gọi; Apify: USD; ScrapeCreators: credit).
+- Hạn mức chat khi dùng key LLM dùng chung của admin: tối đa **3 lượt/ngày/người dùng** và **10 lượt/ngày/IP** (1 câu hỏi = 1 lượt; lỗi không trả được câu trả lời sẽ hoàn lượt). Chat bằng key tự nhập của người dùng không giới hạn.
 - Ở trang cài đặt, người dùng chọn "Dùng cấu hình của admin" (khi admin bật) hoặc "Tự cấu hình" cho từng loại. Hết hạn mức hoặc admin tắt thì app báo và dẫn sang tự cấu hình.
 - Người dùng được tách theo trình duyệt bằng cookie ẩn danh có chữ ký: profile, key, chat và lịch sử của ai người nấy thấy. Dữ liệu đã crawl và kết quả xu hướng cùng keyword dùng chung làm cache.
 

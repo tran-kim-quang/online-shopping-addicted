@@ -2044,8 +2044,12 @@ export interface components {
             capabilities?: {
                 [key: string]: unknown;
             } | null;
+            /** Chat Daily Limit */
+            chat_daily_limit?: number | null;
             /** Chat Model */
             chat_model?: string | null;
+            /** Chat Remaining Today */
+            chat_remaining_today?: number | null;
             /** Name */
             name?: string | null;
             /** Profile Id */

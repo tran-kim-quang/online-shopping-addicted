@@ -24,6 +24,7 @@ const KNOWN_ERROR_KEYS = new Set([
   "wrong_provider",
   "system_disabled",
   "system_quota_exceeded",
+  "user_chat_quota_exceeded",
   "admin_disabled",
   "admin_bad_password",
   "admin_locked",
@@ -105,7 +106,11 @@ export function translateUnknownError(
   return tErrors("unknown_error");
 }
 
-const SYSTEM_ERROR_CODES = new Set(["system_disabled", "system_quota_exceeded"]);
+const SYSTEM_ERROR_CODES = new Set([
+  "system_disabled",
+  "system_quota_exceeded",
+  "user_chat_quota_exceeded",
+]);
 
 /**
  * Settings page where the user can switch from the admin's shared config to their own,
@@ -113,8 +118,9 @@ const SYSTEM_ERROR_CODES = new Set(["system_disabled", "system_quota_exceeded"])
  */
 export function selfConfigureHref(
   code: string | null | undefined,
-  kind: string | null | undefined
+  kind?: string | null
 ): string | null {
   if (!code || !SYSTEM_ERROR_CODES.has(code)) return null;
+  if (code === "user_chat_quota_exceeded") return "/settings/llm";
   return kind === "llm" ? "/settings/llm" : "/settings/data-sources";
 }

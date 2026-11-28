@@ -1,28 +1,27 @@
 "use client";
 
 import * as React from "react";
-import { useLocale, useTranslations } from "next-intl";
-import { useTheme } from "next-themes";
+import { useTranslations } from "next-intl";
 import {
   AlertTriangle,
   Check,
   ChevronDown,
   Database,
   History,
-  Laptop,
   Menu,
-  Moon,
   Search,
   Settings,
   SlidersHorizontal,
   Sparkles,
-  Sun,
   TrendingUp,
-  ShieldCheck,
 } from "lucide-react";
 import { cn } from "cn";
-import { Link, usePathname, useRouter, type AppLocale } from "@/i18n/routing";
+import { Link, usePathname, useRouter } from "@/i18n/routing";
 import { useActiveProfile } from "@/components/providers";
+import {
+  LocaleSwitcher,
+  ThemeSwitcher,
+} from "@/components/app-shell/shell-controls";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -40,9 +39,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { useQuery } from "@tanstack/react-query";
-import { getAdminSession, type ProfileResponse } from "@/lib/api/client";
-import { ADMIN_SESSION_QUERY_KEY } from "@/lib/admin-session";
+import type { ProfileResponse } from "@/lib/api/client";
 
 function getProfileDotColor(profile: ProfileResponse): string {
   if (profile.api_key_status === "undecryptable") {
@@ -67,10 +64,8 @@ function shortenModelName(model: string): string {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const t = useTranslations("nav");
   const tCommon = useTranslations("common");
-  const locale = useLocale() as AppLocale;
   const pathname = usePathname();
   const router = useRouter();
-  const { theme, setTheme } = useTheme();
   const {
     profiles,
     activeProfile,
@@ -80,22 +75,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     isLoading,
   } = useActiveProfile();
   const [mobileOpen, setMobileOpen] = React.useState(false);
-  const [mounted, setMounted] = React.useState(false);
-
-  React.useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // The admin entry only shows for a browser holding a valid admin session (or
-  // while on the admin page itself), so regular users never see it.
-  const adminSessionQuery = useQuery({
-    queryKey: ADMIN_SESSION_QUERY_KEY,
-    queryFn: getAdminSession,
-    retry: false,
-    staleTime: 60_000,
-  });
-  const onAdminPage = pathname === "/admin" || pathname.startsWith("/admin/");
-  const showAdminNav = onAdminPage || Boolean(adminSessionQuery.data?.authenticated);
 
   const navItems = React.useMemo(
     () => [
@@ -129,24 +108,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         icon: Database,
         active: pathname.startsWith("/settings/data-sources"),
       },
-      ...(showAdminNav
-        ? [
-            {
-              href: "/admin",
-              label: t("admin"),
-              icon: ShieldCheck,
-              active: onAdminPage,
-            },
-          ]
-        : []),
     ],
-    [pathname, t, showAdminNav, onAdminPage]
+    [pathname, t]
   );
-
-  const handleLocaleSwitch = (nextLocale: AppLocale) => {
-    if (nextLocale === locale) return;
-    router.replace(pathname, { locale: nextLocale });
-  };
 
   const renderProfileChip = (fullWidth = false) => {
     if (isLoading) {
@@ -299,10 +263,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   };
 
-  const currentTheme = mounted ? (theme ?? "system") : "system";
-  const ThemeIcon =
-    currentTheme === "dark" ? Moon : currentTheme === "light" ? Sun : Laptop;
-
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/85">
@@ -347,84 +307,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-2">
             <div className="hidden md:block">{renderProfileChip()}</div>
 
-            {/* VI | EN switcher */}
-            <div
-              role="group"
-              aria-label={t("language")}
-              className="inline-flex h-8 items-center rounded-md border border-border bg-muted/50 p-0.5 text-xs font-semibold"
-            >
-              <button
-                type="button"
-                onClick={() => handleLocaleSwitch("vi")}
-                title={t("switchToVi")}
-                aria-pressed={locale === "vi"}
-                className={cn(
-                  "rounded-[4px] px-2 py-1 transition-colors duration-150",
-                  locale === "vi"
-                    ? "bg-card text-primary shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                VI
-              </button>
-              <button
-                type="button"
-                onClick={() => handleLocaleSwitch("en")}
-                title={t("switchToEn")}
-                aria-pressed={locale === "en"}
-                className={cn(
-                  "rounded-[4px] px-2 py-1 transition-colors duration-150",
-                  locale === "en"
-                    ? "bg-card text-primary shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                EN
-              </button>
-            </div>
-
-            {/* Theme switcher (Light / Dark / System) */}
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="size-8"
-                    aria-label={t("theme")}
-                  />
-                }
-              >
-                <ThemeIcon className="size-4" aria-hidden="true" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>{t("theme")}</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setTheme("light")}>
-                    <Sun className="size-4" />
-                    <span>{t("themeLight")}</span>
-                    {currentTheme === "light" && (
-                      <Check className="ml-auto size-4 text-primary" />
-                    )}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setTheme("dark")}>
-                    <Moon className="size-4" />
-                    <span>{t("themeDark")}</span>
-                    {currentTheme === "dark" && (
-                      <Check className="ml-auto size-4 text-primary" />
-                    )}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setTheme("system")}>
-                    <Laptop className="size-4" />
-                    <span>{t("themeSystem")}</span>
-                    {currentTheme === "system" && (
-                      <Check className="ml-auto size-4 text-primary" />
-                    )}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <LocaleSwitcher />
+            <ThemeSwitcher />
 
             {/* Mobile navigation sheet */}
             <div className="md:hidden">

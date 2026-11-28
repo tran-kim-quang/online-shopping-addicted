@@ -118,8 +118,19 @@ class Settings(BaseSettings):
         default_factory=lambda: list(DEFAULT_CORS_ALLOW_ORIGINS),
     )
     ADMIN_PASSWORD: SecretStr | None = None
+    ADMIN_HOST: str | None = None
+    CHAT_SYSTEM_DAILY_PER_USER: int = Field(default=3, ge=0)
+    CHAT_SYSTEM_DAILY_PER_IP: int = Field(default=10, ge=0)
     COOKIE_SECURE: bool = False
     TRUST_PROXY_HEADERS: bool = False
+
+    @field_validator("ADMIN_HOST", mode="before")
+    @classmethod
+    def _normalize_admin_host(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        cleaned = str(value).strip().lower()
+        return cleaned or None
 
     @field_validator("CORS_ALLOW_ORIGINS", mode="before")
     @classmethod

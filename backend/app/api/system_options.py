@@ -5,12 +5,13 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_session
+from app.api.deps import client_ip, get_session, get_settings, get_user_id
+from app.core.config import Settings
 from app.core.system_usage import SystemUsage
 from app.db.models import DataProviderProfile, LLMProfile
 from app.security.cookies import SYSTEM_USER_ID
@@ -27,6 +28,8 @@ class SystemLLMOption(BaseModel):
     chat_model: str | None = None
     capabilities: dict[str, Any] | None = None
     remaining_today: float | None = None
+    chat_daily_limit: int | None = None
+    chat_remaining_today: int | None = None
 
 
 class SystemApifyOption(BaseModel):
@@ -63,7 +66,10 @@ def _remaining(daily_limit: Any, used_today: float) -> float | None:
 
 @router.get("/system-options", response_model=SystemOptionsResponse)
 async def get_system_options(
+    request: Request,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> SystemOptionsResponse:
     """Return whether admin-shared LLM, Apify, and ScrapeCreators configs are available."""
     usage = SystemUsage()
@@ -86,6 +92,11 @@ async def get_system_options(
 
     if llm_row is not None and llm_row.shared_enabled:
         llm_used = await usage.used("llm")
+        per_user = settings.CHAT_SYSTEM_DAILY_PER_USER
+        per_ip = settings.CHAT_SYSTEM_DAILY_PER_IP
+        used_user = await usage.used_key(usage.chat_user_key(user_id))
+        used_ip = await usage.used_key(usage.chat_ip_key(client_ip(request, settings)))
+        chat_remaining = max(0, int(min(per_user - used_user, per_ip - used_ip)))
         llm_opt = SystemLLMOption(
             available=True,
             profile_id=llm_row.id,
@@ -93,6 +104,8 @@ async def get_system_options(
             chat_model=llm_row.chat_model,
             capabilities=dict(llm_row.capabilities or {}),
             remaining_today=_remaining(llm_row.daily_limit, llm_used),
+            chat_daily_limit=per_user,
+            chat_remaining_today=chat_remaining,
         )
     else:
         llm_opt = SystemLLMOption(available=False)

@@ -10,7 +10,6 @@ import "@fontsource-variable/jetbrains-mono";
 import "../globals.css";
 import { routing } from "@/i18n/routing";
 import { AppProviders } from "@/components/providers";
-import { AppShell } from "@/components/app-shell/app-shell";
 
 export const metadata: Metadata = {
   title: "Shop QA — E-commerce Research & AI Assistant",
@@ -41,9 +40,7 @@ export default async function LocaleLayout({
     <html lang={locale} suppressHydrationWarning>
       <body className="font-sans antialiased">
         <NextIntlClientProvider locale={locale} messages={messages}>
-          <AppProviders>
-            <AppShell>{children}</AppShell>
-          </AppProviders>
+          <AppProviders>{children}</AppProviders>
         </NextIntlClientProvider>
       </body>
     </html>

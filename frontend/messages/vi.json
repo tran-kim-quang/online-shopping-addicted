@@ -25,7 +25,6 @@
     "history": "Lịch sử",
     "llmSettings": "Cài đặt LLM",
     "dataSourcesSettings": "Nguồn dữ liệu",
-    "admin": "Quản trị",
     "openMenu": "Mở menu điều hướng",
     "language": "Ngôn ngữ",
     "switchToVi": "Chuyển sang tiếng Việt",
@@ -325,7 +324,8 @@
     "notReadyTitle": "Dữ liệu đang được xử lý",
     "notReadyDescription": "Nguồn dữ liệu cần hoàn tất quá trình tạo chỉ mục trước khi hỏi đáp.",
     "viewProgress": "Xem tiến độ",
-    "switchingProfileHint": "Lượt hỏi tiếp theo sẽ dùng: {profile}"
+    "switchingProfileHint": "Lượt hỏi tiếp theo sẽ dùng: {profile}",
+    "freeChatsLeft": "Còn {remaining}/{limit} lượt chat miễn phí hôm nay"
   },
   "llm": {
     "title": "Cấu hình LLM",
@@ -522,6 +522,7 @@
     "cancelled": "Lượt tìm đã bị huỷ.",
     "system_disabled": "Admin đã tắt cấu hình dùng chung. Hãy chuyển sang Tự cấu hình để tiếp tục.",
     "system_quota_exceeded": "Hạn mức dùng chung hôm nay đã hết. Hãy Tự cấu hình hoặc quay lại vào ngày mai.",
+    "user_chat_quota_exceeded": "Bạn đã dùng hết lượt chat miễn phí hôm nay. Thêm key LLM riêng trong Cài đặt để chat tiếp, hoặc quay lại vào ngày mai.",
     "admin_disabled": "Trang admin chưa được bật. Đặt ADMIN_PASSWORD (≥ 12 ký tự) trong .env.",
     "admin_bad_password": "Mật khẩu admin không đúng.",
     "admin_locked": "Nhập sai quá nhiều lần. Vui lòng thử lại sau 15 phút.",
@@ -593,6 +594,8 @@
     "adminTurnedOffScrapeCreators": "Admin đã tắt ScrapeCreators dùng chung, đã chuyển sang cấu hình của bạn."
   },
   "admin": {
+    "shellTitle": "Quản trị",
+    "openUserApp": "Mở trang người dùng",
     "title": "Quản trị cấu hình dùng chung",
     "subtitle": "Cấu hình key LLM, Apify và ScrapeCreators dùng chung cùng hạn mức theo ngày.",
     "disabledTitle": "Trang admin chưa được bật",
