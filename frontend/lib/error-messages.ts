@@ -25,6 +25,7 @@ const KNOWN_ERROR_KEYS = new Set([
   "system_disabled",
   "system_quota_exceeded",
   "user_chat_quota_exceeded",
+  "llm_quota",
   "admin_disabled",
   "admin_bad_password",
   "admin_locked",
@@ -110,6 +111,7 @@ const SYSTEM_ERROR_CODES = new Set([
   "system_disabled",
   "system_quota_exceeded",
   "user_chat_quota_exceeded",
+  "llm_quota",
 ]);
 
 /**
@@ -121,6 +123,8 @@ export function selfConfigureHref(
   kind?: string | null
 ): string | null {
   if (!code || !SYSTEM_ERROR_CODES.has(code)) return null;
-  if (code === "user_chat_quota_exceeded") return "/settings/llm";
+  if (code === "user_chat_quota_exceeded" || code === "llm_quota") {
+    return "/settings/llm";
+  }
   return kind === "llm" ? "/settings/llm" : "/settings/data-sources";
 }

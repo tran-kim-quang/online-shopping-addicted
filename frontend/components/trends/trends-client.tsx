@@ -772,14 +772,30 @@ export function TrendsClient() {
                         {t("goToDataSources")}
                       </Link>
                     )}
-                    {detail.error === "llm_failed" && (
-                      <Link
-                        href="/settings/llm"
-                        className="font-medium underline"
-                      >
-                        {t("goToLlmSettings")}
-                      </Link>
-                    )}
+                    {(() => {
+                      const configHref = selfConfigureHref(detail.error, "llm");
+                      if (configHref) {
+                        return (
+                          <Link
+                            href={configHref}
+                            className="font-medium underline"
+                          >
+                            {tErrors("selfConfigureLink")}
+                          </Link>
+                        );
+                      }
+                      if (detail.error === "llm_failed") {
+                        return (
+                          <Link
+                            href="/settings/llm"
+                            className="font-medium underline"
+                          >
+                            {t("goToLlmSettings")}
+                          </Link>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 </CardContent>
               )}

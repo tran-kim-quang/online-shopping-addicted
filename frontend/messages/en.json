@@ -268,6 +268,7 @@
       "credit_cap_reached": "Credit cap reached; results were computed from collected data.",
       "provider_quota": "ScrapeCreators credits ran out mid-search; results were computed from collected data.",
       "llm_partial": "Some LLM extraction batches failed; results may be incomplete.",
+      "llm_quota": "Today's shared LLM quota ran out mid-search; results are based on partial data. Configure your own LLM in Settings or try again tomorrow.",
       "few_videos": "Fewer than 15 videos found in the last 30 days; brand coverage may be limited.",
       "no_brands": "No brand or specific product was found in the videos."
     }
@@ -517,6 +518,7 @@
     "provider_quota": "ScrapeCreators account has run out of credits.",
     "wrong_provider": "Trend search requires a ScrapeCreators data provider profile.",
     "llm_failed": "Failed to extract brands with LLM. Please check your LLM settings.",
+    "llm_quota": "Today's shared LLM quota is exhausted. Configure your own LLM in Settings or try again tomorrow.",
     "worker_lost": "The previous search was interrupted. Please search again.",
     "internal_error": "Something went wrong while processing the search. Please try again.",
     "cancelled": "The search was cancelled.",

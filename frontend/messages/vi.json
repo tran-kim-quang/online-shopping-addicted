@@ -268,6 +268,7 @@
       "credit_cap_reached": "Đã đạt trần credit cấu hình; kết quả được tính trên dữ liệu đã thu thập.",
       "provider_quota": "Tài khoản ScrapeCreators hết credit giữa chừng; kết quả được tính trên dữ liệu đã thu thập.",
       "llm_partial": "Một số batch trích xuất LLM bị lỗi; kết quả có thể thiếu một phần.",
+      "llm_quota": "Hạn mức LLM dùng chung hôm nay đã hết giữa chừng, kết quả chỉ dựa trên một phần dữ liệu. Tự cấu hình LLM trong Cài đặt hoặc thử lại vào ngày mai.",
       "few_videos": "Tìm thấy ít hơn 15 video trong 30 ngày qua; độ phủ hãng có thể hạn chế.",
       "no_brands": "Không tìm thấy hãng hay sản phẩm cụ thể nào trong các video."
     }
@@ -517,6 +518,7 @@
     "provider_quota": "Tài khoản ScrapeCreators đã hết credit.",
     "wrong_provider": "Cần chọn cấu hình ScrapeCreators cho tính năng tìm xu hướng.",
     "llm_failed": "Không thể trích xuất hãng bằng LLM. Hãy kiểm tra cấu hình LLM.",
+    "llm_quota": "Hạn mức LLM dùng chung hôm nay đã hết. Tự cấu hình LLM trong Cài đặt hoặc thử lại vào ngày mai.",
     "worker_lost": "Lượt tìm trước bị gián đoạn. Hãy thử tìm lại.",
     "internal_error": "Có lỗi khi xử lý lượt tìm. Hãy thử lại.",
     "cancelled": "Lượt tìm đã bị huỷ.",

@@ -56,9 +56,9 @@ Lõi không phụ thuộc sàn: mỗi sàn là một plugin trong `backend/app/p
 
 Trang **Xu hướng**: nhập keyword (vd "kem chống nắng") để biết 3 hãng (hoặc sản phẩm) được xem nhiều và khen nhiều nhất trên TikTok trong 30 ngày qua. Đây là mức độ được bàn tán, không phải doanh số.
 
-- Dữ liệu lấy qua ScrapeCreators với API key do người dùng tự cấu hình: 3 trang tìm video theo keyword + 1 trang bình luận của 5 video tương tác cao nhất (khoảng 8 credit, có trần credit mỗi lần tìm, kết quả cùng keyword được dùng lại trong 24 giờ).
-- LLM rút tên hãng và cảm xúc từ caption, hashtag và bình luận. Video không nêu hãng thì rút sản phẩm cụ thể (vd "kẹp nơ lụa"); sản phẩm chỉ lấp chỗ trống khi chưa đủ 3 hãng.
-- Điểm = tổng lượt xem (giảm một nửa sau mỗi 10 ngày; video nhắc nhiều hãng thì chia đều) × hệ số khen từ 0,5 đến 1,5 (tỷ lệ khen đã làm mượt; chưa có đánh giá thì ×1). Không có ngưỡng tối thiểu.
+- Dữ liệu lấy qua ScrapeCreators với API key do người dùng tự cấu hình: 3 trang tìm video theo keyword (khu vực VN) + 1 trang bình luận của 5 video tương tác cao nhất (khoảng 8 credit, có trần credit mỗi lần tìm, kết quả cùng keyword được dùng lại trong 24 giờ).
+- LLM rút tên hãng và cảm xúc từ caption, hashtag và bình luận, chỉ tính video/bình luận đúng loại sản phẩm của từ khoá. Video không nêu hãng thì rút sản phẩm cụ thể (vd "kẹp nơ lụa"); sản phẩm chỉ lấp chỗ trống khi chưa đủ 3 hãng. Nếu hết hạn mức LLM dùng chung giữa chừng thì dừng trích xuất ngay và báo cho người dùng.
+- Điểm = tổng lượt xem (giảm một nửa sau mỗi 10 ngày; hãng là sản phẩm chính tính đủ, chỉ được nhắc/so sánh tính 30% trọng số khi chia điểm trong video) × hệ số khen từ 0,5 đến 1,5 (tỷ lệ khen đã làm mượt; chưa có đánh giá thì ×1). Không có ngưỡng tối thiểu.
 - Mỗi hãng có tỷ lệ khen/trung lập/chê, nhãn "Nhiều quảng cáo" (theo cờ quảng cáo/hợp tác trả phí của TikTok và hashtag) và video dẫn chứng. Không lưu video, bình luận thô hay tên người bình luận.
 
 ## Trang admin và cấu hình dùng chung

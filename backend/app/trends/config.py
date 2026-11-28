@@ -8,6 +8,8 @@ COMMENT_VIDEOS = 5
 COMMENT_PAGES_PER_VIDEO = 1
 RECENCY_HALF_LIFE_DAYS = 10
 TOP_BRANDS = 3
+ROLE_WEIGHTS: dict[str, float] = {"primary": 1.0, "mentioned": 0.3}
+SEARCH_REGION = "VN"
 # Extra attempts for a batch the provider rejected with 429 (the wait comes from the
 # provider's retry-after hint; the LLM client also paces itself on its headers).
 LLM_RATE_LIMIT_RETRIES = 2
