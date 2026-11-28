@@ -8,7 +8,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -29,6 +29,7 @@ from app.agent.loop import (
 from app.agent.tools import AgentContext
 from app.api.deps import (
     SessionFactory,
+    client_ip,
     get_embedder_override,
     get_job_events,
     get_job_queue,
@@ -43,6 +44,7 @@ from app.api.deps import (
 from app.api.profile_resolver import resolve_llm_profile
 from app.core.config import Settings
 from app.core.errors import sanitize_error_message
+from app.core.system_usage import SystemUsage
 from app.db.models import ChatMessage, ChatSession, LLMProfile, Source
 from app.ingest.embedding import Embedder, get_embedder
 from app.ingest.pipeline import resolve_source_scope
@@ -50,6 +52,7 @@ from app.jobs.events import JobEvents
 from app.jobs.queue import JobQueue
 from app.llm.profile_config import build_llm_config
 from app.llm.registry import LLMClientRegistry
+from app.security.cookies import SYSTEM_USER_ID
 from app.security.secrets import SecretBox
 from app.security.url_validator import DNSResolver
 
@@ -277,7 +280,6 @@ async def chat_stream_endpoint(
             created_at=now,
             updated_at=now,
         )
-        session.add(chat_session)
     else:
         existing_session = await session.get(ChatSession, body.session_id)
         if existing_session is None or existing_session.user_id != user_id:
@@ -338,6 +340,40 @@ async def chat_stream_endpoint(
         if embedder_override is not None
         else get_embedder(settings, profile=profile, llm_client=llm_client)
     )
+
+    # Charge the shared-key chat quota only once the turn is ready to run, so setup
+    # failures above never cost the user a turn.
+    consumed_chat_keys: list[str] = []
+    if profile.user_id == SYSTEM_USER_ID:
+        usage = SystemUsage()
+        user_key = usage.chat_user_key(user_id, now=now)
+        ip_key = usage.chat_ip_key(client_ip(request, settings), now=now)
+        per_user = settings.CHAT_SYSTEM_DAILY_PER_USER
+        per_ip = settings.CHAT_SYSTEM_DAILY_PER_IP
+        exceeded_key = await usage.try_consume_all(
+            [(user_key, float(per_user)), (ip_key, float(per_ip))],
+            amount=1.0,
+        )
+        if exceeded_key is not None:
+            scope = "user" if exceeded_key == user_key else "ip"
+            limit = per_user if scope == "user" else per_ip
+            tomorrow_utc = (now + timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={
+                    "error": "user_chat_quota_exceeded",
+                    "scope": scope,
+                    "limit": limit,
+                    "resets_at": tomorrow_utc.isoformat(),
+                    "detail": "Daily chat limit on the shared LLM reached.",
+                },
+            )
+        consumed_chat_keys = [user_key, ip_key]
+
+    if body.session_id is None:
+        session.add(chat_session)
 
     # Persist the user turn before streaming begins.
     user_msg = ChatMessage(
@@ -508,6 +544,21 @@ async def chat_stream_endpoint(
                     error=save_error,
                 )
             )
+
+            if (
+                consumed_chat_keys
+                and final_event is None
+                and error_text is not None
+                and not disconnected
+            ):
+                try:
+                    await asyncio.shield(SystemUsage().refund_all(consumed_chat_keys))
+                except Exception as refund_exc:
+                    logger.warning(
+                        "Failed to refund chat quota keys %s: %s",
+                        consumed_chat_keys,
+                        refund_exc,
+                    )
 
     return StreamingResponse(
         _sse_generator(),

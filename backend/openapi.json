@@ -3141,6 +3141,17 @@
             ],
             "title": "Capabilities"
           },
+          "chat_daily_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Daily Limit"
+          },
           "chat_model": {
             "anyOf": [
               {
@@ -3151,6 +3162,17 @@
               }
             ],
             "title": "Chat Model"
+          },
+          "chat_remaining_today": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Remaining Today"
           },
           "name": {
             "anyOf": [

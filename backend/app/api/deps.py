@@ -97,6 +97,19 @@ def get_redis_client() -> Any:
     return RedisClient().client
 
 
+def client_ip(request: Request, settings: Settings) -> str:
+    """Return the caller IP, honouring ``X-Forwarded-For`` only behind a trusted proxy."""
+    # X-Forwarded-For is client-controlled; only honour it behind a trusted proxy,
+    # otherwise rotating the header would bypass rate limits and quotas.
+    if settings.TRUST_PROXY_HEADERS:
+        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if forwarded:
+            return forwarded
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
 def get_user_id(
     request: Request,
     response: Response,

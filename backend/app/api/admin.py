@@ -18,6 +18,7 @@ from app.api.data_providers import VerifyDataProviderResponse, verify_data_provi
 from app.api.deps import (
     ApifyClientFactory,
     ScrapeCreatorsClientFactory,
+    client_ip,
     get_apify_client_factory,
     get_redis_client,
     get_registry,
@@ -82,11 +83,27 @@ def _require_json_content_type(request: Request) -> None:
         )
 
 
+def _require_admin_host(request: Request, settings: Settings) -> None:
+    if settings.ADMIN_HOST is None:
+        return
+    raw_host = request.headers.get("host", "").strip().lower()
+    if raw_host.startswith("[") and "]" in raw_host:
+        req_host = raw_host.split("]", 1)[0] + "]"
+    else:
+        req_host = raw_host.split(":", 1)[0]
+    if req_host.rstrip(".") != settings.ADMIN_HOST.rstrip("."):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "detail": "Not found."},
+        )
+
+
 def require_admin_enabled(
     request: Request,
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> None:
-    """Reject requests when admin is disabled or non-JSON content-type is sent."""
+    """Reject requests outside admin host, when admin is disabled, or non-JSON content-type."""
+    _require_admin_host(request, settings)
     _require_json_content_type(request)
     if not is_admin_enabled(settings):
         raise _admin_disabled_error()
@@ -96,7 +113,8 @@ def require_admin(
     request: Request,
     settings: Settings = Depends(get_settings),  # noqa: B008
 ) -> None:
-    """Require a valid ``sqa_admin`` session cookie."""
+    """Require admin host and a valid ``sqa_admin`` session cookie."""
+    _require_admin_host(request, settings)
     _require_json_content_type(request)
     if not is_admin_enabled(settings):
         raise _admin_disabled_error()
@@ -111,18 +129,6 @@ def require_admin(
 def _admin_key(settings: Settings) -> str:
     password = settings.ADMIN_PASSWORD.get_secret_value() if settings.ADMIN_PASSWORD else ""
     return admin_signing_key(settings.SECRET_KEY.get_secret_value(), password)
-
-
-def _client_ip(request: Request, settings: Settings) -> str:
-    # X-Forwarded-For is client-controlled; only honour it behind a trusted proxy,
-    # otherwise rotating the header would bypass the login lockout.
-    if settings.TRUST_PROXY_HEADERS:
-        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        if forwarded:
-            return forwarded
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +357,7 @@ async def admin_login(
     redis_client: Any = Depends(get_redis_client),  # noqa: B008
 ) -> AdminSessionResponse | JSONResponse:
     """Authenticate admin with ``ADMIN_PASSWORD`` and set ``sqa_admin`` cookie."""
-    ip = _client_ip(request, settings)
+    ip = client_ip(request, settings)
     fail_key = f"admin:login:fail:{ip}"
 
     raw_fails = await redis_client.get(fail_key)

@@ -20,7 +20,10 @@ import {
 } from "lucide-react";
 import { cn } from "cn";
 import { Link, type AppLocale } from "@/i18n/routing";
-import { useActiveProfile } from "@/components/providers";
+import {
+  SYSTEM_OPTIONS_QUERY_KEY,
+  useActiveProfile,
+} from "@/components/providers";
 import { MarkdownMessage } from "@/components/chat/markdown-message";
 import {
   AlertDialog,
@@ -56,10 +59,12 @@ import {
   type ChatMessageOut,
   type ChatSessionSummary,
 } from "@/lib/api/client";
+import { isApiError } from "@/lib/api/errors";
 import { streamChat, type ChatSseEvent } from "@/lib/api/sse";
 import { normalizeCitations, type CitationItem } from "@/lib/citations";
 import { formatRelativeTime, formatShortDateTime } from "@/lib/format";
 import {
+  selfConfigureHref,
   translateErrorCode,
   translateUnknownError,
 } from "@/lib/error-messages";
@@ -82,6 +87,7 @@ interface UiChatMessage {
   dataAsOf?: string | null;
   steps?: number | null;
   error?: string | null;
+  errorCode?: string | null;
   isStreaming?: boolean;
   activeToolName?: string | null;
 }
@@ -195,6 +201,12 @@ export function ChatPanel({
     ? (systemOption?.name ?? "Admin")
     : (activeProfile?.name ?? "");
 
+  const chatDailyLimit = systemOption?.chat_daily_limit ?? null;
+  const chatRemainingToday = systemOption?.chat_remaining_today ?? null;
+  const showSharedQuota = isUsingSystem && chatDailyLimit !== null;
+  const isQuotaExhausted = showSharedQuota && chatRemainingToday === 0;
+  const quotaSelfConfigHref = selfConfigureHref("user_chat_quota_exceeded", "llm");
+
   const [sessionId, setSessionId] = React.useState<string | null>(null);
   const [sessionProfileId, setSessionProfileId] = React.useState<string | null>(
     null
@@ -278,7 +290,15 @@ export function ChatPanel({
 
   const sendMessage = async (rawText: string) => {
     const trimmed = rawText.trim();
-    if (!trimmed || isStreaming || !activeProfileId || !isSourceReady) return;
+    if (
+      !trimmed ||
+      isStreaming ||
+      !activeProfileId ||
+      !isSourceReady ||
+      isQuotaExhausted
+    ) {
+      return;
+    }
 
     const userMsgId = `user-${Date.now()}`;
     const assistantTempId = `assistant-${Date.now()}`;
@@ -411,6 +431,7 @@ export function ChatPanel({
                     isStreaming: false,
                     activeToolName: null,
                     error: translated,
+                    errorCode: event.data.code,
                   }
                 : m
             )
@@ -462,6 +483,7 @@ export function ChatPanel({
       });
     } catch (err) {
       const msg = translateUnknownError(tErrors, err);
+      const errCode = isApiError(err) ? err.code : null;
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantTempId
@@ -470,6 +492,7 @@ export function ChatPanel({
                 isStreaming: false,
                 activeToolName: null,
                 error: msg,
+                errorCode: errCode,
               }
             : m
         )
@@ -477,6 +500,9 @@ export function ChatPanel({
     } finally {
       abortRef.current = null;
       setIsStreaming(false);
+      void queryClient.invalidateQueries({
+        queryKey: SYSTEM_OPTIONS_QUERY_KEY,
+      });
     }
   };
 
@@ -722,32 +748,45 @@ export function ChatPanel({
                       />
                     )}
 
-                    {msg.error && (
-                      <div
-                        role="alert"
-                        className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-card px-2.5 py-2 text-xs text-destructive"
-                      >
-                        <span className="flex items-center gap-1.5">
-                          <AlertCircle
-                            className="size-3.5 shrink-0"
-                            aria-hidden="true"
-                          />
-                          <span>{msg.error}</span>
-                        </span>
-                        {lastUserPrompt && !isStreaming && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="xs"
-                            onClick={() => void sendMessage(lastUserPrompt)}
-                            className="h-6 border-destructive/40 text-xs text-destructive"
-                          >
-                            <RefreshCw className="size-3" aria-hidden="true" />
-                            <span>{tCommon("retry")}</span>
-                          </Button>
-                        )}
-                      </div>
-                    )}
+                    {msg.error && (() => {
+                      const configHref = selfConfigureHref(msg.errorCode, "llm");
+                      return (
+                        <div
+                          role="alert"
+                          className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-card px-2.5 py-2 text-xs text-destructive"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <AlertCircle
+                              className="size-3.5 shrink-0"
+                              aria-hidden="true"
+                            />
+                            <span>{msg.error}</span>
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {configHref && (
+                              <Link
+                                href={configHref}
+                                className="inline-flex h-6 items-center rounded-md border border-destructive/40 px-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+                              >
+                                {t("goToSettings")}
+                              </Link>
+                            )}
+                            {lastUserPrompt && !isStreaming && !configHref && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="xs"
+                                onClick={() => void sendMessage(lastUserPrompt)}
+                                className="h-6 border-destructive/40 text-xs text-destructive"
+                              >
+                                <RefreshCw className="size-3" aria-hidden="true" />
+                                <span>{tCommon("retry")}</span>
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {(msg.dataAsOf || msg.steps) && !msg.isStreaming && (
                       <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border/70 pt-1.5 font-mono text-[11px] text-muted-foreground tabular-nums">
@@ -786,7 +825,12 @@ export function ChatPanel({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t("placeholder")}
-            disabled={!isSourceReady || !activeProfileId || isStreaming}
+            disabled={
+              !isSourceReady ||
+              !activeProfileId ||
+              isStreaming ||
+              isQuotaExhausted
+            }
             rows={2}
             className="min-h-[44px] max-h-32 resize-none text-sm"
             aria-label={t("placeholder")}
@@ -806,7 +850,10 @@ export function ChatPanel({
             <Button
               type="submit"
               disabled={
-                !isSourceReady || !activeProfileId || input.trim().length === 0
+                !isSourceReady ||
+                !activeProfileId ||
+                isQuotaExhausted ||
+                input.trim().length === 0
               }
               className="h-11 shrink-0 px-3.5"
               aria-label={t("send")}
@@ -816,6 +863,29 @@ export function ChatPanel({
             </Button>
           )}
         </form>
+        {isQuotaExhausted ? (
+          <div
+            role="alert"
+            className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-background px-2.5 py-1.5 text-xs text-destructive"
+          >
+            <span>{tErrors("user_chat_quota_exceeded")}</span>
+            {quotaSelfConfigHref && (
+              <Link
+                href={quotaSelfConfigHref}
+                className="font-medium underline underline-offset-2 hover:text-destructive/80"
+              >
+                {t("goToSettings")}
+              </Link>
+            )}
+          </div>
+        ) : showSharedQuota && chatRemainingToday !== null ? (
+          <p className="mt-1.5 text-[11px] text-muted-foreground tabular-nums">
+            {t("freeChatsLeft", {
+              remaining: chatRemainingToday,
+              limit: chatDailyLimit,
+            })}
+          </p>
+        ) : null}
       </div>
 
       {/* Delete session confirmation */}
