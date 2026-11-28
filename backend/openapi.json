@@ -3286,6 +3286,11 @@
             "title": "Ad Share",
             "type": "number"
           },
+          "comment_mentions": {
+            "default": 0,
+            "title": "Comment Mentions",
+            "type": "integer"
+          },
           "creators": {
             "title": "Creators",
             "type": "integer"
@@ -3309,6 +3314,13 @@
           "likes": {
             "title": "Likes",
             "type": "integer"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
           },
           "name": {
             "title": "Name",
@@ -3387,6 +3399,81 @@
         "title": "TrendBrandSentiment",
         "type": "object"
       },
+      "TrendCandidate": {
+        "description": "Ranked runner-up brand or product entry in a completed trend search.",
+        "properties": {
+          "ad_share": {
+            "title": "Ad Share",
+            "type": "number"
+          },
+          "comment_mentions": {
+            "default": 0,
+            "title": "Comment Mentions",
+            "type": "integer"
+          },
+          "creators": {
+            "title": "Creators",
+            "type": "integer"
+          },
+          "kind": {
+            "default": "brand",
+            "enum": [
+              "brand",
+              "product"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plays": {
+            "title": "Plays",
+            "type": "integer"
+          },
+          "positive_pct": {
+            "title": "Positive Pct",
+            "type": "number"
+          },
+          "primary_videos": {
+            "title": "Primary Videos",
+            "type": "integer"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "top_video_url": {
+            "title": "Top Video Url",
+            "type": "string"
+          },
+          "videos": {
+            "title": "Videos",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "score",
+          "videos",
+          "creators",
+          "plays",
+          "ad_share",
+          "positive_pct",
+          "primary_videos",
+          "top_video_url"
+        ],
+        "title": "TrendCandidate",
+        "type": "object"
+      },
       "TrendEvidenceVideo": {
         "description": "Representative TikTok video mentioning a brand.",
         "properties": {
@@ -3434,6 +3521,13 @@
               "$ref": "#/components/schemas/TrendBrand"
             },
             "title": "Brands",
+            "type": "array"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/TrendCandidate"
+            },
+            "title": "Candidates",
             "type": "array"
           },
           "comments_scanned": {

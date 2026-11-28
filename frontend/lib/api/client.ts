@@ -51,6 +51,7 @@ export type TrendSearchQueuedResponse =
 export type TrendSearchSummary = components["schemas"]["TrendSearchSummary"];
 export type TrendSearchDetail = components["schemas"]["TrendSearchDetail"];
 export type TrendBrand = components["schemas"]["TrendBrand"];
+export type TrendCandidate = components["schemas"]["TrendCandidate"];
 export type TrendEvidenceVideo = components["schemas"]["TrendEvidenceVideo"];
 export type SystemOptionsResponse =
   components["schemas"]["SystemOptionsResponse"];
