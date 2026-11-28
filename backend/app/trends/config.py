@@ -25,7 +25,8 @@ LLM_BATCH_SIZE = 25
 # Token diet for the extraction prompt (free LLM tiers allow only a few thousand
 # tokens per minute): trimmed texts, no near-empty comments, duplicates sent once.
 VIDEO_TEXT_MAX_CHARS = 600
-COMMENT_TEXT_MAX_CHARS = 300
+COMMENT_TEXT_MAX_CHARS = 200
+COMMENT_LLM_PER_VIDEO = 20
 COMMENT_MIN_LETTERS = 4
 CACHE_HOURS = 24
 ESTIMATED_CREDITS = SEARCH_PAGES + COMMENT_VIDEOS * COMMENT_PAGES_PER_VIDEO

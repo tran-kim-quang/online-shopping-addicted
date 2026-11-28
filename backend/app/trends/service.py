@@ -36,6 +36,7 @@ from app.trends.config import (
     AD_WEIGHT,
     BUZZ_WEIGHT,
     CANDIDATES_LIMIT,
+    COMMENT_LLM_PER_VIDEO,
     COMMENT_MIN_LETTERS,
     COMMENT_TEXT_MAX_CHARS,
     COMMENT_VIDEOS,
@@ -638,10 +639,16 @@ class TrendService(metaclass=SingletonMeta):
             if vtext:
                 _add_text(f"v:{video.id}", "video", vtext)
         for video_id, clist in comments_by_video.items():
-            for comment in clist:
+            # Only the most-liked comments of each video go to the LLM: they carry the
+            # opinions viewers agree with, and the token budget per minute is small.
+            sent_count = 0
+            for comment in sorted(clist, key=lambda c: c.likes, reverse=True):
+                if sent_count >= COMMENT_LLM_PER_VIDEO:
+                    break
                 ctext = comment.text[:COMMENT_TEXT_MAX_CHARS].strip()
                 if ctext and _comment_worth_sending(ctext):
                     _add_text(f"c:{video_id}:{comment.id}", "comment", ctext)
+                    sent_count += 1
 
         batches = [
             text_items[i : i + LLM_BATCH_SIZE] for i in range(0, len(text_items), LLM_BATCH_SIZE)
@@ -676,6 +683,7 @@ class TrendService(metaclass=SingletonMeta):
                         TrendExtractBatchResponse,
                         json_mode=json_mode,
                         model=model,
+                        include_schema=False,
                     )
                     break
                 except JobCancelledError:

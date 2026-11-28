@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -60,6 +61,14 @@ def _parse_tool_arguments(name: str, raw_arguments: str | None) -> tuple[dict[st
     return parsed, raw
 
 
+_REASONING_MODEL = re.compile(r"(^|/)(gpt-oss|o[1-9]\b|o[1-9]-|gpt-5)", re.IGNORECASE)
+
+
+def is_reasoning_model(model: str) -> bool:
+    """Models that accept ``reasoning_effort`` (gpt-oss, OpenAI o-series, gpt-5)."""
+    return bool(_REASONING_MODEL.search(model))
+
+
 class LLMClient:
     """Thin provider-agnostic wrapper around ``openai.AsyncOpenAI``.
 
@@ -74,6 +83,8 @@ class LLMClient:
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self.config = config
+        # Flips to False the first time the provider rejects ``reasoning_effort``.
+        self._reasoning_effort_ok = True
         self._raw_key: str | None = (
             config.api_key.get_secret_value() if config.api_key is not None else None
         )
@@ -182,8 +193,13 @@ class LLMClient:
         response_format: dict[str, Any] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
     ) -> ChatResult:
-        """Execute a non-streaming chat completion request."""
+        """Execute a non-streaming chat completion request.
+
+        ``reasoning_effort`` is sent only to reasoning models (gpt-oss, o-series,
+        gpt-5); a provider that rejects it is remembered and asked again without it.
+        """
         await self._consume_system_quota_if_needed()
         kwargs = self._build_chat_kwargs(
             messages,
@@ -195,14 +211,36 @@ class LLMClient:
             max_tokens=max_tokens,
             stream=False,
         )
+        effective_model = str(kwargs["model"])
+        if (
+            reasoning_effort is not None
+            and self._reasoning_effort_ok
+            and is_reasoning_model(effective_model)
+        ):
+            kwargs["reasoning_effort"] = reasoning_effort
         await self._pace(estimate_tokens(messages, max_tokens=max_tokens))
         try:
             raw = await self._client.chat.completions.with_raw_response.create(**kwargs)
-            response = raw.parse()
         except (LLMError, UnsafeURLError):
             raise
         except Exception as exc:
-            raise self._mapped_error(exc) from exc
+            mapped = self._mapped_error(exc)
+            if not (
+                "reasoning_effort" in kwargs
+                and isinstance(mapped, LLMBadRequestError)
+                and "reasoning" in str(mapped).casefold()
+            ):
+                raise mapped from exc
+            logger.info("Provider rejected reasoning_effort; retrying without it")
+            self._reasoning_effort_ok = False
+            kwargs.pop("reasoning_effort")
+            try:
+                raw = await self._client.chat.completions.with_raw_response.create(**kwargs)
+            except (LLMError, UnsafeURLError):
+                raise
+            except Exception as retry_exc:
+                raise self._mapped_error(retry_exc) from retry_exc
+        response = raw.parse()
         self._rate_limit.update_from_headers(raw.headers)
 
         if not response.choices:

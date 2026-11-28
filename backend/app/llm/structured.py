@@ -74,17 +74,31 @@ async def complete_json[T: BaseModel](
     json_mode: bool,
     model: str | None = None,
     max_attempts: int = 3,
+    include_schema: bool = True,
+    reasoning_effort: str | None = "low",
 ) -> T:
-    """Call ``client.chat`` and validate the response against ``schema`` with retries."""
+    """Call ``client.chat`` and validate the response against ``schema`` with retries.
+
+    ``include_schema=False`` leaves the JSON Schema out of the prompt (callers whose
+    own prompt already shows the exact output shape save those tokens).
+    ``reasoning_effort`` keeps reasoning models from spending the token budget on
+    thinking for what is a plain extraction task.
+    """
     if max_attempts < 1:
         raise ValueError("max_attempts must be >= 1.")
 
-    schema_str = json.dumps(schema.model_json_schema(), ensure_ascii=False)
-    system_instruction = (
-        "Respond with ONLY a single valid JSON object conforming to this JSON Schema. "
-        "Do not include explanations or markdown outside the JSON object.\n"
-        f"Schema: {schema_str}"
-    )
+    if include_schema:
+        schema_str = json.dumps(schema.model_json_schema(), ensure_ascii=False)
+        system_instruction = (
+            "Respond with ONLY a single valid JSON object conforming to this JSON Schema. "
+            "Do not include explanations or markdown outside the JSON object.\n"
+            f"Schema: {schema_str}"
+        )
+    else:
+        system_instruction = (
+            "Respond with ONLY a single valid JSON object in the format shown below. "
+            "Do not include explanations or markdown outside the JSON object."
+        )
 
     working_messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_instruction},
@@ -101,6 +115,7 @@ async def complete_json[T: BaseModel](
                 working_messages,
                 model=model,
                 response_format=response_format,
+                reasoning_effort=reasoning_effort,
             )
         except LLMBadRequestError as exc:
             msg_lower = str(exc).casefold()
