@@ -6,6 +6,26 @@ LLM do người dùng tự cấu hình: bất kỳ provider nào tương thích 
 
 Tổng quan dự án: [docs/OVERVIEW.md](docs/OVERVIEW.md)
 
+## Sơ đồ luồng
+
+### Định tuyến hai host: người dùng và admin
+
+Trang admin chỉ mở ở `ADMIN_HOST` (mặc định `http://admin.localhost`). Host chính trả 404 cho trang admin và `/api/admin/*`, cả ở nginx lẫn API; cookie admin chỉ thuộc host admin.
+
+![Định tuyến hai host: người dùng và admin](assets/diagrams/routing.svg)
+
+### Hạn mức chat bằng key LLM của admin
+
+Mỗi trình duyệt được 3 câu hỏi/ngày và mỗi IP 10 câu hỏi/ngày khi chat bằng key dùng chung (`CHAT_SYSTEM_DAILY_PER_USER`, `CHAT_SYSTEM_DAILY_PER_IP`). Một câu hỏi là một lượt dù agent gọi LLM nhiều lần; lượt lỗi được hoàn; key tự nhập không giới hạn.
+
+![Hạn mức chat bằng key admin](assets/diagrams/chat-quota.svg)
+
+### Pipeline tìm hãng hot trên TikTok
+
+Thu thập video và bình luận qua ScrapeCreators, LLM trích xuất hãng theo lô, rồi xếp hạng bằng `(0.3 × lượt xem + 0.7 × bình luận nhắc tới) × cảm xúc từ bình luận`.
+
+![Pipeline tìm hãng hot trên TikTok](assets/diagrams/trend-pipeline.svg)
+
 ## Chạy local
 
 ### 1. Chuẩn bị biến môi trường
