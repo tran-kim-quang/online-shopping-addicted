@@ -9,15 +9,13 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Any, Protocol, runtime_checkable
 
-from pydantic import SecretStr
-
 from app.core.config import Settings, get_settings
 from app.core.singleton import SingletonMeta
 from app.db.models import LLMProfile
 from app.llm.client import LLMClient
+from app.llm.profile_config import build_llm_config
 from app.llm.registry import LLMClientRegistry
 from app.llm.types import LLMConfig
-from app.security.secrets import SecretBox
 
 logger = logging.getLogger(__name__)
 
@@ -235,18 +233,7 @@ class NullEmbedder:
 
 
 def _config_from_profile(profile: LLMProfile, settings: Settings) -> LLMConfig:
-    raw_key: str | None = None
-    if profile.api_key_enc:
-        raw_key = SecretBox().decrypt(profile.api_key_enc)
-    return LLMConfig(
-        base_url=profile.base_url,
-        api_key=SecretStr(raw_key) if raw_key else None,
-        chat_model=profile.chat_model,
-        small_model=profile.small_model,
-        embedding_model=profile.embedding_model,
-        timeout=settings.LLM_TIMEOUT_SECONDS,
-        max_retries=settings.LLM_MAX_RETRIES,
-    )
+    return build_llm_config(profile, settings)
 
 
 def get_embedder(

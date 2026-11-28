@@ -1,6 +1,462 @@
 {
   "components": {
     "schemas": {
+      "AdminConfigResponse": {
+        "description": "Response for ``GET /api/admin/config``.",
+        "properties": {
+          "apify": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminDataProviderConfigItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "llm": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminLLMConfigItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scrapecreators": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminDataProviderConfigItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "AdminConfigResponse",
+        "type": "object"
+      },
+      "AdminDataProviderConfigItem": {
+        "description": "Masked representation of a system data provider profile.",
+        "properties": {
+          "account_info": {
+            "additionalProperties": true,
+            "title": "Account Info",
+            "type": "object"
+          },
+          "api_key_status": {
+            "enum": [
+              "set",
+              "undecryptable"
+            ],
+            "title": "Api Key Status",
+            "type": "string"
+          },
+          "daily_limit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Limit"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "masked_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masked Key"
+          },
+          "max_cost_usd_per_link": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cost Usd Per Link"
+          },
+          "max_credits_per_search": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Credits Per Search"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "apify",
+              "scrapecreators"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "shared_enabled": {
+            "title": "Shared Enabled",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "used_today": {
+            "title": "Used Today",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "name",
+          "masked_key",
+          "api_key_status",
+          "shared_enabled",
+          "daily_limit",
+          "used_today",
+          "updated_at"
+        ],
+        "title": "AdminDataProviderConfigItem",
+        "type": "object"
+      },
+      "AdminLLMConfigItem": {
+        "description": "Masked representation of the system LLM profile.",
+        "properties": {
+          "api_key_status": {
+            "enum": [
+              "set",
+              "none",
+              "undecryptable"
+            ],
+            "title": "Api Key Status",
+            "type": "string"
+          },
+          "base_url": {
+            "title": "Base Url",
+            "type": "string"
+          },
+          "capabilities": {
+            "additionalProperties": true,
+            "title": "Capabilities",
+            "type": "object"
+          },
+          "chat_model": {
+            "title": "Chat Model",
+            "type": "string"
+          },
+          "daily_limit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Limit"
+          },
+          "embedding_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_tested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Tested At"
+          },
+          "masked_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masked Key"
+          },
+          "max_context_tokens": {
+            "title": "Max Context Tokens",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "shared_enabled": {
+            "title": "Shared Enabled",
+            "type": "boolean"
+          },
+          "small_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Small Model"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "used_today": {
+            "title": "Used Today",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "masked_key",
+          "api_key_status",
+          "shared_enabled",
+          "daily_limit",
+          "used_today",
+          "base_url",
+          "chat_model",
+          "small_model",
+          "embedding_model",
+          "max_context_tokens",
+          "capabilities",
+          "updated_at"
+        ],
+        "title": "AdminLLMConfigItem",
+        "type": "object"
+      },
+      "AdminLoginRequest": {
+        "additionalProperties": false,
+        "description": "Payload for ``POST /api/admin/login``.",
+        "properties": {
+          "password": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "AdminLoginRequest",
+        "type": "object"
+      },
+      "AdminSessionResponse": {
+        "description": "Response for ``GET /api/admin/session`` and ``POST /api/admin/login``.",
+        "properties": {
+          "authenticated": {
+            "title": "Authenticated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "authenticated"
+        ],
+        "title": "AdminSessionResponse",
+        "type": "object"
+      },
+      "AdminSharingUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Payload for ``PATCH /api/admin/*/sharing``.",
+        "properties": {
+          "daily_limit": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Limit"
+          },
+          "shared_enabled": {
+            "title": "Shared Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "shared_enabled"
+        ],
+        "title": "AdminSharingUpdateRequest",
+        "type": "object"
+      },
+      "AdminUpsertLLMRequest": {
+        "additionalProperties": false,
+        "description": "Payload for ``PUT /api/admin/llm``.",
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "base_url": {
+            "title": "Base Url",
+            "type": "string"
+          },
+          "chat_model": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Chat Model",
+            "type": "string"
+          },
+          "embedding_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model"
+          },
+          "max_context_tokens": {
+            "default": 32000,
+            "minimum": 256.0,
+            "title": "Max Context Tokens",
+            "type": "integer"
+          },
+          "name": {
+            "default": "Shared LLM",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "small_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Small Model"
+          }
+        },
+        "required": [
+          "base_url",
+          "chat_model"
+        ],
+        "title": "AdminUpsertLLMRequest",
+        "type": "object"
+      },
+      "AdminUpsertProviderRequest": {
+        "additionalProperties": false,
+        "description": "Payload for ``PUT /api/admin/providers/{provider}``.",
+        "properties": {
+          "api_token": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Token"
+          },
+          "max_cost_usd_per_link": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 0.05,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cost Usd Per Link"
+          },
+          "max_credits_per_search": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 5.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Credits Per Search"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "AdminUpsertProviderRequest",
+        "type": "object"
+      },
       "AnalyzeQueuedResponse": {
         "description": "202 response when an async Arq LLM sentiment analysis job has been enqueued.",
         "properties": {
@@ -2619,6 +3075,188 @@
         "title": "SupportedPlatformInfo",
         "type": "object"
       },
+      "SystemApifyOption": {
+        "description": "Availability and quota summary for the admin-shared Apify configuration.",
+        "properties": {
+          "available": {
+            "default": false,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "max_cost_usd_per_link": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cost Usd Per Link"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "remaining_today": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Today"
+          }
+        },
+        "title": "SystemApifyOption",
+        "type": "object"
+      },
+      "SystemLLMOption": {
+        "description": "Availability and quota summary for the admin-shared LLM configuration.",
+        "properties": {
+          "available": {
+            "default": false,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "capabilities": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capabilities"
+          },
+          "chat_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Model"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "remaining_today": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Today"
+          }
+        },
+        "title": "SystemLLMOption",
+        "type": "object"
+      },
+      "SystemOptionsResponse": {
+        "description": "Response payload for ``GET /api/system-options``.",
+        "properties": {
+          "apify": {
+            "$ref": "#/components/schemas/SystemApifyOption"
+          },
+          "llm": {
+            "$ref": "#/components/schemas/SystemLLMOption"
+          },
+          "scrapecreators": {
+            "$ref": "#/components/schemas/SystemScrapeCreatorsOption"
+          }
+        },
+        "required": [
+          "llm",
+          "apify",
+          "scrapecreators"
+        ],
+        "title": "SystemOptionsResponse",
+        "type": "object"
+      },
+      "SystemScrapeCreatorsOption": {
+        "description": "Availability and quota summary for the admin-shared ScrapeCreators configuration.",
+        "properties": {
+          "available": {
+            "default": false,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "max_credits_per_search": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Credits Per Search"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "remaining_today": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Today"
+          }
+        },
+        "title": "SystemScrapeCreatorsOption",
+        "type": "object"
+      },
       "TrendBrand": {
         "description": "Ranked brand entry in a completed trend search.",
         "properties": {
@@ -2636,6 +3274,15 @@
             },
             "title": "Evidence",
             "type": "array"
+          },
+          "kind": {
+            "default": "brand",
+            "enum": [
+              "brand",
+              "product"
+            ],
+            "title": "Kind",
+            "type": "string"
           },
           "likes": {
             "title": "Likes",
@@ -2656,10 +3303,6 @@
           "sentiment": {
             "$ref": "#/components/schemas/TrendBrandSentiment"
           },
-          "single_video": {
-            "title": "Single Video",
-            "type": "boolean"
-          },
           "videos": {
             "title": "Videos",
             "type": "integer"
@@ -2673,8 +3316,7 @@
           "plays",
           "likes",
           "sentiment",
-          "ad_share",
-          "single_video"
+          "ad_share"
         ],
         "title": "TrendBrand",
         "type": "object"
@@ -3343,6 +3985,432 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/admin/config": {
+      "get": {
+        "description": "Return masked system LLM, Apify, and ScrapeCreators configurations and today's usage.",
+        "operationId": "get_admin_config_api_admin_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Admin Config",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/llm": {
+      "delete": {
+        "description": "Delete the system LLM profile.",
+        "operationId": "delete_admin_llm_api_admin_llm_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Delete Admin Llm",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Create or update the system LLM profile.",
+        "operationId": "upsert_admin_llm_api_admin_llm_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUpsertLLMRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminLLMConfigItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upsert Admin Llm",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/llm/sharing": {
+      "patch": {
+        "description": "Toggle ``shared_enabled`` and ``daily_limit`` on the system LLM profile.",
+        "operationId": "update_admin_llm_sharing_api_admin_llm_sharing_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminSharingUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminLLMConfigItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Admin Llm Sharing",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/llm/test": {
+      "post": {
+        "description": "Re-probe the system LLM profile.",
+        "operationId": "test_admin_llm_api_admin_llm_test_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminLLMConfigItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Test Admin Llm",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/login": {
+      "post": {
+        "description": "Authenticate admin with ``ADMIN_PASSWORD`` and set ``sqa_admin`` cookie.",
+        "operationId": "admin_login_api_admin_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Login",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/logout": {
+      "post": {
+        "description": "Clear the ``sqa_admin`` session cookie.",
+        "operationId": "admin_logout_api_admin_logout_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Admin Logout",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/providers/{provider}": {
+      "delete": {
+        "description": "Delete a system data provider profile.",
+        "operationId": "delete_admin_provider_api_admin_providers__provider__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "apify",
+                "scrapecreators"
+              ],
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Admin Provider",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Create or update a system data provider profile (``apify`` or ``scrapecreators``).",
+        "operationId": "upsert_admin_provider_api_admin_providers__provider__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "apify",
+                "scrapecreators"
+              ],
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUpsertProviderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminDataProviderConfigItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upsert Admin Provider",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/providers/{provider}/sharing": {
+      "patch": {
+        "description": "Toggle ``shared_enabled`` and ``daily_limit`` on a system data provider profile.",
+        "operationId": "update_admin_provider_sharing_api_admin_providers__provider__sharing_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "apify",
+                "scrapecreators"
+              ],
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminSharingUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminDataProviderConfigItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Admin Provider Sharing",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/providers/{provider}/verify": {
+      "post": {
+        "description": "Verify the system data provider token against Apify or ScrapeCreators.",
+        "operationId": "verify_admin_provider_api_admin_providers__provider__verify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "apify",
+                "scrapecreators"
+              ],
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyDataProviderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Admin Provider",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/session": {
+      "get": {
+        "description": "Return whether the current browser holds a valid ``sqa_admin`` session.",
+        "operationId": "admin_session_api_admin_session_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Admin Session",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/chat": {
       "post": {
         "description": "Run one QA Agent turn and stream SSE events (session, tools, tokens, citations, done).",
@@ -3385,7 +4453,7 @@
     },
     "/api/chat/sessions": {
       "get": {
-        "description": "List chat sessions (newest updated first), optionally filtered by ``source_id``.",
+        "description": "List chat sessions owned by the current user (newest updated first).",
         "operationId": "list_chat_sessions_api_chat_sessions_get",
         "parameters": [
           {
@@ -3519,7 +4587,7 @@
     },
     "/api/data-providers/profiles": {
       "get": {
-        "description": "List saved data provider profiles with masked API tokens.",
+        "description": "List saved data provider profiles owned by the current user with masked API tokens.",
         "operationId": "list_data_provider_profiles_api_data_providers_profiles_get",
         "responses": {
           "200": {
@@ -3892,7 +4960,7 @@
     },
     "/api/llm/profiles": {
       "get": {
-        "description": "List saved LLM profiles with masked API keys.",
+        "description": "List saved LLM profiles owned by the current user with masked API keys.",
         "operationId": "list_profiles_api_llm_profiles_get",
         "responses": {
           "200": {
@@ -4208,7 +5276,7 @@
     },
     "/api/sources": {
       "get": {
-        "description": "List sources with pagination, optional filters, and SQL-aggregated counts (no N+1).",
+        "description": "List sources in the current user's history with pagination and SQL-aggregated counts.",
         "operationId": "list_sources_api_sources_get",
         "parameters": [
           {
@@ -4666,9 +5734,31 @@
         ]
       }
     },
+    "/api/system-options": {
+      "get": {
+        "description": "Return whether admin-shared LLM, Apify, and ScrapeCreators configs are available.",
+        "operationId": "get_system_options_api_system_options_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemOptionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get System Options",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/trends/searches": {
       "get": {
-        "description": "List recent TikTok brand trend searches without full result payloads.",
+        "description": "List recent TikTok brand trend searches in the current user's history.",
         "operationId": "list_trend_searches_api_trends_searches_get",
         "parameters": [
           {

@@ -189,7 +189,11 @@ export function ChatPanel({
   const tErrors = useTranslations("errors");
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
-  const { activeProfile, activeProfileId } = useActiveProfile();
+  const { activeProfile, activeProfileId, isUsingSystem, systemOption } =
+    useActiveProfile();
+  const activeProfileName = isUsingSystem
+    ? (systemOption?.name ?? "Admin")
+    : (activeProfile?.name ?? "");
 
   const [sessionId, setSessionId] = React.useState<string | null>(null);
   const [sessionProfileId, setSessionProfileId] = React.useState<string | null>(
@@ -634,7 +638,7 @@ export function ChatPanel({
               </Button>
             )}
           </div>
-        ) : !activeProfile ? (
+        ) : !activeProfileId ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
             <Settings className="size-8 text-warning" aria-hidden="true" />
             <div className="space-y-1">
@@ -771,9 +775,9 @@ export function ChatPanel({
 
       {/* Composer */}
       <div className="border-t border-border bg-card p-3">
-        {profileChangedMidSession && activeProfile && (
+        {profileChangedMidSession && activeProfileId && (
           <p className="mb-1.5 text-[11px] text-muted-foreground">
-            {t("switchingProfileHint", { profile: activeProfile.name })}
+            {t("switchingProfileHint", { profile: activeProfileName })}
           </p>
         )}
         <form onSubmit={handleFormSubmit} className="flex items-end gap-2">
@@ -782,7 +786,7 @@ export function ChatPanel({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t("placeholder")}
-            disabled={!isSourceReady || !activeProfile || isStreaming}
+            disabled={!isSourceReady || !activeProfileId || isStreaming}
             rows={2}
             className="min-h-[44px] max-h-32 resize-none text-sm"
             aria-label={t("placeholder")}
@@ -802,7 +806,7 @@ export function ChatPanel({
             <Button
               type="submit"
               disabled={
-                !isSourceReady || !activeProfile || input.trim().length === 0
+                !isSourceReady || !activeProfileId || input.trim().length === 0
               }
               className="h-11 shrink-0 px-3.5"
               aria-label={t("send")}

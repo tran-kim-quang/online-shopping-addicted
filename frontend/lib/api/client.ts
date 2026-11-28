@@ -52,6 +52,22 @@ export type TrendSearchSummary = components["schemas"]["TrendSearchSummary"];
 export type TrendSearchDetail = components["schemas"]["TrendSearchDetail"];
 export type TrendBrand = components["schemas"]["TrendBrand"];
 export type TrendEvidenceVideo = components["schemas"]["TrendEvidenceVideo"];
+export type SystemOptionsResponse =
+  components["schemas"]["SystemOptionsResponse"];
+export type AdminSessionResponse =
+  components["schemas"]["AdminSessionResponse"];
+export type AdminConfigResponse =
+  components["schemas"]["AdminConfigResponse"];
+export type AdminLLMConfigItem =
+  components["schemas"]["AdminLLMConfigItem"];
+export type AdminDataProviderConfigItem =
+  components["schemas"]["AdminDataProviderConfigItem"];
+export type AdminUpsertLLMPayload =
+  components["schemas"]["AdminUpsertLLMRequest"];
+export type AdminUpsertProviderPayload =
+  components["schemas"]["AdminUpsertProviderRequest"];
+export type AdminSharingUpdatePayload =
+  components["schemas"]["AdminSharingUpdateRequest"];
 
 export type IngestSubmitResponse =
   | { kind: "cached"; data: IngestCachedResponse }
@@ -67,7 +83,7 @@ export function getApiBaseUrl(): string {
 }
 
 export function createApiClient(baseUrl = getApiBaseUrl()) {
-  return createClient<paths>({ baseUrl });
+  return createClient<paths>({ baseUrl, credentials: "include" });
 }
 
 export const apiClient = createApiClient();
@@ -151,6 +167,7 @@ export async function submitIngest(
     response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify(payload),
     });
   } catch (err) {
@@ -183,6 +200,7 @@ export async function analyzeSource(
     response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify(payload),
     });
   } catch (err) {
@@ -479,6 +497,177 @@ export async function getTrendSearch(
   const { data, error, response } = await apiClient.GET(
     "/api/trends/searches/{search_id}",
     { params: { path: { search_id: searchId } } }
+  );
+  if (error !== undefined || !data) {
+    throw normalizeApiError(response.status, error, response.statusText);
+  }
+  return data;
+}
+
+export async function getSystemOptions(): Promise<SystemOptionsResponse> {
+  const result = await apiClient.GET("/api/system-options");
+  if (!result.response.ok || result.data === undefined) {
+    throw normalizeApiError(
+      result.response.status,
+      result.error,
+      result.response.statusText
+    );
+  }
+  return result.data;
+}
+
+export async function getAdminSession(): Promise<AdminSessionResponse> {
+  const result = await apiClient.GET("/api/admin/session");
+  if (!result.response.ok || result.data === undefined) {
+    throw normalizeApiError(
+      result.response.status,
+      result.error,
+      result.response.statusText
+    );
+  }
+  return result.data;
+}
+
+export async function adminLogin(
+  password: string
+): Promise<AdminSessionResponse> {
+  const result = await apiClient.POST("/api/admin/login", {
+    body: { password },
+  });
+  if (!result.response.ok || result.data === undefined) {
+    throw normalizeApiError(
+      result.response.status,
+      result.error,
+      result.response.statusText
+    );
+  }
+  return result.data;
+}
+
+export async function adminLogout(): Promise<AdminSessionResponse> {
+  const result = await apiClient.POST("/api/admin/logout");
+  if (!result.response.ok || result.data === undefined) {
+    throw normalizeApiError(
+      result.response.status,
+      result.error,
+      result.response.statusText
+    );
+  }
+  return result.data;
+}
+
+export async function getAdminConfig(): Promise<AdminConfigResponse> {
+  const result = await apiClient.GET("/api/admin/config");
+  if (!result.response.ok || result.data === undefined) {
+    throw normalizeApiError(
+      result.response.status,
+      result.error,
+      result.response.statusText
+    );
+  }
+  return result.data;
+}
+
+export async function upsertAdminLlm(
+  payload: AdminUpsertLLMPayload
+): Promise<AdminLLMConfigItem> {
+  const result = await apiClient.PUT("/api/admin/llm", {
+    body: payload,
+  });
+  if (!result.response.ok || result.data === undefined) {
+    throw normalizeApiError(
+      result.response.status,
+      result.error,
+      result.response.statusText
+    );
+  }
+  return result.data;
+}
+
+export async function testAdminLlm(): Promise<AdminLLMConfigItem> {
+  const result = await apiClient.POST("/api/admin/llm/test");
+  if (!result.response.ok || result.data === undefined) {
+    throw normalizeApiError(
+      result.response.status,
+      result.error,
+      result.response.statusText
+    );
+  }
+  return result.data;
+}
+
+export async function deleteAdminLlm(): Promise<void> {
+  const { error, response } = await apiClient.DELETE("/api/admin/llm");
+  if (!response.ok) {
+    throw normalizeApiError(response.status, error, response.statusText);
+  }
+}
+
+export async function updateAdminLlmSharing(
+  payload: AdminSharingUpdatePayload
+): Promise<AdminLLMConfigItem> {
+  const { data, error, response } = await apiClient.PATCH(
+    "/api/admin/llm/sharing",
+    { body: payload }
+  );
+  if (error !== undefined || !data) {
+    throw normalizeApiError(response.status, error, response.statusText);
+  }
+  return data;
+}
+
+export async function upsertAdminProvider(
+  provider: "apify" | "scrapecreators",
+  payload: AdminUpsertProviderPayload
+): Promise<AdminDataProviderConfigItem> {
+  const { data, error, response } = await apiClient.PUT(
+    "/api/admin/providers/{provider}",
+    {
+      params: { path: { provider } },
+      body: payload,
+    }
+  );
+  if (error !== undefined || !data) {
+    throw normalizeApiError(response.status, error, response.statusText);
+  }
+  return data;
+}
+
+export async function verifyAdminProvider(
+  provider: "apify" | "scrapecreators"
+): Promise<VerifyDataProviderResponse> {
+  const { data, error, response } = await apiClient.POST(
+    "/api/admin/providers/{provider}/verify",
+    { params: { path: { provider } } }
+  );
+  if (error !== undefined || !data) {
+    throw normalizeApiError(response.status, error, response.statusText);
+  }
+  return data;
+}
+
+export async function deleteAdminProvider(
+  provider: "apify" | "scrapecreators"
+): Promise<void> {
+  const { error, response } = await apiClient.DELETE(
+    "/api/admin/providers/{provider}",
+    { params: { path: { provider } } }
+  );
+  if (!response.ok) {
+    throw normalizeApiError(response.status, error, response.statusText);
+  }
+}
+
+export async function updateAdminProviderSharing(
+  provider: "apify" | "scrapecreators",
+  payload: AdminSharingUpdatePayload
+): Promise<AdminDataProviderConfigItem> {
+  const { data, error, response } = await apiClient.PATCH(
+    "/api/admin/providers/{provider}/sharing",
+    {
+      params: { path: { provider } },
+      body: payload,
+    }
   );
   if (error !== undefined || !data) {
     throw normalizeApiError(response.status, error, response.statusText);

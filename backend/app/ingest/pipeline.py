@@ -10,7 +10,7 @@ from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,8 +23,8 @@ from app.ingest.embedding import Embedder, NullEmbedder, get_embedder
 from app.ingest.quality import score_review_object
 from app.ingest.sentiment import analyze_product_reviews, count_reviews_needing_analysis
 from app.llm.client import LLMClient
+from app.llm.profile_config import build_llm_config
 from app.llm.registry import LLMClientRegistry
-from app.llm.types import LLMConfig
 from app.security.secrets import SecretBox
 
 logger = logging.getLogger(__name__)
@@ -192,19 +192,7 @@ async def _resolve_llm_client(
 ) -> LLMClient | None:
     if profile is None:
         return None
-    raw_key: str | None = None
-    if profile.api_key_enc:
-        box = secret_box if secret_box is not None else SecretBox()
-        raw_key = box.decrypt(profile.api_key_enc)
-    config = LLMConfig(
-        base_url=profile.base_url,
-        api_key=SecretStr(raw_key) if raw_key else None,
-        chat_model=profile.chat_model,
-        small_model=profile.small_model,
-        embedding_model=profile.embedding_model,
-        timeout=settings.LLM_TIMEOUT_SECONDS,
-        max_retries=settings.LLM_MAX_RETRIES,
-    )
+    config = build_llm_config(profile, settings, secret_box=secret_box)
     return await LLMClientRegistry().get(config)
 
 

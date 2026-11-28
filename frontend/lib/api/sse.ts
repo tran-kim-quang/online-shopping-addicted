@@ -185,6 +185,7 @@ export async function streamChat(
         "Content-Type": "application/json",
         Accept: "text/event-stream",
       },
+      credentials: "include",
       body: JSON.stringify(payload),
       signal: options.signal,
     });
@@ -333,7 +334,8 @@ export function subscribeJobEvents(
   const baseUrl = (options.baseUrl ?? getApiBaseUrl()).replace(/\/+$/, "");
   const streamUrl = `${baseUrl}/api/jobs/${encodeURIComponent(jobId)}/events`;
   const makeEventSource =
-    options.eventSourceFactory ?? ((url: string) => new EventSource(url));
+    options.eventSourceFactory ??
+    ((url: string) => new EventSource(url, { withCredentials: true }));
 
   let closed = false;
   let source: EventSource | null = null;

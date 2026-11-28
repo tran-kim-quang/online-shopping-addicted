@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_embedder_override, get_session, get_settings
+from app.api.deps import get_embedder_override, get_session, get_settings, get_user_id
+from app.api.profile_resolver import resolve_llm_profile
 from app.core.config import Settings
 from app.db.models import LLMProfile, Source
 from app.ingest.embedding import Embedder, get_embedder
@@ -44,6 +45,7 @@ class SearchResponse(BaseModel):
 @router.post("/search", response_model=SearchResponse)
 async def search_chunks(
     body: SearchRequest,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
     settings: Settings = Depends(get_settings),  # noqa: B008
     embedder_override: Embedder | None = Depends(get_embedder_override),  # noqa: B008
@@ -78,12 +80,7 @@ async def search_chunks(
     else:
         profile: LLMProfile | None = None
         if body.llm_profile_id is not None:
-            profile = await session.get(LLMProfile, body.llm_profile_id)
-            if profile is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="LLM profile not found.",
-                )
+            profile = await resolve_llm_profile(session, body.llm_profile_id, user_id)
         active_embedder = get_embedder(settings, profile=profile)
 
     hits = await hybrid_search(

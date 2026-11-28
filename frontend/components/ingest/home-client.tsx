@@ -49,6 +49,7 @@ import {
 import { validateEcommerceUrl } from "@/lib/url-validation";
 import {
   formatPlatformName,
+  selfConfigureHref,
   translateErrorCode,
   translateUnknownError,
 } from "@/lib/error-messages";
@@ -155,6 +156,9 @@ export function HomeClient() {
 
   const [url, setUrl] = React.useState("");
   const [urlError, setUrlError] = React.useState<string | null>(null);
+  const [selfConfigLink, setSelfConfigLink] = React.useState<string | null>(
+    null
+  );
   const [missingProvider, setMissingProvider] = React.useState<string | null>(
     null
   );
@@ -206,6 +210,7 @@ export function HomeClient() {
           if (err.code === "data_provider_required") {
             setMissingProvider("apify");
           }
+          setSelfConfigLink(selfConfigureHref(err.code, err.kind));
           setUrlError(
             translateErrorCode(tErrors, err.code, {
               platform: err.platform,
@@ -339,6 +344,7 @@ export function HomeClient() {
                         setUrl(e.target.value);
                         if (urlError) setUrlError(null);
                         if (missingProvider) setMissingProvider(null);
+                        if (selfConfigLink) setSelfConfigLink(null);
                       }}
                       placeholder={t("urlPlaceholder")}
                       aria-invalid={Boolean(urlError)}
@@ -385,6 +391,17 @@ export function HomeClient() {
                         )}
                       >
                         {t("goToDataSources")}
+                      </Link>
+                    )}
+                    {selfConfigLink && !missingProvider && (
+                      <Link
+                        href={selfConfigLink}
+                        className={cn(
+                          buttonVariants({ variant: "outline", size: "xs" }),
+                          "shrink-0 self-start sm:self-center"
+                        )}
+                      >
+                        {tErrors("selfConfigureLink")}
                       </Link>
                     )}
                   </div>

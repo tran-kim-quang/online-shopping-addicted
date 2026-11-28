@@ -33,6 +33,7 @@ import {
   createLlmProfile,
   listProviderModels,
   updateLlmProfile,
+  type AdminUpsertLLMPayload,
   type ProfileResponse,
   type UpdateProfilePayload,
 } from "@/lib/api/client";
@@ -60,6 +61,7 @@ export interface LlmProfileDialogProps {
   onOpenChange: (open: boolean) => void;
   editingProfile: ProfileResponse | null;
   onSaved: (profile: ProfileResponse) => void;
+  onSubmitOverride?: (payload: AdminUpsertLLMPayload) => Promise<ProfileResponse>;
 }
 
 export function LlmProfileDialog({
@@ -67,6 +69,7 @@ export function LlmProfileDialog({
   onOpenChange,
   editingProfile,
   onSaved,
+  onSubmitOverride,
 }: LlmProfileDialogProps) {
   const t = useTranslations("llm.form");
   const tCommon = useTranslations("common");
@@ -174,7 +177,22 @@ export function LlmProfileDialog({
     setIsSaving(true);
     try {
       let saved: ProfileResponse;
-      if (editingProfile) {
+      if (onSubmitOverride) {
+        const payload: AdminUpsertLLMPayload = {
+          name: trimmedName,
+          base_url: trimmedUrl,
+          chat_model: trimmedModel,
+          small_model: smallModel.trim() || null,
+          embedding_model: embeddingModel.trim() || null,
+          max_context_tokens: safeCtx,
+        };
+        if (clearKey) {
+          payload.api_key = null;
+        } else if (apiKey.trim()) {
+          payload.api_key = apiKey.trim();
+        }
+        saved = await onSubmitOverride(payload);
+      } else if (editingProfile) {
         const payload: UpdateProfilePayload = {};
         if (trimmedName !== editingProfile.name) {
           payload.name = trimmedName;

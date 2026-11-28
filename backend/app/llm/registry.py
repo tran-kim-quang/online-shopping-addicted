@@ -75,7 +75,8 @@ class LLMClientRegistry(metaclass=SingletonMeta):
         material = (
             f"{config.base_url}\x00{raw_key}\x00"
             f"{config.chat_model}\x00{small_model}\x00{embedding_model}\x00"
-            f"{config.timeout}\x00{config.max_retries}"
+            f"{config.timeout}\x00{config.max_retries}\x00"
+            f"{config.usage_kind or ''}\x00{config.daily_limit}"
         )
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
 

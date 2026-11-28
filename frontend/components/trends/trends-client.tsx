@@ -23,6 +23,7 @@ import { Link, type AppLocale } from "@/i18n/routing";
 import {
   useActiveDataProvider,
   useActiveProfile,
+  useSystemOptions,
 } from "@/components/providers";
 import { IngestProgressPanel } from "@/components/ingest/ingest-progress-panel";
 import { Badge } from "@/components/ui/badge";
@@ -57,7 +58,12 @@ import {
   type TrendSearchDetail,
   type TrendSearchSummary,
 } from "@/lib/api/client";
-import { translateErrorCode, translateUnknownError } from "@/lib/error-messages";
+import {
+  selfConfigureHref,
+  translateErrorCode,
+  translateUnknownError,
+} from "@/lib/error-messages";
+import { isApiError } from "@/lib/api/errors";
 import {
   formatCompactNumber,
   formatNumber,
@@ -120,7 +126,7 @@ function BrandCard({
                   {t("highAdBadge")}
                 </Badge>
               )}
-              {brand.single_video && (
+              {brand.kind === "product" && (
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -128,11 +134,11 @@ function BrandCard({
                         variant="outline"
                         className="cursor-help border-accent/40 bg-accent text-[11px] text-accent-foreground"
                       >
-                        {t("singleVideoBadge")}
+                        {t("productBadge")}
                       </Badge>
                     }
                   />
-                  <TooltipContent>{t("singleVideoTooltip")}</TooltipContent>
+                  <TooltipContent>{t("productTooltip")}</TooltipContent>
                 </Tooltip>
               )}
             </div>
@@ -298,18 +304,21 @@ function BrandCard({
 
 export function TrendsClient() {
   const t = useTranslations("trends");
+  const tSystem = useTranslations("system");
   const tWarnings = useTranslations("warnings.trend");
   const tErrors = useTranslations("errors");
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
 
+  const { data: systemOptions } = useSystemOptions();
   const {
     profiles: dataProfiles,
+    getActiveProviderId,
     isLoading: isLoadingDataProfiles,
   } = useActiveDataProvider();
   const {
     profiles: llmProfiles,
-    activeProfile: activeLlmProfile,
+    activeProfileId: activeLlmProfileId,
     isLoading: isLoadingLlmProfiles,
   } = useActiveProfile();
 
@@ -317,11 +326,24 @@ export function TrendsClient() {
     () => dataProfiles.filter((p) => p.provider === "scrapecreators"),
     [dataProfiles]
   );
+  const sysScProfileId =
+    systemOptions?.scrapecreators.available &&
+    systemOptions.scrapecreators.profile_id
+      ? systemOptions.scrapecreators.profile_id
+      : null;
+  const sysLlmProfileId =
+    systemOptions?.llm.available && systemOptions.llm.profile_id
+      ? systemOptions.llm.profile_id
+      : null;
+  const activeScId = getActiveProviderId("scrapecreators");
 
   const [keyword, setKeyword] = React.useState("");
   const [selectedScId, setSelectedScId] = React.useState<string>("");
   const [selectedLlmId, setSelectedLlmId] = React.useState<string>("");
   const [formError, setFormError] = React.useState<string | null>(null);
+  const [selfConfigLink, setSelfConfigLink] = React.useState<string | null>(
+    null
+  );
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const [activeJobId, setActiveJobId] = React.useState<string | null>(null);
@@ -334,20 +356,20 @@ export function TrendsClient() {
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false);
 
   React.useEffect(() => {
-    if (!selectedScId && scProfiles.length > 0 && scProfiles[0]) {
-      setSelectedScId(scProfiles[0].id);
+    if (!selectedScId && activeScId) {
+      setSelectedScId(activeScId);
     }
-  }, [scProfiles, selectedScId]);
+  }, [activeScId, selectedScId]);
 
   React.useEffect(() => {
     if (!selectedLlmId) {
-      if (activeLlmProfile) {
-        setSelectedLlmId(activeLlmProfile.id);
+      if (activeLlmProfileId) {
+        setSelectedLlmId(activeLlmProfileId);
       } else if (llmProfiles.length > 0 && llmProfiles[0]) {
         setSelectedLlmId(llmProfiles[0].id);
       }
     }
-  }, [activeLlmProfile, llmProfiles, selectedLlmId]);
+  }, [activeLlmProfileId, llmProfiles, selectedLlmId]);
 
   const { data: history = [], isLoading: isLoadingHistory } = useQuery({
     queryKey: TREND_HISTORY_QUERY_KEY,
@@ -359,7 +381,12 @@ export function TrendsClient() {
     () => scProfiles.find((p) => p.id === selectedScId) ?? scProfiles[0] ?? null,
     [scProfiles, selectedScId]
   );
-  const maxCredits = selectedScProfile?.max_credits_per_search ?? 15;
+  const effectiveScId =
+    selectedScId || activeScId || selectedScProfile?.id || "";
+  const maxCredits =
+    effectiveScId === sysScProfileId
+      ? (systemOptions?.scrapecreators.max_credits_per_search ?? 15)
+      : (selectedScProfile?.max_credits_per_search ?? 15);
 
   const loadSearchDetail = React.useCallback(
     async (searchId: string, cachedFlag: boolean) => {
@@ -380,12 +407,13 @@ export function TrendsClient() {
 
   const submitSearch = async (targetKeyword: string, force: boolean) => {
     setFormError(null);
+    setSelfConfigLink(null);
     const cleaned = targetKeyword.trim();
     if (cleaned.length < 2) {
       setFormError(t("keywordMinError"));
       return;
     }
-    if (!selectedScProfile) {
+    if (!effectiveScId) {
       setFormError(t("missingScProfile"));
       return;
     }
@@ -398,7 +426,7 @@ export function TrendsClient() {
     try {
       const res = await createTrendSearch({
         keyword: cleaned,
-        data_provider_profile_id: selectedScProfile.id,
+        data_provider_profile_id: effectiveScId,
         llm_profile_id: selectedLlmId,
         force,
       });
@@ -415,6 +443,9 @@ export function TrendsClient() {
       }
     } catch (err) {
       setFormError(translateUnknownError(tErrors, err));
+      setSelfConfigLink(
+        isApiError(err) ? selfConfigureHref(err.code, err.kind) : null
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -427,6 +458,7 @@ export function TrendsClient() {
 
   const handleSelectHistory = (item: TrendSearchSummary) => {
     setFormError(null);
+    setSelfConfigLink(null);
     setKeyword(item.keyword);
     setActiveKeyword(item.keyword);
     setActiveSearchId(item.id);
@@ -458,7 +490,7 @@ export function TrendsClient() {
 
         {isLoadingProfiles ? (
           <Skeleton className="h-44 w-full rounded-[10px]" />
-        ) : scProfiles.length === 0 ? (
+        ) : scProfiles.length === 0 && !sysScProfileId ? (
           <Card className="border border-dashed border-border bg-card/60">
             <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
               <Sparkles
@@ -527,7 +559,7 @@ export function TrendsClient() {
                       {t("scProfileLabel")}
                     </Label>
                     <Select
-                      value={selectedScProfile?.id ?? ""}
+                      value={effectiveScId}
                       onValueChange={(val) => {
                         if (val) setSelectedScId(val);
                       }}
@@ -536,6 +568,11 @@ export function TrendsClient() {
                         <SelectValue placeholder={t("selectScProfile")} />
                       </SelectTrigger>
                       <SelectContent>
+                        {sysScProfileId && (
+                          <SelectItem value={sysScProfileId}>
+                            {tSystem("adminSharedLabel")}
+                          </SelectItem>
+                        )}
                         {scProfiles.map((p) => (
                           <SelectItem key={p.id} value={p.id}>
                             {p.name}
@@ -549,7 +586,7 @@ export function TrendsClient() {
                     <Label htmlFor="trend-llm-profile">
                       {t("llmProfileLabel")}
                     </Label>
-                    {llmProfiles.length === 0 ? (
+                    {llmProfiles.length === 0 && !sysLlmProfileId ? (
                       <Link
                         href="/settings/llm"
                         className="inline-flex h-9 w-full items-center justify-between rounded-md border border-warning/40 bg-card px-3 text-xs font-medium text-warning hover:bg-muted"
@@ -571,6 +608,12 @@ export function TrendsClient() {
                           <SelectValue placeholder={t("selectLlmProfile")} />
                         </SelectTrigger>
                         <SelectContent>
+                          {sysLlmProfileId && (
+                            <SelectItem value={sysLlmProfileId}>
+                              {systemOptions?.llm.name ??
+                                tSystem("adminSharedLabel")}
+                            </SelectItem>
+                          )}
                           {llmProfiles.map((p) => (
                             <SelectItem key={p.id} value={p.id}>
                               {p.name}
@@ -599,6 +642,14 @@ export function TrendsClient() {
                       aria-hidden="true"
                     />
                     <span>{formError}</span>
+                    {selfConfigLink && (
+                      <Link
+                        href={selfConfigLink}
+                        className="ml-auto shrink-0 font-medium underline"
+                      >
+                        {tErrors("selfConfigureLink")}
+                      </Link>
+                    )}
                   </div>
                 )}
               </form>

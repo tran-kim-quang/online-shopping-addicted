@@ -26,6 +26,7 @@ from app.core.errors import (
     LLMError,
     LLMInvalidResponseError,
     LLMNotFoundError,
+    LLMQuotaExceededError,
     LLMRateLimitError,
     LLMUnavailableError,
     sanitize_error_message,
@@ -142,6 +143,8 @@ def _merge_usage(acc: dict[str, int], incoming: dict[str, Any] | None) -> None:
 
 
 def _error_code_for(exc: Exception) -> str:
+    if isinstance(exc, LLMQuotaExceededError):
+        return "system_quota_exceeded"
     if isinstance(exc, LLMAuthError):
         return "llm_auth"
     if isinstance(exc, LLMNotFoundError):

@@ -3,6 +3,8 @@ export interface ApiErrorOptions {
   code: string;
   detail: string;
   platform?: string;
+  /** Which shared admin resource failed (``llm`` | ``apify`` | ``scrapecreators``). */
+  kind?: string;
   jobId?: string;
   errors?: Record<string, string>;
 }
@@ -12,6 +14,7 @@ export class ApiError extends Error {
   readonly code: string;
   readonly detail: string;
   readonly platform?: string;
+  readonly kind?: string;
   readonly jobId?: string;
   readonly errors?: Record<string, string>;
 
@@ -22,6 +25,7 @@ export class ApiError extends Error {
     this.code = options.code;
     this.detail = options.detail;
     this.platform = options.platform;
+    this.kind = options.kind;
     this.jobId = options.jobId;
     this.errors = options.errors;
   }
@@ -73,14 +77,26 @@ export function normalizeApiError(
   fallbackMessage = ""
 ): ApiError {
   if (isRecord(body)) {
-    const rawCode = typeof body.error === "string" && body.error.trim() ? body.error.trim() : null;
-    const rawDetail = extractValidationDetail(body.detail);
+    const nested = isRecord(body.detail) ? body.detail : null;
+    const rawCode =
+      typeof body.error === "string" && body.error.trim()
+        ? body.error.trim()
+        : nested && typeof nested.error === "string" && nested.error.trim()
+          ? nested.error.trim()
+          : null;
+    const rawDetail = nested
+      ? extractValidationDetail(nested.detail)
+      : extractValidationDetail(body.detail);
     const rawMessage = typeof body.message === "string" ? body.message : "";
     const detail = rawDetail || rawMessage || fallbackMessage || defaultCodeForStatus(status);
     const code = rawCode ?? defaultCodeForStatus(status);
     const platform =
       typeof body.platform === "string" && body.platform.trim()
         ? body.platform.trim()
+        : undefined;
+    const kind =
+      typeof body.kind === "string" && body.kind.trim()
+        ? body.kind.trim()
         : undefined;
     const jobId =
       typeof body.job_id === "string" && body.job_id.trim()
@@ -100,7 +116,7 @@ export function normalizeApiError(
       }
     }
 
-    return new ApiError({ status, code, detail, platform, jobId, errors });
+    return new ApiError({ status, code, detail, platform, kind, jobId, errors });
   }
 
   if (typeof body === "string" && body.trim()) {

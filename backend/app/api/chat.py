@@ -13,7 +13,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,7 +38,9 @@ from app.api.deps import (
     get_session_factory,
     get_settings,
     get_url_resolver,
+    get_user_id,
 )
+from app.api.profile_resolver import resolve_llm_profile
 from app.core.config import Settings
 from app.core.errors import sanitize_error_message
 from app.db.models import ChatMessage, ChatSession, LLMProfile, Source
@@ -46,8 +48,8 @@ from app.ingest.embedding import Embedder, get_embedder
 from app.ingest.pipeline import resolve_source_scope
 from app.jobs.events import JobEvents
 from app.jobs.queue import JobQueue
+from app.llm.profile_config import build_llm_config
 from app.llm.registry import LLMClientRegistry
-from app.llm.types import LLMConfig
 from app.security.secrets import SecretBox
 from app.security.url_validator import DNSResolver
 
@@ -235,6 +237,7 @@ async def _persist_assistant_message(
 async def chat_stream_endpoint(
     body: ChatRequest,
     request: Request,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
     session_factory: SessionFactory = Depends(get_session_factory),  # noqa: B008
     registry: LLMClientRegistry = Depends(get_registry),  # noqa: B008
@@ -260,18 +263,14 @@ async def chat_stream_endpoint(
         if not _source_is_ready(source):
             return _source_not_ready_response(source)
 
-        profile = await session.get(LLMProfile, body.llm_profile_id)
-        if profile is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="LLM profile not found."
-            )
+        profile = await resolve_llm_profile(session, body.llm_profile_id, user_id)
 
         # Decrypt API key up front so SecretBoxError returns 409 secret_key_mismatch JSON.
         raw_api_key = secret_box.decrypt(profile.api_key_enc) if profile.api_key_enc else None
 
         chat_session = ChatSession(
             id=uuid.uuid4(),
-            user_id="local",
+            user_id=user_id,
             source_id=source.id,
             llm_profile_id=profile.id,
             title=body.message[:60],
@@ -281,7 +280,7 @@ async def chat_stream_endpoint(
         session.add(chat_session)
     else:
         existing_session = await session.get(ChatSession, body.session_id)
-        if existing_session is None:
+        if existing_session is None or existing_session.user_id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found."
             )
@@ -302,11 +301,7 @@ async def chat_stream_endpoint(
                 detail="Session has no LLM profile configured; provide llm_profile_id.",
             )
 
-        profile = await session.get(LLMProfile, effective_profile_id)
-        if profile is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="LLM profile not found."
-            )
+        profile = await resolve_llm_profile(session, effective_profile_id, user_id)
 
         raw_api_key = secret_box.decrypt(profile.api_key_enc) if profile.api_key_enc else None
 
@@ -336,15 +331,7 @@ async def chat_stream_endpoint(
     ]
     prior_crawl_count = _count_session_crawls(prior_messages)
 
-    config = LLMConfig(
-        base_url=profile.base_url,
-        api_key=SecretStr(raw_api_key) if raw_api_key else None,
-        chat_model=profile.chat_model,
-        small_model=profile.small_model,
-        embedding_model=profile.embedding_model,
-        timeout=settings.LLM_TIMEOUT_SECONDS,
-        max_retries=settings.LLM_MAX_RETRIES,
-    )
+    config = build_llm_config(profile, settings, secret_box=secret_box)
     llm_client = await registry.get(config)
     active_embedder = (
         embedder_override
@@ -536,10 +523,11 @@ async def chat_stream_endpoint(
 @router.get("/sessions", response_model=list[ChatSessionSummary])
 async def list_chat_sessions(
     source_id: uuid.UUID | None = Query(default=None),  # noqa: B008
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> list[ChatSessionSummary]:
-    """List chat sessions (newest updated first), optionally filtered by ``source_id``."""
-    stmt = select(ChatSession)
+    """List chat sessions owned by the current user (newest updated first)."""
+    stmt = select(ChatSession).where(ChatSession.user_id == user_id)
     if source_id is not None:
         stmt = stmt.where(ChatSession.source_id == source_id)
     stmt = stmt.order_by(ChatSession.updated_at.desc(), ChatSession.created_at.desc())
@@ -550,11 +538,12 @@ async def list_chat_sessions(
 @router.get("/sessions/{session_id}", response_model=ChatSessionDetail)
 async def get_chat_session(
     session_id: uuid.UUID,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> ChatSessionDetail:
     """Return a chat session along with its chronological messages, citations, and tool traces."""
     chat_session = await session.get(ChatSession, session_id)
-    if chat_session is None:
+    if chat_session is None or chat_session.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found.")
 
     messages = list(
@@ -578,11 +567,12 @@ async def get_chat_session(
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_chat_session(
     session_id: uuid.UUID,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> Response:
     """Delete a chat session and all of its messages."""
     chat_session = await session.get(ChatSession, session_id)
-    if chat_session is None:
+    if chat_session is None or chat_session.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found.")
 
     await session.delete(chat_session)

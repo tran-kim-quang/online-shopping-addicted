@@ -44,12 +44,15 @@ class JobQueue(metaclass=SingletonMeta):
         max_products: int | None = None,
         max_reviews: int | None = None,
         data_provider_profile_id: str | None = None,
+        user_id: str | None = None,
     ) -> Any:
         """Enqueue ``run_ingest`` on the Arq Redis queue."""
         pool = await self.get_pool()
         args: list[Any] = [job_id, url, llm_profile_id, max_products, max_reviews]
-        if data_provider_profile_id is not None:
+        if data_provider_profile_id is not None or user_id is not None:
             args.append(data_provider_profile_id)
+        if user_id is not None:
+            args.append(user_id)
         return await pool.enqueue_job(
             "run_ingest",
             *args,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
@@ -13,10 +13,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_job_events, get_job_queue, get_session
-from app.db.models import DataProviderProfile, LLMProfile, TrendSearch
+from app.api.deps import get_job_events, get_job_queue, get_session, get_user_id
+from app.api.profile_resolver import resolve_data_provider_profile, resolve_llm_profile
+from app.api.user_history import upsert_user_trend_search
+from app.core.errors import SystemQuotaExceededError
+from app.core.system_usage import SystemUsage
+from app.db.models import TrendSearch, UserTrendSearch
 from app.jobs.events import TERMINAL_JOB_STATUSES, JobEvents
 from app.jobs.queue import JobQueue
+from app.security.cookies import SYSTEM_USER_ID
 from app.trends.config import CACHE_HOURS, ESTIMATED_CREDITS
 from app.trends.service import compute_keyword_norm
 
@@ -88,7 +93,7 @@ class TrendBrand(BaseModel):
     likes: int
     sentiment: TrendBrandSentiment
     ad_share: float
-    single_video: bool
+    kind: Literal["brand", "product"] = "brand"
     evidence: list[TrendEvidenceVideo] = Field(default_factory=list)
 
 
@@ -181,17 +186,15 @@ async def _job_still_active(job_events: JobEvents, job_id: str | None) -> bool:
 )
 async def create_trend_search(
     body: CreateTrendSearchRequest,
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
     job_events: JobEvents = Depends(get_job_events),  # noqa: B008
     job_queue: JobQueue = Depends(get_job_queue),  # noqa: B008
 ) -> JSONResponse:
     """Create or return a cached/in-progress TikTok brand trend search."""
-    data_profile = await session.get(DataProviderProfile, body.data_provider_profile_id)
-    if data_profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Data provider profile not found.",
-        )
+    data_profile = await resolve_data_provider_profile(
+        session, body.data_provider_profile_id, user_id
+    )
     if data_profile.provider != "scrapecreators":
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -201,12 +204,7 @@ async def create_trend_search(
             },
         )
 
-    llm_profile = await session.get(LLMProfile, body.llm_profile_id)
-    if llm_profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="LLM profile not found.",
-        )
+    llm_profile = await resolve_llm_profile(session, body.llm_profile_id, user_id)
 
     max_credits = data_profile.max_credits_per_search or 15
     keyword_norm = compute_keyword_norm(body.keyword)
@@ -216,7 +214,6 @@ async def create_trend_search(
             detail="Keyword must contain alphanumeric characters.",
         )
 
-    user_id = "local"
     now = datetime.now(UTC)
 
     if not body.force:
@@ -224,7 +221,6 @@ async def create_trend_search(
         cached_stmt = (
             select(TrendSearch)
             .where(
-                TrendSearch.user_id == user_id,
                 TrendSearch.keyword_norm == keyword_norm,
                 TrendSearch.status == "completed",
                 TrendSearch.finished_at >= cutoff,
@@ -234,6 +230,8 @@ async def create_trend_search(
         )
         cached_row = (await session.execute(cached_stmt)).scalar_one_or_none()
         if cached_row is not None:
+            await upsert_user_trend_search(session, user_id, cached_row.id)
+            await session.commit()
             payload = TrendSearchQueuedResponse(
                 search_id=cached_row.id,
                 job_id=None,
@@ -249,7 +247,6 @@ async def create_trend_search(
     running_stmt = (
         select(TrendSearch)
         .where(
-            TrendSearch.user_id == user_id,
             TrendSearch.keyword_norm == keyword_norm,
             TrendSearch.status.in_(("queued", "running")),
         )
@@ -266,6 +263,8 @@ async def create_trend_search(
         await session.commit()
         running_row = None
     if running_row is not None:
+        await upsert_user_trend_search(session, user_id, running_row.id)
+        await session.commit()
         payload = TrendSearchQueuedResponse(
             search_id=running_row.id,
             job_id=running_row.job_id,
@@ -278,11 +277,21 @@ async def create_trend_search(
             content=payload.model_dump(mode="json"),
         )
 
+    if data_profile.user_id == SYSTEM_USER_ID and data_profile.daily_limit is not None:
+        used = await SystemUsage().used(data_profile.provider)
+        if used + ESTIMATED_CREDITS > float(data_profile.daily_limit) + 1e-9:
+            raise SystemQuotaExceededError(
+                kind=data_profile.provider,
+                detail="Hạn mức credit ScrapeCreators dùng chung hôm nay đã hết.",
+            )
+
     job_id = str(uuid.uuid4())
-    acquired, holder_job_id = await job_events.acquire_trend_lock(user_id, keyword_norm, job_id)
+    acquired, holder_job_id = await job_events.acquire_trend_lock("global", keyword_norm, job_id)
     if not acquired:
         existing_running = (await session.execute(running_stmt)).scalar_one_or_none()
         if existing_running is not None:
+            await upsert_user_trend_search(session, user_id, existing_running.id)
+            await session.commit()
             payload = TrendSearchQueuedResponse(
                 search_id=existing_running.id,
                 job_id=existing_running.job_id or holder_job_id,
@@ -306,6 +315,8 @@ async def create_trend_search(
         job_id=job_id,
     )
     session.add(search_row)
+    await session.flush()
+    await upsert_user_trend_search(session, user_id, search_row.id)
     await session.commit()
     await session.refresh(search_row)
 
@@ -321,7 +332,7 @@ async def create_trend_search(
             trend_search_id=str(search_row.id),
         )
     except Exception:
-        await job_events.release_trend_lock(user_id, keyword_norm, job_id)
+        await job_events.release_trend_lock("global", keyword_norm, job_id)
         search_row.status = "failed"
         search_row.error = "enqueue_failed"
         search_row.finished_at = datetime.now(UTC)
@@ -344,13 +355,15 @@ async def create_trend_search(
 @router.get("/searches", response_model=list[TrendSearchSummary])
 async def list_trend_searches(
     limit: int = Query(default=20, ge=1, le=100),
+    user_id: str = Depends(get_user_id),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> list[TrendSearchSummary]:
-    """List recent TikTok brand trend searches without full result payloads."""
+    """List recent TikTok brand trend searches in the current user's history."""
     stmt = (
         select(TrendSearch)
-        .where(TrendSearch.user_id == "local")
-        .order_by(TrendSearch.created_at.desc())
+        .join(UserTrendSearch, UserTrendSearch.trend_search_id == TrendSearch.id)
+        .where(UserTrendSearch.user_id == user_id)
+        .order_by(UserTrendSearch.last_seen.desc(), TrendSearch.created_at.desc())
         .limit(limit)
     )
     rows = (await session.execute(stmt)).scalars().all()

@@ -20,6 +20,9 @@ from app.db.models import (  # noqa: F401 — ensure models are registered
     Review,
     Shop,
     Source,
+    TrendSearch,
+    UserSource,
+    UserTrendSearch,
 )
 
 config = context.config
