@@ -45,6 +45,14 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -55,6 +63,7 @@ import {
   getTrendSearch,
   listTrendSearches,
   type TrendBrand,
+  type TrendCandidate,
   type TrendSearchDetail,
   type TrendSearchSummary,
 } from "@/lib/api/client";
@@ -71,7 +80,7 @@ import {
 } from "@/lib/format";
 
 const TREND_HISTORY_QUERY_KEY = ["trend-searches"] as const;
-const ESTIMATED_CREDITS = 8;
+const ESTIMATED_CREDITS = 13;
 
 function formatWindowDate(
   iso: string | null | undefined,
@@ -156,7 +165,19 @@ function BrandCard({
                   plays: formatCompactNumber(brand.plays, locale),
                 })}
               </span>
+              <span>·</span>
+              <span className="font-mono tabular-nums">
+                {t("commentMentions", {
+                  count: formatNumber(brand.comment_mentions ?? 0, locale),
+                })}
+              </span>
             </div>
+
+            {(brand.models ?? []).length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {t("models", { models: (brand.models ?? []).join(", ") })}
+              </p>
+            )}
           </div>
 
           <div className="flex shrink-0 items-center gap-2 sm:flex-col sm:items-end">
@@ -184,9 +205,12 @@ function BrandCard({
           />
         </div>
 
-        {/* Sentiment stacked bar */}
-        {hasSentiment && (
+        {/* Sentiment stacked bar (comments only) */}
+        {hasSentiment ? (
           <div className="space-y-1">
+            <p className="text-[11px] font-medium text-muted-foreground">
+              {t("sentimentFromComments")}
+            </p>
             <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
               {brand.sentiment.positive_pct > 0 && (
                 <div
@@ -225,6 +249,10 @@ function BrandCard({
               </span>
             </div>
           </div>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            {t("noCommentsYet")}
+          </p>
         )}
 
         <Collapsible open={open} onOpenChange={setOpen}>
@@ -299,6 +327,144 @@ function BrandCard({
         </Collapsible>
       </CardContent>
     </Card>
+  );
+}
+
+function CandidatesAccordion({
+  candidates,
+  startRank,
+  locale,
+}: {
+  candidates: TrendCandidate[];
+  startRank: number;
+  locale: AppLocale;
+}) {
+  const t = useTranslations("trends");
+  const [open, setOpen] = React.useState(false);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="space-y-2">
+      <CollapsibleTrigger
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+          />
+        }
+      >
+        <ChevronDown
+          className={cn(
+            "size-3.5 transition-transform",
+            open && "rotate-180"
+          )}
+          aria-hidden="true"
+        />
+        <span>{t("moreCandidates", { count: candidates.length })}</span>
+      </CollapsibleTrigger>
+
+      <CollapsibleContent>
+        <div className="w-full min-w-0 overflow-hidden rounded-md border border-border bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col" className="w-10">
+                  {t("candidatesTable.rank")}
+                </TableHead>
+                <TableHead scope="col">
+                  {t("candidatesTable.brand")}
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  {t("candidatesTable.score")}
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  {t("candidatesTable.videos")}
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  {t("candidatesTable.comments")}
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  {t("candidatesTable.plays")}
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  {t("candidatesTable.positive")}
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  {t("candidatesTable.adShare")}
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  {t("candidatesTable.video")}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {candidates.map((cand, idx) => (
+                <TableRow key={`${cand.name}-${idx}`}>
+                  <TableCell className="font-mono text-xs text-muted-foreground tabular-nums">
+                    {startRank + idx}
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-1.5">
+                      <span>{cand.name}</span>
+                      {cand.kind === "product" && (
+                        <Badge
+                          variant="outline"
+                          className="border-accent/40 bg-accent text-[11px] text-accent-foreground"
+                        >
+                          {t("productBadge")}
+                        </Badge>
+                      )}
+                    </div>
+                    {(cand.models ?? []).length > 0 && (
+                      <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
+                        {(cand.models ?? []).join(", ")}
+                      </p>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs font-semibold text-primary tabular-nums">
+                    {cand.score.toFixed(1)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs tabular-nums">
+                    {formatNumber(cand.videos, locale)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs tabular-nums">
+                    {formatNumber(cand.comment_mentions ?? 0, locale)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs tabular-nums">
+                    {formatCompactNumber(cand.plays, locale)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs tabular-nums">
+                    {cand.positive_pct.toFixed(0)}%
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs tabular-nums">
+                    {(cand.ad_share * 100).toFixed(0)}%
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {cand.top_video_url ? (
+                      <a
+                        href={cand.top_video_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                      >
+                        <span>{t("topVideo")}</span>
+                        <ExternalLink
+                          className="size-3 shrink-0"
+                          aria-hidden="true"
+                        />
+                      </a>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -772,14 +938,30 @@ export function TrendsClient() {
                         {t("goToDataSources")}
                       </Link>
                     )}
-                    {detail.error === "llm_failed" && (
-                      <Link
-                        href="/settings/llm"
-                        className="font-medium underline"
-                      >
-                        {t("goToLlmSettings")}
-                      </Link>
-                    )}
+                    {(() => {
+                      const configHref = selfConfigureHref(detail.error, "llm");
+                      if (configHref) {
+                        return (
+                          <Link
+                            href={configHref}
+                            className="font-medium underline"
+                          >
+                            {tErrors("selfConfigureLink")}
+                          </Link>
+                        );
+                      }
+                      if (detail.error === "llm_failed") {
+                        return (
+                          <Link
+                            href="/settings/llm"
+                            className="font-medium underline"
+                          >
+                            {t("goToLlmSettings")}
+                          </Link>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 </CardContent>
               )}
@@ -815,6 +997,15 @@ export function TrendsClient() {
                   />
                 ))}
               </div>
+            )}
+
+            {(detail.candidates ?? []).length > 0 && (
+              <CandidatesAccordion
+                key={detail.id}
+                candidates={detail.candidates ?? []}
+                startRank={(detail.brands?.length ?? 0) + 1}
+                locale={locale}
+              />
             )}
 
             <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">

@@ -268,6 +268,7 @@
       "credit_cap_reached": "Đã đạt trần credit cấu hình; kết quả được tính trên dữ liệu đã thu thập.",
       "provider_quota": "Tài khoản ScrapeCreators hết credit giữa chừng; kết quả được tính trên dữ liệu đã thu thập.",
       "llm_partial": "Một số batch trích xuất LLM bị lỗi; kết quả có thể thiếu một phần.",
+      "llm_quota": "Hạn mức LLM dùng chung hôm nay đã hết giữa chừng, kết quả chỉ dựa trên một phần dữ liệu. Tự cấu hình LLM trong Cài đặt hoặc thử lại vào ngày mai.",
       "few_videos": "Tìm thấy ít hơn 15 video trong 30 ngày qua; độ phủ hãng có thể hạn chế.",
       "no_brands": "Không tìm thấy hãng hay sản phẩm cụ thể nào trong các video."
     }
@@ -517,6 +518,7 @@
     "provider_quota": "Tài khoản ScrapeCreators đã hết credit.",
     "wrong_provider": "Cần chọn cấu hình ScrapeCreators cho tính năng tìm xu hướng.",
     "llm_failed": "Không thể trích xuất hãng bằng LLM. Hãy kiểm tra cấu hình LLM.",
+    "llm_quota": "Hạn mức LLM dùng chung hôm nay đã hết. Tự cấu hình LLM trong Cài đặt hoặc thử lại vào ngày mai.",
     "worker_lost": "Lượt tìm trước bị gián đoạn. Hãy thử tìm lại.",
     "internal_error": "Có lỗi khi xử lý lượt tìm. Hãy thử lại.",
     "cancelled": "Lượt tìm đã bị huỷ.",
@@ -531,7 +533,7 @@
   },
   "trends": {
     "title": "Xu hướng hãng trên TikTok",
-    "subtitle": "Nhập từ khoá sản phẩm để xem 3 hãng (hoặc sản phẩm) được xem nhiều và khen nhiều nhất trên TikTok trong 30 ngày qua.",
+    "subtitle": "Nhập từ khoá sản phẩm để xem top hãng hoặc sản phẩm nổi bật trên TikTok trong 30 ngày qua (điểm = 30% lượt xem + 70% bình luận nhắc tới × cảm xúc từ bình luận).",
     "emptyScTitle": "Chưa có nguồn dữ liệu ScrapeCreators",
     "emptyScDescription": "Cấu hình API key ScrapeCreators trong phần Nguồn dữ liệu để bắt đầu tìm xu hướng TikTok.",
     "goToDataSources": "Đi tới Nguồn dữ liệu",
@@ -557,8 +559,12 @@
     "productTooltip": "Video không nêu tên hãng; đây là sản phẩm cụ thể được nhắc tới",
     "brandMeta": "{videos} video · {creators} creator",
     "brandPlays": "{plays} lượt xem",
+    "commentMentions": "{count} bình luận nhắc tới",
+    "models": "Mẫu: {models}",
     "scoreUnit": "điểm",
     "scoreAria": "Điểm xu hướng {score} trên 100",
+    "sentimentFromComments": "Cảm xúc từ bình luận",
+    "noCommentsYet": "Chưa có bình luận",
     "sentimentPositive": "Khen {pct}%",
     "sentimentNeutral": "Trung lập {pct}%",
     "sentimentNegative": "Chê {pct}%",
@@ -567,6 +573,19 @@
     "unknownAuthor": "creator",
     "evidenceStats": "{plays} xem · {date}",
     "footnote": "Mức độ được nhắc tới trên TikTok trong 30 ngày qua — không phải doanh số.",
+    "moreCandidates": "Xem thêm hãng khác ({count})",
+    "topVideo": "Video tiêu biểu",
+    "candidatesTable": {
+      "rank": "#",
+      "brand": "Hãng / Sản phẩm",
+      "score": "Điểm",
+      "videos": "Video",
+      "comments": "Bình luận",
+      "plays": "Lượt xem",
+      "positive": "% khen",
+      "adShare": "% QC",
+      "video": "Video tiêu biểu"
+    },
     "historyTitle": "Tìm kiếm gần đây",
     "historyEmpty": "Chưa có lịch sử tìm kiếm xu hướng.",
     "historyCredits": "{credits} credit"

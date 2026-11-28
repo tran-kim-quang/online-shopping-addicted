@@ -417,6 +417,7 @@ class ScrapeCreatorsClient:
         *,
         date_posted: str = "this-month",
         sort_by: str = "relevance",
+        region: str | None = None,
         cursor: str | None = None,
     ) -> TikTokSearchPage:
         """Search TikTok videos by keyword."""
@@ -425,6 +426,8 @@ class ScrapeCreatorsClient:
             "date_posted": date_posted,
             "sort_by": sort_by,
         }
+        if region is not None:
+            params["region"] = region
         if cursor is not None:
             params["cursor"] = cursor
 

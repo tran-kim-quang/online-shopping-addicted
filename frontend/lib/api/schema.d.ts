@@ -2090,6 +2090,11 @@ export interface components {
         TrendBrand: {
             /** Ad Share */
             ad_share: number;
+            /**
+             * Comment Mentions
+             * @default 0
+             */
+            comment_mentions: number;
             /** Creators */
             creators: number;
             /** Evidence */
@@ -2102,6 +2107,8 @@ export interface components {
             kind: "brand" | "product";
             /** Likes */
             likes: number;
+            /** Models */
+            models?: string[];
             /** Name */
             name: string;
             /** Plays */
@@ -2133,6 +2140,43 @@ export interface components {
             total: number;
         };
         /**
+         * TrendCandidate
+         * @description Ranked runner-up brand or product entry in a completed trend search.
+         */
+        TrendCandidate: {
+            /** Ad Share */
+            ad_share: number;
+            /**
+             * Comment Mentions
+             * @default 0
+             */
+            comment_mentions: number;
+            /** Creators */
+            creators: number;
+            /**
+             * Kind
+             * @default brand
+             * @enum {string}
+             */
+            kind: "brand" | "product";
+            /** Models */
+            models?: string[];
+            /** Name */
+            name: string;
+            /** Plays */
+            plays: number;
+            /** Positive Pct */
+            positive_pct: number;
+            /** Primary Videos */
+            primary_videos: number;
+            /** Score */
+            score: number;
+            /** Top Video Url */
+            top_video_url: string;
+            /** Videos */
+            videos: number;
+        };
+        /**
          * TrendEvidenceVideo
          * @description Representative TikTok video mentioning a brand.
          */
@@ -2157,6 +2201,8 @@ export interface components {
         TrendSearchDetail: {
             /** Brands */
             brands?: components["schemas"]["TrendBrand"][];
+            /** Candidates */
+            candidates?: components["schemas"]["TrendCandidate"][];
             /** Comments Scanned */
             comments_scanned: number;
             /**

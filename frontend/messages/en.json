@@ -268,6 +268,7 @@
       "credit_cap_reached": "Credit cap reached; results were computed from collected data.",
       "provider_quota": "ScrapeCreators credits ran out mid-search; results were computed from collected data.",
       "llm_partial": "Some LLM extraction batches failed; results may be incomplete.",
+      "llm_quota": "Today's shared LLM quota ran out mid-search; results are based on partial data. Configure your own LLM in Settings or try again tomorrow.",
       "few_videos": "Fewer than 15 videos found in the last 30 days; brand coverage may be limited.",
       "no_brands": "No brand or specific product was found in the videos."
     }
@@ -517,6 +518,7 @@
     "provider_quota": "ScrapeCreators account has run out of credits.",
     "wrong_provider": "Trend search requires a ScrapeCreators data provider profile.",
     "llm_failed": "Failed to extract brands with LLM. Please check your LLM settings.",
+    "llm_quota": "Today's shared LLM quota is exhausted. Configure your own LLM in Settings or try again tomorrow.",
     "worker_lost": "The previous search was interrupted. Please search again.",
     "internal_error": "Something went wrong while processing the search. Please try again.",
     "cancelled": "The search was cancelled.",
@@ -531,7 +533,7 @@
   },
   "trends": {
     "title": "TikTok Brand Trends",
-    "subtitle": "Enter a product keyword to see the 3 brands (or products) with the most views and praise on TikTok over the last 30 days.",
+    "subtitle": "Enter a product keyword to see top brands or products on TikTok over the last 30 days (score = 30% views + 70% comment mentions × comment sentiment).",
     "emptyScTitle": "No ScrapeCreators data source configured",
     "emptyScDescription": "Add a ScrapeCreators API key in Data Sources settings to start discovering TikTok brand trends.",
     "goToDataSources": "Go to Data Sources",
@@ -557,8 +559,12 @@
     "productTooltip": "The videos name no brand; this is a specific product they mention",
     "brandMeta": "{videos} videos · {creators} creators",
     "brandPlays": "{plays} views",
+    "commentMentions": "{count} comment mentions",
+    "models": "Models: {models}",
     "scoreUnit": "score",
     "scoreAria": "Trend score {score} out of 100",
+    "sentimentFromComments": "Sentiment from comments",
+    "noCommentsYet": "No comments yet",
     "sentimentPositive": "Positive {pct}%",
     "sentimentNeutral": "Neutral {pct}%",
     "sentimentNegative": "Negative {pct}%",
@@ -567,6 +573,19 @@
     "unknownAuthor": "creator",
     "evidenceStats": "{plays} views · {date}",
     "footnote": "Mentioned volume on TikTok over the past 30 days — not actual sales.",
+    "moreCandidates": "More brands ({count})",
+    "topVideo": "Top video",
+    "candidatesTable": {
+      "rank": "#",
+      "brand": "Brand / Product",
+      "score": "Score",
+      "videos": "Videos",
+      "comments": "Comments",
+      "plays": "Views",
+      "positive": "Positive",
+      "adShare": "Ad %",
+      "video": "Top video"
+    },
     "historyTitle": "Recent searches",
     "historyEmpty": "No trend search history yet.",
     "historyCredits": "{credits} credits"

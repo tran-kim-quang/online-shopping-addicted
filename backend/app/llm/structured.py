@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from app.core.errors import LLMInvalidResponseError
+from app.core.errors import LLMBadRequestError, LLMInvalidResponseError
 from app.llm.client import LLMClient
+
+logger = logging.getLogger(__name__)
 
 _FENCE_PATTERN = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
@@ -93,11 +96,25 @@ async def complete_json[T: BaseModel](
     last_error = "Unknown validation error."
 
     for attempt in range(1, max_attempts + 1):
-        result = await client.chat(
-            working_messages,
-            model=model,
-            response_format=response_format,
-        )
+        try:
+            result = await client.chat(
+                working_messages,
+                model=model,
+                response_format=response_format,
+            )
+        except LLMBadRequestError as exc:
+            msg_lower = str(exc).casefold()
+            if response_format is not None and (
+                "json_validate_failed" in msg_lower or "failed to validate json" in msg_lower
+            ):
+                logger.info(
+                    "Provider rejected json_object (%s); retrying without json_mode",
+                    exc,
+                )
+                response_format = None
+                last_error = f"Provider JSON validation error: {exc}"
+                continue
+            raise
         last_raw = result.content or ""
         extracted = extract_json_object(last_raw)
 

@@ -91,10 +91,29 @@ class TrendBrand(BaseModel):
     creators: int
     plays: int
     likes: int
+    comment_mentions: int = 0
+    models: list[str] = Field(default_factory=list)
     sentiment: TrendBrandSentiment
     ad_share: float
     kind: Literal["brand", "product"] = "brand"
     evidence: list[TrendEvidenceVideo] = Field(default_factory=list)
+
+
+class TrendCandidate(BaseModel):
+    """Ranked runner-up brand or product entry in a completed trend search."""
+
+    name: str
+    kind: Literal["brand", "product"] = "brand"
+    score: float
+    videos: int
+    creators: int
+    plays: int
+    comment_mentions: int = 0
+    models: list[str] = Field(default_factory=list)
+    ad_share: float
+    positive_pct: float
+    primary_videos: int
+    top_video_url: str
 
 
 class TrendSearchSummary(BaseModel):
@@ -120,6 +139,7 @@ class TrendSearchDetail(TrendSearchSummary):
     """Full trend search detail returned by ``GET /api/trends/searches/{search_id}``."""
 
     brands: list[TrendBrand] = Field(default_factory=list)
+    candidates: list[TrendCandidate] = Field(default_factory=list)
     videos_considered: int = 0
 
 
@@ -146,6 +166,8 @@ def _to_detail(row: TrendSearch) -> TrendSearchDetail:
     raw_result: dict[str, Any] = row.result if isinstance(row.result, dict) else {}
     raw_brands = raw_result.get("brands") or []
     brands = [TrendBrand.model_validate(b) for b in raw_brands]
+    raw_candidates = raw_result.get("candidates") or []
+    candidates = [TrendCandidate.model_validate(c) for c in raw_candidates]
     videos_considered = int(raw_result.get("videos_considered") or 0)
     return TrendSearchDetail(
         id=row.id,
@@ -163,6 +185,7 @@ def _to_detail(row: TrendSearch) -> TrendSearchDetail:
         created_at=row.created_at,
         finished_at=row.finished_at,
         brands=brands,
+        candidates=candidates,
         videos_considered=videos_considered,
     )
 
