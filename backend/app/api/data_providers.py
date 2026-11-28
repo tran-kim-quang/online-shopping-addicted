@@ -10,11 +10,18 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ApifyClientFactory, get_apify_client_factory, get_secret_box, get_session
+from app.api.deps import (
+    ApifyClientFactory,
+    ScrapeCreatorsClientFactory,
+    get_apify_client_factory,
+    get_scrapecreators_client_factory,
+    get_secret_box,
+    get_session,
+)
 from app.crawl.errors import ProviderError
 from app.db.models import DataProviderProfile
 from app.security.secrets import SecretBox, SecretBoxError, mask_secret
@@ -30,13 +37,14 @@ class CreateDataProviderProfileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=255)
-    provider: Literal["apify"] = "apify"
+    provider: Literal["apify", "scrapecreators"] = "apify"
     api_token: str = Field(min_length=1, max_length=2048)
     max_cost_usd_per_link: Decimal = Field(
         default=Decimal("0.50"),
         ge=Decimal("0.05"),
         le=Decimal("5.00"),
     )
+    max_credits_per_search: int | None = Field(default=None, ge=5, le=100)
 
     @field_validator("name", "api_token")
     @classmethod
@@ -45,6 +53,14 @@ class CreateDataProviderProfileRequest(BaseModel):
         if not stripped:
             raise ValueError("Field must not be blank.")
         return stripped
+
+    @model_validator(mode="after")
+    def _validate_provider_limits(self) -> CreateDataProviderProfileRequest:
+        if self.provider == "apify" and self.max_credits_per_search is not None:
+            raise ValueError("max_credits_per_search is only supported for scrapecreators.")
+        if self.provider == "scrapecreators" and self.max_credits_per_search is None:
+            self.max_credits_per_search = 15
+        return self
 
 
 class UpdateDataProviderProfileRequest(BaseModel):
@@ -59,6 +75,7 @@ class UpdateDataProviderProfileRequest(BaseModel):
         ge=Decimal("0.05"),
         le=Decimal("5.00"),
     )
+    max_credits_per_search: int | None = Field(default=None, ge=5, le=100)
 
     @field_validator("name", "api_token")
     @classmethod
@@ -81,6 +98,7 @@ class DataProviderProfileResponse(BaseModel):
     api_token_masked: str | None
     api_token_status: Literal["set", "undecryptable"]
     max_cost_usd_per_link: float
+    max_credits_per_search: int | None = None
     account_info: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
@@ -93,6 +111,7 @@ class VerifyDataProviderResponse(BaseModel):
     plan: str | None = None
     monthly_usage_usd: float | None = None
     monthly_limit_usd: float | None = None
+    credit_count: int | None = None
 
 
 def _to_response(
@@ -121,6 +140,7 @@ def _to_response(
         api_token_masked=masked,
         api_token_status=token_status,
         max_cost_usd_per_link=round(float(profile.max_cost_usd_per_link), 2),
+        max_credits_per_search=profile.max_credits_per_search,
         account_info=dict(profile.account_info or {}),
         created_at=profile.created_at,
         updated_at=profile.updated_at,
@@ -157,6 +177,7 @@ async def create_data_provider_profile(
         name=body.name,
         api_token_enc=token_enc,
         max_cost_usd_per_link=body.max_cost_usd_per_link,
+        max_credits_per_search=body.max_credits_per_search,
         account_info={},
     )
     session.add(profile)
@@ -191,6 +212,14 @@ async def update_data_provider_profile(
         profile.api_token_enc = secret_box.encrypt(body.api_token)
     if "max_cost_usd_per_link" in fields_set and body.max_cost_usd_per_link is not None:
         profile.max_cost_usd_per_link = body.max_cost_usd_per_link
+    if "max_credits_per_search" in fields_set:
+        if profile.provider == "apify" and body.max_credits_per_search is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="max_credits_per_search is only supported for scrapecreators.",
+            )
+        if profile.provider == "scrapecreators" and body.max_credits_per_search is not None:
+            profile.max_credits_per_search = body.max_credits_per_search
 
     await session.commit()
     await session.refresh(profile)
@@ -227,8 +256,11 @@ async def verify_data_provider_profile(
     session: AsyncSession = Depends(get_session),  # noqa: B008
     secret_box: SecretBox = Depends(get_secret_box),  # noqa: B008
     client_factory: ApifyClientFactory = Depends(get_apify_client_factory),  # noqa: B008
+    sc_client_factory: ScrapeCreatorsClientFactory = Depends(  # noqa: B008
+        get_scrapecreators_client_factory
+    ),
 ) -> VerifyDataProviderResponse | JSONResponse:
-    """Verify the saved provider token against Apify and persist ``account_info``."""
+    """Verify the saved provider token against Apify or ScrapeCreators."""
     profile = await session.get(DataProviderProfile, profile_id)
     if profile is None:
         raise HTTPException(
@@ -237,6 +269,31 @@ async def verify_data_provider_profile(
         )
 
     plaintext_token = secret_box.decrypt(profile.api_token_enc)
+
+    if profile.provider == "scrapecreators":
+        sc_client = sc_client_factory(plaintext_token)
+        try:
+            async with sc_client:
+                credit_count = await sc_client.get_credit_balance()
+        except ProviderError as exc:
+            if exc.code in ("provider_auth", "provider_auth_failed"):
+                return JSONResponse(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    content={"error": "provider_auth_failed", "detail": exc.message},
+                )
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={"error": exc.code, "detail": exc.message},
+            )
+
+        profile.account_info = {
+            "ok": True,
+            "credit_count": credit_count,
+            "verified_at": datetime.now(UTC).isoformat(),
+        }
+        await session.commit()
+        await session.refresh(profile)
+        return VerifyDataProviderResponse(ok=True, credit_count=credit_count)
 
     client = client_factory(plaintext_token)
     try:

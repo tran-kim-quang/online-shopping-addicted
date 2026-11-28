@@ -127,7 +127,7 @@ export interface paths {
         put?: never;
         /**
          * Verify Data Provider Profile
-         * @description Verify the saved provider token against Apify and persist ``account_info``.
+         * @description Verify the saved provider token against Apify or ScrapeCreators.
          */
         post: operations["verify_data_provider_profile_api_data_providers_profiles__profile_id__verify_post"];
         delete?: never;
@@ -448,6 +448,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/trends/searches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Trend Searches
+         * @description List recent TikTok brand trend searches without full result payloads.
+         */
+        get: operations["list_trend_searches_api_trends_searches_get"];
+        put?: never;
+        /**
+         * Create Trend Search
+         * @description Create or return a cached/in-progress TikTok brand trend search.
+         */
+        post: operations["create_trend_search_api_trends_searches_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/trends/searches/{search_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trend Search
+         * @description Return full details and ranked brands for a trend search.
+         */
+        get: operations["get_trend_search_api_trends_searches__search_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -663,14 +707,16 @@ export interface components {
              * @default 0.50
              */
             max_cost_usd_per_link: number | string;
+            /** Max Credits Per Search */
+            max_credits_per_search?: number | null;
             /** Name */
             name: string;
             /**
              * Provider
              * @default apify
-             * @constant
+             * @enum {string}
              */
-            provider: "apify";
+            provider: "apify" | "scrapecreators";
         };
         /**
          * CreateProfileRequest
@@ -694,6 +740,29 @@ export interface components {
             name: string;
             /** Small Model */
             small_model?: string | null;
+        };
+        /**
+         * CreateTrendSearchRequest
+         * @description Payload for ``POST /api/trends/searches``.
+         */
+        CreateTrendSearchRequest: {
+            /**
+             * Data Provider Profile Id
+             * Format: uuid
+             */
+            data_provider_profile_id: string;
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
+            /** Keyword */
+            keyword: string;
+            /**
+             * Llm Profile Id
+             * Format: uuid
+             */
+            llm_profile_id: string;
         };
         /**
          * DataProviderProfileResponse
@@ -723,6 +792,8 @@ export interface components {
             id: string;
             /** Max Cost Usd Per Link */
             max_cost_usd_per_link: number;
+            /** Max Credits Per Search */
+            max_credits_per_search?: number | null;
             /** Name */
             name: string;
             /** Provider */
@@ -1549,6 +1620,175 @@ export interface components {
             supported: true;
         };
         /**
+         * TrendBrand
+         * @description Ranked brand entry in a completed trend search.
+         */
+        TrendBrand: {
+            /** Ad Share */
+            ad_share: number;
+            /** Creators */
+            creators: number;
+            /** Evidence */
+            evidence?: components["schemas"]["TrendEvidenceVideo"][];
+            /** Likes */
+            likes: number;
+            /** Name */
+            name: string;
+            /** Plays */
+            plays: number;
+            /** Score */
+            score: number;
+            sentiment: components["schemas"]["TrendBrandSentiment"];
+            /** Single Video */
+            single_video: boolean;
+            /** Videos */
+            videos: number;
+        };
+        /**
+         * TrendBrandSentiment
+         * @description Aggregated sentiment counts and percentages for a brand.
+         */
+        TrendBrandSentiment: {
+            /** Negative */
+            negative: number;
+            /** Negative Pct */
+            negative_pct: number;
+            /** Neutral */
+            neutral: number;
+            /** Neutral Pct */
+            neutral_pct: number;
+            /** Positive */
+            positive: number;
+            /** Positive Pct */
+            positive_pct: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * TrendEvidenceVideo
+         * @description Representative TikTok video mentioning a brand.
+         */
+        TrendEvidenceVideo: {
+            /** Author Id */
+            author_id: string;
+            /** Created At */
+            created_at: string;
+            /** Desc */
+            desc: string;
+            /** Likes */
+            likes: number;
+            /** Plays */
+            plays: number;
+            /** Url */
+            url: string;
+        };
+        /**
+         * TrendSearchDetail
+         * @description Full trend search detail returned by ``GET /api/trends/searches/{search_id}``.
+         */
+        TrendSearchDetail: {
+            /** Brands */
+            brands?: components["schemas"]["TrendBrand"][];
+            /** Comments Scanned */
+            comments_scanned: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Credits Used */
+            credits_used: number;
+            /** Error */
+            error?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Job Id */
+            job_id?: string | null;
+            /** Keyword */
+            keyword: string;
+            /** Platform */
+            platform: string;
+            /** Status */
+            status: string;
+            /**
+             * Videos Considered
+             * @default 0
+             */
+            videos_considered: number;
+            /** Videos Scanned */
+            videos_scanned: number;
+            /** Warnings */
+            warnings?: string[];
+            /** Window End */
+            window_end?: string | null;
+            /** Window Start */
+            window_start?: string | null;
+        };
+        /**
+         * TrendSearchQueuedResponse
+         * @description 202 response for ``POST /api/trends/searches``.
+         */
+        TrendSearchQueuedResponse: {
+            /** Cached */
+            cached: boolean;
+            /** Estimated Credits */
+            estimated_credits: number;
+            /** Job Id */
+            job_id?: string | null;
+            /** Max Credits */
+            max_credits: number;
+            /**
+             * Search Id
+             * Format: uuid
+             */
+            search_id: string;
+        };
+        /**
+         * TrendSearchSummary
+         * @description History item returned by ``GET /api/trends/searches`` (without ``result``).
+         */
+        TrendSearchSummary: {
+            /** Comments Scanned */
+            comments_scanned: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Credits Used */
+            credits_used: number;
+            /** Error */
+            error?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Job Id */
+            job_id?: string | null;
+            /** Keyword */
+            keyword: string;
+            /** Platform */
+            platform: string;
+            /** Status */
+            status: string;
+            /** Videos Scanned */
+            videos_scanned: number;
+            /** Warnings */
+            warnings?: string[];
+            /** Window End */
+            window_end?: string | null;
+            /** Window Start */
+            window_start?: string | null;
+        };
+        /**
          * UnsupportedPlatformInfo
          * @description Metadata and explanation for a recognized but unsupported platform.
          */
@@ -1577,6 +1817,8 @@ export interface components {
             api_token?: string | null;
             /** Max Cost Usd Per Link */
             max_cost_usd_per_link?: number | string | null;
+            /** Max Credits Per Search */
+            max_credits_per_search?: number | null;
             /** Name */
             name?: string | null;
         };
@@ -1618,6 +1860,8 @@ export interface components {
          * @description Response for ``POST /api/data-providers/profiles/{profile_id}/verify``.
          */
         VerifyDataProviderResponse: {
+            /** Credit Count */
+            credit_count?: number | null;
             /** Monthly Limit Usd */
             monthly_limit_usd?: number | null;
             /** Monthly Usage Usd */
@@ -2525,6 +2769,101 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_trend_searches_api_trends_searches_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrendSearchSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_trend_search_api_trends_searches_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTrendSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrendSearchQueuedResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trend_search_api_trends_searches__search_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                search_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrendSearchDetail"];
+                };
             };
             /** @description Validation Error */
             422: {

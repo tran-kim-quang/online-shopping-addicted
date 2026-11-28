@@ -36,7 +36,8 @@
     "noProfile": "LLM not configured",
     "selectProfile": "Select LLM profile",
     "manageProfiles": "Manage LLM profiles",
-    "activeProfile": "Active"
+    "activeProfile": "Active",
+    "trends": "Trends"
   },
   "status": {
     "pending": "Pending",
@@ -108,6 +109,17 @@
       "steps": {
         "queued": "Preparing analysis",
         "sentiment": "Analyzing sentiment & aspects"
+      }
+    },
+    "trend": {
+      "title": "Discovering trends for \"{target}\"",
+      "completedTitle": "Trend discovery completed",
+      "failedTitle": "Trend discovery failed",
+      "steps": {
+        "searching": "Search TikTok videos",
+        "comments": "Fetch top comments",
+        "extracting": "Extract brands with LLM",
+        "scoring": "Score & rank brands"
       }
     }
   },
@@ -250,7 +262,14 @@
     "shopee_limit": "Shopee limits the number of reviews returned for some products; not all reviews may be fetched.",
     "review_budget_reached": "Review collection stopped early because the per-link cost ceiling was reached.",
     "rating_counts_partial": "Shopee limits how many ratings can be read, so star shares are based on the ratings read, not all ratings.",
-    "missing_rating": "{products} product(s) do not have a published rating from {platform}."
+    "missing_rating": "{products} product(s) do not have a published rating from {platform}.",
+    "trend": {
+      "credit_cap_reached": "Credit cap reached; results were computed from collected data.",
+      "provider_quota": "ScrapeCreators credits ran out mid-search; results were computed from collected data.",
+      "llm_partial": "Some LLM extraction batches failed; results may be incomplete.",
+      "few_videos": "Fewer than 15 videos found in the last 30 days; brand coverage may be limited.",
+      "no_brands": "No brands met the minimum threshold to rank."
+    }
   },
   "chat": {
     "headerTitle": "Q&A",
@@ -444,8 +463,17 @@
       "tokenRequired": "Please enter an Apify API Token.",
       "maxCostRangeError": "Max cost per link must be between 0.05 and 5.00 USD.",
       "submitCreate": "Save profile",
-      "submitEdit": "Update"
-    }
+      "submitEdit": "Update",
+      "maxCreditsLabel": "Max credits per search",
+      "maxCreditsHelper": "Limit between 5 and 100 credits per trend search (default 15).",
+      "maxCreditsRangeError": "Max credits must be between 5 and 100.",
+      "tokenLabelScrapeCreators": "ScrapeCreators API Key",
+      "tokenPlaceholderScrapeCreators": "Paste the API key from app.scrapecreators.com",
+      "tokenRequiredScrapeCreators": "Please enter a ScrapeCreators API Key."
+    },
+    "maxCredits": "Max {credits} credits/search",
+    "creditBalance": "{count} credits left",
+    "profileVerifiedCredits": "Verified \"{name}\" — {count} credits remaining."
   },
   "errors": {
     "empty_url": "Please enter a shop or product URL.",
@@ -482,6 +510,55 @@
     "network_error": "Cannot reach the API server. Check that the backend is running.",
     "stream_error": "Event stream was interrupted.",
     "job_failed": "Ingest job failed.",
-    "unknown_error": "An unexpected error occurred."
+    "unknown_error": "An unexpected error occurred.",
+    "provider_auth": "Invalid or expired ScrapeCreators API key.",
+    "provider_quota": "ScrapeCreators account has run out of credits.",
+    "wrong_provider": "Trend search requires a ScrapeCreators data provider profile.",
+    "llm_failed": "Failed to extract brands with LLM. Please check your LLM settings.",
+    "worker_lost": "The previous search was interrupted. Please search again.",
+    "internal_error": "Something went wrong while processing the search. Please try again.",
+    "cancelled": "The search was cancelled."
+  },
+  "trends": {
+    "title": "TikTok Brand Trends",
+    "subtitle": "Enter a product keyword to see which brands are trending over the last 30 days.",
+    "emptyScTitle": "No ScrapeCreators data source configured",
+    "emptyScDescription": "Add a ScrapeCreators API key in Data Sources settings to start discovering TikTok brand trends.",
+    "goToDataSources": "Go to Data Sources",
+    "goToLlmSettings": "Go to LLM Settings",
+    "keywordLabel": "Search keyword",
+    "keywordPlaceholder": "e.g. sunscreen, bluetooth earbuds...",
+    "searchButton": "Find trending brands",
+    "searchingButton": "Submitting...",
+    "scProfileLabel": "Data source (ScrapeCreators)",
+    "selectScProfile": "Select ScrapeCreators profile",
+    "llmProfileLabel": "LLM profile",
+    "selectLlmProfile": "Select LLM profile",
+    "missingScProfile": "Please select a ScrapeCreators profile.",
+    "missingLlmProfile": "No LLM profile — click to configure",
+    "keywordMinError": "Keyword must be at least 2 characters.",
+    "creditEstimate": "Estimated ~{estimated} credits · max {max} credits",
+    "resultHeader": "“{keyword}” on TikTok · {start} – {end}",
+    "resultStats": "{videos} videos · {comments} comments · {credits} credits",
+    "cachedBadge": "Cached {time}",
+    "refreshButton": "Refresh",
+    "highAdBadge": "High ad share",
+    "singleVideoBadge": "Single video",
+    "singleVideoTooltip": "Appeared in only 1 video but has over 1M views",
+    "brandMeta": "{videos} videos · {creators} creators",
+    "brandPlays": "{plays} views",
+    "scoreUnit": "score",
+    "scoreAria": "Trend score {score} out of 100",
+    "sentimentPositive": "Positive {pct}%",
+    "sentimentNeutral": "Neutral {pct}%",
+    "sentimentNegative": "Negative {pct}%",
+    "evidenceToggle": "Evidence videos ({count})",
+    "searchOnShopee": "Search on Shopee",
+    "unknownAuthor": "creator",
+    "evidenceStats": "{plays} views · {date}",
+    "footnote": "Mentioned volume on TikTok over the past 30 days — not actual sales.",
+    "historyTitle": "Recent searches",
+    "historyEmpty": "No trend search history yet.",
+    "historyCredits": "{credits} credits"
   }
 }

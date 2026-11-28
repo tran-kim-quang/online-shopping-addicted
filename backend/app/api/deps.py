@@ -15,6 +15,7 @@ from app.jobs.events import JobEvents
 from app.jobs.queue import JobQueue
 from app.llm.registry import LLMClientRegistry
 from app.providers.apify import ApifyClient
+from app.providers.scrapecreators import ScrapeCreatorsClient
 from app.security.secrets import SecretBox
 from app.security.url_validator import DNSResolver
 
@@ -68,8 +69,14 @@ def get_embedder_override() -> Embedder | None:
 
 
 ApifyClientFactory = Callable[[str], ApifyClient]
+ScrapeCreatorsClientFactory = Callable[[str], ScrapeCreatorsClient]
 
 
 def get_apify_client_factory() -> ApifyClientFactory:
     """Return factory creating :class:`ApifyClient` instances for token verification."""
     return lambda token: ApifyClient(token)
+
+
+def get_scrapecreators_client_factory() -> ScrapeCreatorsClientFactory:
+    """Return factory creating :class:`ScrapeCreatorsClient` instances."""
+    return lambda api_key: ScrapeCreatorsClient(api_key)

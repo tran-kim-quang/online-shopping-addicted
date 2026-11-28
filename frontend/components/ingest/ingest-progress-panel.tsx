@@ -21,9 +21,11 @@ import {
 import {
   ANALYZE_STEPS,
   INGEST_STEPS,
+  TREND_STEPS,
   extractJobErrorCode,
   resolveAnalyzeStage,
   resolveStage,
+  resolveTrendStage,
 } from "@/lib/stages";
 import { formatElapsedTimer } from "@/lib/format";
 import { translateErrorCode } from "@/lib/error-messages";
@@ -39,7 +41,7 @@ export interface JobCompletionInfo {
 export interface IngestProgressPanelProps {
   jobId: string;
   targetLabel: string;
-  mode?: "ingest" | "analyze";
+  mode?: "ingest" | "analyze" | "trend";
   onComplete?: (sourceId: string) => void;
   onJobComplete?: (info: JobCompletionInfo) => void;
   onStopWatching?: () => void;
@@ -72,7 +74,12 @@ export function IngestProgressPanel({
   const tCommon = useTranslations("common");
   const tErrors = useTranslations("errors");
   const isAnalyze = mode === "analyze";
-  const steps = isAnalyze ? ANALYZE_STEPS : INGEST_STEPS;
+  const isTrend = mode === "trend";
+  const steps = isTrend
+    ? TREND_STEPS
+    : isAnalyze
+      ? ANALYZE_STEPS
+      : INGEST_STEPS;
 
   const [state, setState] = React.useState<ProgressState>({
     currentStepIndex: 0,
@@ -118,7 +125,11 @@ export function IngestProgressPanel({
   }, [state.terminalStatus]);
 
   React.useEffect(() => {
-    const stepCount = isAnalyze ? ANALYZE_STEPS.length : INGEST_STEPS.length;
+    const stepCount = isTrend
+      ? TREND_STEPS.length
+      : isAnalyze
+        ? ANALYZE_STEPS.length
+        : INGEST_STEPS.length;
     const unsubscribe = subscribeJobEvents(jobId, {
       onProgress: (ev: JobProgressEventData) => {
         if (typeof ev.done === "number") {
@@ -128,9 +139,11 @@ export function IngestProgressPanel({
           lastTotalRef.current = ev.total;
         }
         setState((prev) => {
-          const resolved = isAnalyze
-            ? resolveAnalyzeStage(ev.stage, prev.currentStepIndex)
-            : resolveStage(ev.stage, prev.currentStepIndex);
+          const resolved = isTrend
+            ? resolveTrendStage(ev.stage, prev.currentStepIndex)
+            : isAnalyze
+              ? resolveAnalyzeStage(ev.stage, prev.currentStepIndex)
+              : resolveStage(ev.stage, prev.currentStepIndex);
           return {
             ...prev,
             currentStepIndex: resolved.stepIndex,
@@ -182,7 +195,7 @@ export function IngestProgressPanel({
     });
 
     return unsubscribe;
-  }, [jobId, isAnalyze]);
+  }, [jobId, isAnalyze, isTrend]);
 
   const errorCode = extractJobErrorCode(state.errorRaw);
   const errorMessage = state.errorRaw
@@ -196,28 +209,38 @@ export function IngestProgressPanel({
       ? Math.min(100, Math.round((state.done / state.total) * 100))
       : null;
 
-  const titleText = isAnalyze
+  const titleText = isTrend
     ? state.terminalStatus === "failed"
-      ? t("analyze.failedTitle")
-      : state.terminalStatus === "partial"
-        ? t("analyze.partialTitle")
-        : state.terminalStatus === "done"
-          ? t("analyze.completedTitle")
-          : t("analyze.title", { target: targetLabel })
-    : state.terminalStatus === "failed"
-      ? t("failedTitle")
+      ? t("trend.failedTitle")
       : state.terminalStatus === "done" || state.terminalStatus === "partial"
-        ? t("completedTitle")
-        : t("title", { target: targetLabel });
+        ? t("trend.completedTitle")
+        : t("trend.title", { target: targetLabel })
+    : isAnalyze
+      ? state.terminalStatus === "failed"
+        ? t("analyze.failedTitle")
+        : state.terminalStatus === "partial"
+          ? t("analyze.partialTitle")
+          : state.terminalStatus === "done"
+            ? t("analyze.completedTitle")
+            : t("analyze.title", { target: targetLabel })
+      : state.terminalStatus === "failed"
+        ? t("failedTitle")
+        : state.terminalStatus === "done" || state.terminalStatus === "partial"
+          ? t("completedTitle")
+          : t("title", { target: targetLabel });
 
   const stepLabel = (stepKey: string) =>
-    isAnalyze ? t(`analyze.steps.${stepKey}`) : t(`steps.${stepKey}`);
+    isTrend
+      ? t(`trend.steps.${stepKey}`)
+      : isAnalyze
+        ? t(`analyze.steps.${stepKey}`)
+        : t(`steps.${stepKey}`);
 
   return (
     <Card
       className={cn(
         "w-full border border-border bg-card shadow-xs",
-        !isAnalyze && "mx-auto max-w-2xl"
+        !isAnalyze && !isTrend && "mx-auto max-w-2xl"
       )}
     >
       <CardHeader className="pb-3">
@@ -235,9 +258,11 @@ export function IngestProgressPanel({
         <ol
           className="space-y-2.5"
           aria-label={
-            isAnalyze
-              ? t("analyze.title", { target: targetLabel })
-              : t("title", { target: targetLabel })
+            isTrend
+              ? t("trend.title", { target: targetLabel })
+              : isAnalyze
+                ? t("analyze.title", { target: targetLabel })
+                : t("title", { target: targetLabel })
           }
         >
           {steps.map((stepKey, idx) => {

@@ -44,6 +44,17 @@ export function formatNumber(
   return new Intl.NumberFormat(toIntlLocale(locale), options).format(value);
 }
 
+export function formatCompactNumber(
+  value: number | null | undefined,
+  locale: AppLocale | string
+): string {
+  if (!isFiniteNumber(value)) return EMPTY_VALUE;
+  return new Intl.NumberFormat(toIntlLocale(locale), {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 /**
  * Formats a 0..100 percentage value (e.g. `66.7` -> `66,7%` in vi, `66.7%` in en).
  */

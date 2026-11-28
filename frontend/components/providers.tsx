@@ -132,12 +132,15 @@ function ActiveDataProviderProvider({
   });
 
   const resolvedProfile = React.useMemo(() => {
-    if (profiles.length === 0) return null;
+    // ScrapeCreators profiles are chosen on the trends page, never as the default
+    // data source for link analysis.
+    const linkProfiles = profiles.filter((p) => p.provider !== "scrapecreators");
+    if (linkProfiles.length === 0) return null;
     if (selectedId) {
-      const found = profiles.find((p) => p.id === selectedId);
+      const found = linkProfiles.find((p) => p.id === selectedId);
       if (found) return found;
     }
-    return profiles[0] ?? null;
+    return linkProfiles[0] ?? null;
   }, [profiles, selectedId]);
 
   React.useEffect(() => {

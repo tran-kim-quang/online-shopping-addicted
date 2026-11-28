@@ -17,6 +17,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Sun,
+  TrendingUp,
 } from "lucide-react";
 import { cn } from "cn";
 import { Link, usePathname, useRouter, type AppLocale } from "@/i18n/routing";
@@ -83,6 +84,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         label: t("analyze"),
         icon: Search,
         active: pathname === "/",
+      },
+      {
+        href: "/trends",
+        label: t("trends"),
+        icon: TrendingUp,
+        active: pathname === "/trends" || pathname.startsWith("/trends/"),
       },
       {
         href: "/sources",

@@ -30,6 +30,11 @@ export interface DataProviderDialogProps {
 
 const MIN_COST = 0.05;
 const MAX_COST = 5.0;
+const MIN_CREDITS = 5;
+const MAX_CREDITS = 100;
+const DEFAULT_CREDITS = 15;
+
+type ProviderKind = "apify" | "scrapecreators";
 
 export function DataProviderDialog({
   open,
@@ -43,9 +48,11 @@ export function DataProviderDialog({
   const isEditing = Boolean(editingProfile);
 
   const [name, setName] = React.useState("");
+  const [provider, setProvider] = React.useState<ProviderKind>("apify");
   const [apiToken, setApiToken] = React.useState("");
   const [showToken, setShowToken] = React.useState(false);
   const [maxCost, setMaxCost] = React.useState("0.50");
+  const [maxCredits, setMaxCredits] = React.useState(String(DEFAULT_CREDITS));
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [formError, setFormError] = React.useState<string | null>(null);
 
@@ -55,12 +62,22 @@ export function DataProviderDialog({
     setShowToken(false);
     if (editingProfile) {
       setName(editingProfile.name);
+      setProvider(
+        editingProfile.provider === "scrapecreators"
+          ? "scrapecreators"
+          : "apify"
+      );
       setApiToken("");
       setMaxCost(editingProfile.max_cost_usd_per_link.toFixed(2));
+      setMaxCredits(
+        String(editingProfile.max_credits_per_search ?? DEFAULT_CREDITS)
+      );
     } else {
       setName("");
+      setProvider("apify");
       setApiToken("");
       setMaxCost("0.50");
+      setMaxCredits(String(DEFAULT_CREDITS));
     }
   }, [open, editingProfile]);
 
@@ -76,18 +93,39 @@ export function DataProviderDialog({
 
     const cleanedToken = apiToken.trim();
     if (!isEditing && !cleanedToken) {
-      setFormError(t("tokenRequired"));
+      setFormError(
+        t(
+          provider === "scrapecreators"
+            ? "tokenRequiredScrapeCreators"
+            : "tokenRequired"
+        )
+      );
       return;
     }
 
-    const parsedCost = Number.parseFloat(maxCost);
-    if (
-      !Number.isFinite(parsedCost) ||
-      parsedCost < MIN_COST ||
-      parsedCost > MAX_COST
-    ) {
-      setFormError(t("maxCostRangeError"));
-      return;
+    let parsedCost = 0.5;
+    let parsedCredits = DEFAULT_CREDITS;
+
+    if (provider === "apify") {
+      parsedCost = Number.parseFloat(maxCost);
+      if (
+        !Number.isFinite(parsedCost) ||
+        parsedCost < MIN_COST ||
+        parsedCost > MAX_COST
+      ) {
+        setFormError(t("maxCostRangeError"));
+        return;
+      }
+    } else {
+      parsedCredits = Number.parseInt(maxCredits, 10);
+      if (
+        !Number.isFinite(parsedCredits) ||
+        parsedCredits < MIN_CREDITS ||
+        parsedCredits > MAX_CREDITS
+      ) {
+        setFormError(t("maxCreditsRangeError"));
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -98,10 +136,15 @@ export function DataProviderDialog({
           name?: string;
           api_token?: string;
           max_cost_usd_per_link?: number;
+          max_credits_per_search?: number;
         } = {
           name: cleanedName,
-          max_cost_usd_per_link: Math.round(parsedCost * 100) / 100,
         };
+        if (provider === "apify") {
+          payload.max_cost_usd_per_link = Math.round(parsedCost * 100) / 100;
+        } else {
+          payload.max_credits_per_search = parsedCredits;
+        }
         if (cleanedToken) {
           payload.api_token = cleanedToken;
         }
@@ -109,9 +152,13 @@ export function DataProviderDialog({
       } else {
         saved = await createDataProviderProfile({
           name: cleanedName,
-          provider: "apify",
+          provider,
           api_token: cleanedToken,
-          max_cost_usd_per_link: Math.round(parsedCost * 100) / 100,
+          max_cost_usd_per_link:
+            provider === "apify" ? Math.round(parsedCost * 100) / 100 : 0.5,
+          ...(provider === "scrapecreators"
+            ? { max_credits_per_search: parsedCredits }
+            : {}),
         });
       }
       onSaved(saved);
@@ -148,17 +195,55 @@ export function DataProviderDialog({
 
           <div className="space-y-1.5">
             <Label htmlFor="dp-provider">{t("providerLabel")}</Label>
-            <Input
-              id="dp-provider"
-              value="Apify"
-              readOnly
-              disabled
-              className="bg-muted font-mono text-sm"
-            />
+            {isEditing ? (
+              <Input
+                id="dp-provider"
+                value={
+                  provider === "scrapecreators" ? "ScrapeCreators" : "Apify"
+                }
+                readOnly
+                disabled
+                className="bg-muted font-mono text-sm"
+              />
+            ) : (
+              <div
+                id="dp-provider"
+                role="radiogroup"
+                aria-label={t("providerLabel")}
+                className="grid grid-cols-2 gap-2"
+              >
+                <Button
+                  type="button"
+                  variant={provider === "apify" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setProvider("apify")}
+                  disabled={isSubmitting}
+                >
+                  Apify
+                </Button>
+                <Button
+                  type="button"
+                  variant={
+                    provider === "scrapecreators" ? "default" : "outline"
+                  }
+                  size="sm"
+                  onClick={() => setProvider("scrapecreators")}
+                  disabled={isSubmitting}
+                >
+                  ScrapeCreators
+                </Button>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="dp-token">{t("tokenLabel")}</Label>
+            <Label htmlFor="dp-token">
+              {t(
+                provider === "scrapecreators"
+                  ? "tokenLabelScrapeCreators"
+                  : "tokenLabel"
+              )}
+            </Label>
             <div className="relative">
               <Input
                 id="dp-token"
@@ -166,7 +251,13 @@ export function DataProviderDialog({
                 value={apiToken}
                 onChange={(e) => setApiToken(e.target.value)}
                 placeholder={
-                  isEditing ? t("tokenPlaceholderEdit") : t("tokenPlaceholder")
+                  isEditing
+                    ? t("tokenPlaceholderEdit")
+                    : t(
+                        provider === "scrapecreators"
+                          ? "tokenPlaceholderScrapeCreators"
+                          : "tokenPlaceholder"
+                      )
                 }
                 disabled={isSubmitting}
                 className="pr-10 font-mono text-sm"
@@ -194,23 +285,43 @@ export function DataProviderDialog({
             )}
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="dp-max-cost">{t("maxCostLabel")}</Label>
-            <Input
-              id="dp-max-cost"
-              type="number"
-              min={MIN_COST}
-              max={MAX_COST}
-              step={0.05}
-              value={maxCost}
-              onChange={(e) => setMaxCost(e.target.value)}
-              disabled={isSubmitting}
-              className="font-mono text-sm"
-            />
-            <p className="text-xs text-muted-foreground">
-              {t("maxCostHelper")}
-            </p>
-          </div>
+          {provider === "apify" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="dp-max-cost">{t("maxCostLabel")}</Label>
+              <Input
+                id="dp-max-cost"
+                type="number"
+                min={MIN_COST}
+                max={MAX_COST}
+                step={0.05}
+                value={maxCost}
+                onChange={(e) => setMaxCost(e.target.value)}
+                disabled={isSubmitting}
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("maxCostHelper")}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="dp-max-credits">{t("maxCreditsLabel")}</Label>
+              <Input
+                id="dp-max-credits"
+                type="number"
+                min={MIN_CREDITS}
+                max={MAX_CREDITS}
+                step={1}
+                value={maxCredits}
+                onChange={(e) => setMaxCredits(e.target.value)}
+                disabled={isSubmitting}
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("maxCreditsHelper")}
+              </p>
+            </div>
+          )}
 
           {formError && (
             <div
@@ -237,10 +348,7 @@ export function DataProviderDialog({
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? (
                 <>
-                  <Loader2
-                    className="size-4 animate-spin"
-                    aria-hidden="true"
-                  />
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                   <span>{tCommon("loading")}</span>
                 </>
               ) : (

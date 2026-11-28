@@ -181,6 +181,49 @@ class JobEvents:
     def analyze_lock_key(source_id: str) -> str:
         return f"analyze:lock:{source_id}"
 
+    @staticmethod
+    def trend_lock_key(user_id: str, keyword_norm: str) -> str:
+        return f"trend:lock:{user_id}:{keyword_norm}"
+
+    async def get_trend_lock(self, user_id: str, keyword_norm: str) -> str | None:
+        """Return the ``job_id`` currently holding the trend search lock, or None."""
+        raw = await self.redis.get(self.trend_lock_key(user_id, keyword_norm))
+        if raw is None:
+            return None
+        decoded = _decode(raw).strip()
+        return decoded or None
+
+    async def acquire_trend_lock(
+        self,
+        user_id: str,
+        keyword_norm: str,
+        job_id: str,
+        *,
+        ttl_seconds: int = ANALYZE_LOCK_TTL_SECONDS,
+    ) -> tuple[bool, str | None]:
+        """Atomically acquire the per-(user, keyword_norm) trend search lock."""
+        key = self.trend_lock_key(user_id, keyword_norm)
+        acquired = await self.redis.set(key, job_id, nx=True, ex=ttl_seconds)
+        if acquired:
+            return True, job_id
+        holder = await self.get_trend_lock(user_id, keyword_norm)
+        return False, holder
+
+    async def release_trend_lock(self, user_id: str, keyword_norm: str, job_id: str) -> bool:
+        """Atomically release the trend search lock only if held by ``job_id``."""
+        key = self.trend_lock_key(user_id, keyword_norm)
+        eval_fn = getattr(self.redis, "eval", None)
+        if callable(eval_fn):
+            deleted_raw = await eval_fn(_RELEASE_LOCK_LUA, 1, key, job_id)
+            return bool(int(deleted_raw or 0))
+        holder = await self.get_trend_lock(user_id, keyword_norm)
+        if holder != job_id:
+            return False
+        delete_fn = getattr(self.redis, "delete", None)
+        if callable(delete_fn):
+            return bool(await delete_fn(key))
+        return False
+
     async def get_source_lock(self, source_id: str) -> str | None:
         """Return the ``job_id`` currently holding the analyze lock for ``source_id``, or None."""
         raw = await self.redis.get(self.analyze_lock_key(source_id))

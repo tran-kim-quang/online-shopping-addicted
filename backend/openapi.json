@@ -373,6 +373,19 @@
             "default": "0.50",
             "title": "Max Cost Usd Per Link"
           },
+          "max_credits_per_search": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 5.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Credits Per Search"
+          },
           "name": {
             "maxLength": 255,
             "minLength": 1,
@@ -380,8 +393,11 @@
             "type": "string"
           },
           "provider": {
-            "const": "apify",
             "default": "apify",
+            "enum": [
+              "apify",
+              "scrapecreators"
+            ],
             "title": "Provider",
             "type": "string"
           }
@@ -460,6 +476,40 @@
         "title": "CreateProfileRequest",
         "type": "object"
       },
+      "CreateTrendSearchRequest": {
+        "additionalProperties": false,
+        "description": "Payload for ``POST /api/trends/searches``.",
+        "properties": {
+          "data_provider_profile_id": {
+            "format": "uuid",
+            "title": "Data Provider Profile Id",
+            "type": "string"
+          },
+          "force": {
+            "default": false,
+            "title": "Force",
+            "type": "boolean"
+          },
+          "keyword": {
+            "maxLength": 100,
+            "minLength": 2,
+            "title": "Keyword",
+            "type": "string"
+          },
+          "llm_profile_id": {
+            "format": "uuid",
+            "title": "Llm Profile Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "keyword",
+          "data_provider_profile_id",
+          "llm_profile_id"
+        ],
+        "title": "CreateTrendSearchRequest",
+        "type": "object"
+      },
       "DataProviderProfileResponse": {
         "description": "Public representation of a ``DataProviderProfile`` (token is always masked).",
         "properties": {
@@ -500,6 +550,17 @@
           "max_cost_usd_per_link": {
             "title": "Max Cost Usd Per Link",
             "type": "number"
+          },
+          "max_credits_per_search": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Credits Per Search"
           },
           "name": {
             "title": "Name",
@@ -2558,6 +2619,434 @@
         "title": "SupportedPlatformInfo",
         "type": "object"
       },
+      "TrendBrand": {
+        "description": "Ranked brand entry in a completed trend search.",
+        "properties": {
+          "ad_share": {
+            "title": "Ad Share",
+            "type": "number"
+          },
+          "creators": {
+            "title": "Creators",
+            "type": "integer"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/TrendEvidenceVideo"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "likes": {
+            "title": "Likes",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plays": {
+            "title": "Plays",
+            "type": "integer"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "sentiment": {
+            "$ref": "#/components/schemas/TrendBrandSentiment"
+          },
+          "single_video": {
+            "title": "Single Video",
+            "type": "boolean"
+          },
+          "videos": {
+            "title": "Videos",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "score",
+          "videos",
+          "creators",
+          "plays",
+          "likes",
+          "sentiment",
+          "ad_share",
+          "single_video"
+        ],
+        "title": "TrendBrand",
+        "type": "object"
+      },
+      "TrendBrandSentiment": {
+        "description": "Aggregated sentiment counts and percentages for a brand.",
+        "properties": {
+          "negative": {
+            "title": "Negative",
+            "type": "integer"
+          },
+          "negative_pct": {
+            "title": "Negative Pct",
+            "type": "number"
+          },
+          "neutral": {
+            "title": "Neutral",
+            "type": "integer"
+          },
+          "neutral_pct": {
+            "title": "Neutral Pct",
+            "type": "number"
+          },
+          "positive": {
+            "title": "Positive",
+            "type": "integer"
+          },
+          "positive_pct": {
+            "title": "Positive Pct",
+            "type": "number"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "positive",
+          "neutral",
+          "negative",
+          "total",
+          "positive_pct",
+          "neutral_pct",
+          "negative_pct"
+        ],
+        "title": "TrendBrandSentiment",
+        "type": "object"
+      },
+      "TrendEvidenceVideo": {
+        "description": "Representative TikTok video mentioning a brand.",
+        "properties": {
+          "author_id": {
+            "title": "Author Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "desc": {
+            "title": "Desc",
+            "type": "string"
+          },
+          "likes": {
+            "title": "Likes",
+            "type": "integer"
+          },
+          "plays": {
+            "title": "Plays",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "desc",
+          "author_id",
+          "plays",
+          "likes",
+          "created_at"
+        ],
+        "title": "TrendEvidenceVideo",
+        "type": "object"
+      },
+      "TrendSearchDetail": {
+        "description": "Full trend search detail returned by ``GET /api/trends/searches/{search_id}``.",
+        "properties": {
+          "brands": {
+            "items": {
+              "$ref": "#/components/schemas/TrendBrand"
+            },
+            "title": "Brands",
+            "type": "array"
+          },
+          "comments_scanned": {
+            "title": "Comments Scanned",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "credits_used": {
+            "title": "Credits Used",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "keyword": {
+            "title": "Keyword",
+            "type": "string"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "videos_considered": {
+            "default": 0,
+            "title": "Videos Considered",
+            "type": "integer"
+          },
+          "videos_scanned": {
+            "title": "Videos Scanned",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          }
+        },
+        "required": [
+          "id",
+          "keyword",
+          "platform",
+          "status",
+          "credits_used",
+          "videos_scanned",
+          "comments_scanned",
+          "created_at"
+        ],
+        "title": "TrendSearchDetail",
+        "type": "object"
+      },
+      "TrendSearchQueuedResponse": {
+        "description": "202 response for ``POST /api/trends/searches``.",
+        "properties": {
+          "cached": {
+            "title": "Cached",
+            "type": "boolean"
+          },
+          "estimated_credits": {
+            "title": "Estimated Credits",
+            "type": "integer"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "max_credits": {
+            "title": "Max Credits",
+            "type": "integer"
+          },
+          "search_id": {
+            "format": "uuid",
+            "title": "Search Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "search_id",
+          "cached",
+          "estimated_credits",
+          "max_credits"
+        ],
+        "title": "TrendSearchQueuedResponse",
+        "type": "object"
+      },
+      "TrendSearchSummary": {
+        "description": "History item returned by ``GET /api/trends/searches`` (without ``result``).",
+        "properties": {
+          "comments_scanned": {
+            "title": "Comments Scanned",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "credits_used": {
+            "title": "Credits Used",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "keyword": {
+            "title": "Keyword",
+            "type": "string"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "videos_scanned": {
+            "title": "Videos Scanned",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          }
+        },
+        "required": [
+          "id",
+          "keyword",
+          "platform",
+          "status",
+          "credits_used",
+          "videos_scanned",
+          "comments_scanned",
+          "created_at"
+        ],
+        "title": "TrendSearchSummary",
+        "type": "object"
+      },
       "UnsupportedPlatformInfo": {
         "description": "Metadata and explanation for a recognized but unsupported platform.",
         "properties": {
@@ -2628,6 +3117,19 @@
               }
             ],
             "title": "Max Cost Usd Per Link"
+          },
+          "max_credits_per_search": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 5.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Credits Per Search"
           },
           "name": {
             "anyOf": [
@@ -2778,6 +3280,17 @@
       "VerifyDataProviderResponse": {
         "description": "Response for ``POST /api/data-providers/profiles/{profile_id}/verify``.",
         "properties": {
+          "credit_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Count"
+          },
           "monthly_limit_usd": {
             "anyOf": [
               {
@@ -3161,7 +3674,7 @@
     },
     "/api/data-providers/profiles/{profile_id}/verify": {
       "post": {
-        "description": "Verify the saved provider token against Apify and persist ``account_info``.",
+        "description": "Verify the saved provider token against Apify or ScrapeCreators.",
         "operationId": "verify_data_provider_profile_api_data_providers_profiles__profile_id__verify_post",
         "parameters": [
           {
@@ -4150,6 +4663,140 @@
         "summary": "Get Source Report",
         "tags": [
           "sources"
+        ]
+      }
+    },
+    "/api/trends/searches": {
+      "get": {
+        "description": "List recent TikTok brand trend searches without full result payloads.",
+        "operationId": "list_trend_searches_api_trends_searches_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TrendSearchSummary"
+                  },
+                  "title": "Response List Trend Searches Api Trends Searches Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Trend Searches",
+        "tags": [
+          "trends"
+        ]
+      },
+      "post": {
+        "description": "Create or return a cached/in-progress TikTok brand trend search.",
+        "operationId": "create_trend_search_api_trends_searches_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTrendSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrendSearchQueuedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Trend Search",
+        "tags": [
+          "trends"
+        ]
+      }
+    },
+    "/api/trends/searches/{search_id}": {
+      "get": {
+        "description": "Return full details and ranked brands for a trend search.",
+        "operationId": "get_trend_search_api_trends_searches__search_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "search_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Search Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrendSearchDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Trend Search",
+        "tags": [
+          "trends"
         ]
       }
     },

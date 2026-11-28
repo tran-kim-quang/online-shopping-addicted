@@ -73,6 +73,21 @@ class JobQueue(metaclass=SingletonMeta):
             _job_id=job_id,
         )
 
+    async def enqueue_trend_search(
+        self,
+        *,
+        job_id: str,
+        trend_search_id: str,
+    ) -> Any:
+        """Enqueue ``run_trend_search`` on the Arq Redis queue."""
+        pool = await self.get_pool()
+        return await pool.enqueue_job(
+            "run_trend_search",
+            job_id,
+            trend_search_id,
+            _job_id=job_id,
+        )
+
     async def close(self) -> None:
         if self._pool is not None:
             await self._pool.aclose()

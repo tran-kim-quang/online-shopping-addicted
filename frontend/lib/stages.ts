@@ -12,6 +12,15 @@ export const ANALYZE_STEPS = ["queued", "sentiment"] as const;
 
 export type AnalyzeStepKey = (typeof ANALYZE_STEPS)[number];
 
+export const TREND_STEPS = [
+  "searching",
+  "comments",
+  "extracting",
+  "scoring",
+] as const;
+
+export type TrendStepKey = (typeof TREND_STEPS)[number];
+
 export const DEFAULT_SENTIMENT_BATCH_SIZE = 20;
 
 export function estimateLlmRequests(
@@ -59,6 +68,15 @@ export const ANALYZE_STAGE_TO_STEP_INDEX: Readonly<Record<string, number>> = {
   queued: 0,
   started: 0,
   sentiment: 1,
+};
+
+export const TREND_STAGE_TO_STEP_INDEX: Readonly<Record<string, number>> = {
+  queued: 0,
+  started: 0,
+  searching: 0,
+  comments: 1,
+  extracting: 2,
+  scoring: 3,
 };
 
 const TERMINAL_STAGES: Readonly<Record<string, "done" | "partial" | "failed">> =
@@ -112,6 +130,54 @@ export function resolveAnalyzeStage(
   return {
     stepIndex: safeCurrent,
     stepKey: ANALYZE_STEPS[safeCurrent]!,
+    terminal: null,
+    known: false,
+  };
+}
+
+export function resolveTrendStage(
+  stage: string,
+  currentStepIndex = 0
+): StageResolution<TrendStepKey> {
+  const normalized = stage.trim().toLowerCase();
+  const safeCurrent = Math.max(
+    0,
+    Math.min(currentStepIndex, TREND_STEPS.length - 1)
+  );
+
+  const terminal = TERMINAL_STAGES[normalized] ?? null;
+  if (terminal === "done" || terminal === "partial") {
+    const lastIdx = TREND_STEPS.length - 1;
+    return {
+      stepIndex: lastIdx,
+      stepKey: TREND_STEPS[lastIdx]!,
+      terminal,
+      known: true,
+    };
+  }
+  if (terminal === "failed") {
+    return {
+      stepIndex: safeCurrent,
+      stepKey: TREND_STEPS[safeCurrent]!,
+      terminal: "failed",
+      known: true,
+    };
+  }
+
+  const mapped = TREND_STAGE_TO_STEP_INDEX[normalized];
+  if (mapped !== undefined) {
+    const stepIndex = Math.max(safeCurrent, mapped);
+    return {
+      stepIndex,
+      stepKey: TREND_STEPS[stepIndex]!,
+      terminal: null,
+      known: true,
+    };
+  }
+
+  return {
+    stepIndex: safeCurrent,
+    stepKey: TREND_STEPS[safeCurrent]!,
     terminal: null,
     known: false,
   };

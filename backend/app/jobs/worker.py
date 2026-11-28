@@ -11,7 +11,7 @@ from arq.connections import RedisSettings
 from app.cache.redis import RedisClient
 from app.core.config import get_settings
 from app.db.database import Database
-from app.jobs.tasks import run_analyze, run_ingest
+from app.jobs.tasks import run_analyze, run_ingest, run_trend_search
 from app.llm.registry import LLMClientRegistry
 from app.security.secrets import SecretBox
 
@@ -52,7 +52,7 @@ async def on_shutdown(ctx: dict[str, Any]) -> None:
 class WorkerSettings:
     """Configuration consumed by ``arq app.jobs.worker.WorkerSettings``."""
 
-    functions = [run_ingest, run_analyze]
+    functions = [run_ingest, run_analyze, run_trend_search]
     redis_settings = _resolve_redis_settings()
     on_startup = on_startup
     on_shutdown = on_shutdown
